@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Navigation } from "./components/Navigation";
 import { Dashboard } from "./components/Dashboard";
+import { AdminDashboard } from "./components/AdminDashboard";
 import { Settings } from "./components/Settings";
 import WalletConnect from "./components/WalletConnect";
 import InitializeForm from "./components/InitializeForm";
@@ -77,6 +78,14 @@ export default function App() {
         ) : (
           <div className="page-empty">
             <p>Please connect your wallet first</p>
+          </div>
+        );
+      case "admin":
+        return contractId ? (
+          <AdminDashboard contractId={contractId} />
+        ) : (
+          <div className="page-empty">
+            <p>Please select a contract first</p>
           </div>
         );
       case "settings":

@@ -1,0 +1,603 @@
+/* Admin Dashboard Styles */
+.admin-dashboard {
+  padding: 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.admin-header {
+  margin-bottom: 2rem;
+}
+
+.admin-header h1 {
+  margin: 0;
+  color: #2d3748;
+  font-size: 1.8rem;
+}
+
+.admin-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  background: white;
+  border-radius: 1rem;
+  color: #718096;
+  font-size: 1.1rem;
+}
+
+/* Contract Card */
+.contract-card {
+  background: white;
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 2rem;
+}
+
+.contract-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.contract-header h2 {
+  margin: 0;
+  color: #2d3748;
+  font-size: 1.2rem;
+}
+
+.info-btn {
+  padding: 0.6rem 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: transform 0.2s;
+}
+
+.info-btn:hover {
+  transform: translateY(-2px);
+}
+
+.contract-id-display {
+  background: #f7fafc;
+  border: 1px solid #cbd5e0;
+  border-radius: 0.8rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.contract-id-label {
+  color: #718096;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.contract-id-value {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.contract-id-value code {
+  flex: 1;
+  background: white;
+  border: 1px solid #e2e8f0;
+  padding: 0.8rem 1rem;
+  border-radius: 0.5rem;
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+  color: #2d3748;
+  word-break: break-all;
+}
+
+.copy-btn {
+  padding: 0.8rem 1.2rem;
+  background: white;
+  border: 1px solid #cbd5e0;
+  border-radius: 0.5rem;
+  color: #2d3748;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.copy-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.copy-btn.copied {
+  background: #c6f6d5;
+  border-color: #9ae6b4;
+  color: #22543d;
+}
+
+.contract-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat-label {
+  color: #718096;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  color: #2d3748;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.stat-value.active {
+  color: #22863a;
+  background: #f0f6fc;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.4rem;
+  display: inline-block;
+  width: fit-content;
+}
+
+/* History Section */
+.history-section {
+  background: white;
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  border: 1px solid #e2e8f0;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.history-header h2 {
+  margin: 0;
+  color: #2d3748;
+  font-size: 1.2rem;
+}
+
+.refresh-mini-btn {
+  padding: 0.5rem 0.8rem;
+  background: #f7fafc;
+  border: 1px solid #cbd5e0;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.refresh-mini-btn:hover {
+  background: #edf2f7;
+  border-color: #667eea;
+}
+
+.loading-mini {
+  text-align: center;
+  color: #718096;
+  padding: 2rem;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.history-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  padding: 1.5rem;
+  background: #f7fafc;
+  transition: all 0.3s ease;
+}
+
+.history-item:hover {
+  border-color: #cbd5e0;
+  background: white;
+}
+
+.history-timestamp {
+  font-size: 0.9rem;
+  color: #667eea;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.history-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.detail-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.detail-row .label {
+  color: #718096;
+  font-weight: 600;
+  min-width: 120px;
+  font-size: 0.9rem;
+}
+
+.detail-row .value {
+  color: #2d3748;
+  flex: 1;
+  word-break: break-all;
+  font-size: 0.9rem;
+}
+
+.detail-row code {
+  background: white;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.4rem;
+  font-family: "Courier New", monospace;
+  font-size: 0.85rem;
+}
+
+.detail-row .status {
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.detail-row .status.confirmed {
+  background: #f0f6fc;
+  color: #22863a;
+}
+
+.detail-row .status.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.detail-row .status.failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.detail-row .tx-hash {
+  cursor: pointer;
+}
+
+.no-history {
+  text-align: center;
+  padding: 2rem;
+  color: #a0aec0;
+  font-style: italic;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: white;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: #2d3748;
+  font-size: 1.3rem;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #718096;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: #2d3748;
+}
+
+.modal-content {
+  padding: 2rem;
+}
+
+.detail-block {
+  margin-bottom: 2rem;
+}
+
+.detail-block:last-child {
+  margin-bottom: 0;
+}
+
+.detail-block h3 {
+  margin: 0 0 1rem 0;
+  color: #2d3748;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.contract-info-block {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.contract-info-block code {
+  flex: 1;
+  background: #f7fafc;
+  border: 1px solid #cbd5e0;
+  padding: 0.8rem 1rem;
+  border-radius: 0.5rem;
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+  color: #2d3748;
+  word-break: break-all;
+}
+
+.copy-modal-btn {
+  padding: 0.8rem 1.2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 5 00;
+  white-space: nowrap;
+  transition: transform 0.2s;
+}
+
+.copy-modal-btn:hover {
+  transform: translateY(-2px);
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.info-label {
+  color: #718096;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.info-value {
+  color: #2d3748;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.info-value.active {
+  color: #22863a;
+  background: #f0f6fc;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.4rem;
+  width: fit-content;
+}
+
+.features-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.features-list li {
+  color: #2d3748;
+  padding-left: 0;
+  font-size: 0.95rem;
+}
+
+.resources-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.resources-links a {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.resources-links a:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+.modal-footer {
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.btn-close {
+  padding: 0.8rem 1.5rem;
+  background: #f7fafc;
+  border: 1px solid #cbd5e0;
+  color: #2d3748;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.btn-close:hover {
+  background: #edf2f7;
+  border-color: #a0aec0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .admin-dashboard {
+    padding: 1.5rem;
+  }
+
+  .contract-id-value {
+    flex-direction: column;
+  }
+
+  .contract-id-value code {
+    width: 100%;
+  }
+
+  .copy-btn {
+    width: 100%;
+  }
+
+  .modal {
+    max-width: 95%;
+  }
+
+  .modal-header,
+  .modal-content,
+  .modal-footer {
+    padding: 1.5rem 1rem;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contract-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-dashboard {
+    padding: 1rem;
+  }
+
+  .admin-header h1 {
+    font-size: 1.3rem;
+  }
+
+  .contract-card {
+    padding: 1.5rem;
+  }
+
+  .contract-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .info-btn {
+    width: 100%;
+  }
+
+  .contract-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .history-item {
+    padding: 1rem;
+  }
+
+  .detail-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .detail-row .label {
+    min-width: 0;
+  }
+
+  .modal-header,
+  .modal-content,
+  .modal-footer {
+    padding: 1rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .history-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .refresh-mini-btn {
+    width: 100%;
+  }
+}
