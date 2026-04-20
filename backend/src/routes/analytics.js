@@ -11,8 +11,8 @@ router.get("/analytics/:contractId", (req, res) => {
     const db = getDatabase();
 
     // Parse date range
-    let startDate = start ? new Date(start as string) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    let endDate = end ? new Date(end as string) : new Date();
+    let startDate = start ? new Date(start) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    let endDate = end ? new Date(end) : new Date();
 
     // Get all transactions for the contract in the date range
     const transactions = db
@@ -42,10 +42,7 @@ router.get("/analytics/:contractId", (req, res) => {
       payouts.length > 0 ? totalDistributed / payouts.length : 0;
 
     // Calculate distribution trends (daily aggregates)
-    const trendsMap = new Map<
-      string,
-      { amount: number; count: number }
-    >();
+    const trendsMap = new Map();
 
     payouts.forEach((payout) => {
       const date = new Date(payout.timestamp).toISOString().split("T")[0];
@@ -64,10 +61,7 @@ router.get("/analytics/:contractId", (req, res) => {
       .sort((a, b) => a.date.localeCompare(b.date));
 
     // Calculate top earners
-    const earnerMap = new Map<
-      string,
-      { totalEarned: number; payouts: number }
-    >();
+    const earnerMap = new Map();
 
     payouts.forEach((payout) => {
       const address = payout.collaboratorAddress;

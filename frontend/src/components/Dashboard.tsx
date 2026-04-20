@@ -27,11 +27,11 @@ interface DashboardStats {
   }>;
 }
 
-interface Dashboard Props {
+interface DashboardProps {
   contractId: string;
 }
 
-export const Dashboard: React.FC<Dashboard Props> = ({ contractId }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

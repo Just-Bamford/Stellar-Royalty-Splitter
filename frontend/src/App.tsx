@@ -5,7 +5,6 @@ import { Settings } from "./components/Settings";
 import WalletConnect from "./components/WalletConnect";
 import InitializeForm from "./components/InitializeForm";
 import DistributeForm from "./components/DistributeForm";
-import CollaboratorTable from "./components/CollaboratorTable";
 import { TransactionHistory } from "./components/TransactionHistory";
 import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
@@ -16,7 +15,6 @@ import "./App.css";
 export default function App() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [contractId, setContractId] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
   const [royaltyRate, setRoyaltyRate] = useState(500); // Default 5%
   const [currentPage, setCurrentPage] = useState("dashboard");
 
@@ -59,7 +57,7 @@ export default function App() {
             <InitializeForm
               contractId={contractId}
               walletAddress={walletAddress}
-              onSuccess={() => setRefreshKey((k) => k + 1)}
+              onSuccess={() => {}}
             />
           </div>
         ) : (
@@ -73,7 +71,7 @@ export default function App() {
             <DistributeForm
               contractId={contractId}
               walletAddress={walletAddress}
-              onSuccess={() => setRefreshKey((k) => k + 1)}
+              onSuccess={() => {}}
             />
           </div>
         ) : (
@@ -171,7 +169,7 @@ export default function App() {
           <SecondaryRoyaltyConfig
             contractId={contractId}
             walletAddress={walletAddress}
-            onSuccess={() => setRefreshKey((k) => k + 1)}
+            onSuccess={() => {}}
             onRateUpdate={setRoyaltyRate}
           />
 
@@ -179,13 +177,13 @@ export default function App() {
             contractId={contractId}
             walletAddress={walletAddress}
             royaltyRate={royaltyRate}
-            onSuccess={() => setRefreshKey((k) => k + 1)}
+            onSuccess={() => {}}
           />
 
           <DistributeSecondaryRoyalties
             contractId={contractId}
             walletAddress={walletAddress}
-            onSuccess={() => setRefreshKey((k) => k + 1)}
+            onSuccess={() => {}}
           />
 
           <ResaleHistory contractId={contractId} />
