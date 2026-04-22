@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared Soroban RPC client and helpers.
  * Real transactions are assembled here and returned as XDR so the
  * frontend can sign them with Freighter before submission.
@@ -11,6 +11,7 @@ import {
   BASE_FEE,
   nativeToScVal,
   Address,
+  Account,
   xdr,
 } from "@stellar/stellar-sdk";
 
@@ -42,7 +43,7 @@ export async function buildTx(callerAddress, contractId, method, args = []) {
   return prepared.toXDR();
 }
 
-// ── ScVal helpers ────────────────────────────────────────────────────────────
+// ── ScVal helpers ────────────────────────────────────────────────────────
 
 export function addressToScVal(addr) {
   return new Address(addr).toScVal();
@@ -58,4 +59,27 @@ export function i128ToScVal(n) {
 
 export function vecToScVal(items) {
   return xdr.ScVal.scvVec(items);
+}
+
+/**
+ * Fetch the royalty rate from the contract using a read-only simulation.
+ * Returns the rate as a u32 (basis points), or 0 on error.
+ */
+export async function getRoyaltyRateFromContract(contractId) {
+  const contract = new Contract(contractId);
+  const dummyAccount = new Account(
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+    "0",
+  );
+  const tx = new TransactionBuilder(dummyAccount, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(contract.call("get_royalty_rate"))
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) return 0;
+  return sim.result?.retval?.u32() ?? 0;
 }

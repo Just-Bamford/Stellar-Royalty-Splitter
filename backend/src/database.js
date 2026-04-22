@@ -75,6 +75,7 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contractId ON secondary_royalty_distributions(contractId);
     CREATE INDEX IF NOT EXISTS idx_audit_contractId ON audit_log(contractId);
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_secondary_sales_dedup ON secondary_sales(contractId, nftId, previousOwner, newOwner, salePrice, saleToken);
   `);
 }
 
