@@ -4,6 +4,7 @@ import {
   addressToScVal,
   i128ToScVal,
   u32ToScVal,
+  getRoyaltyRateFromContract,
 } from "../stellar.js";
 import {
   recordTransaction,
@@ -15,6 +16,7 @@ import {
   updateTransactionHash,
   addAuditLog,
 } from "../database.js";
+import { validate, recordSecondarySaleSchema, setRoyaltyRateSchema } from "../validation.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -23,7 +25,7 @@ export const secondaryRoyaltyRouter = Router();
  * Body: { contractId, walletAddress, nftId, previousOwner, newOwner, salePrice, saleToken, royaltyRate }
  * Returns: { xdr, transactionId, royaltyAmount } — transaction to record royalty + calculated royalty
  */
-secondaryRoyaltyRouter.post("/", async (req, res, next) => {
+secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req, res, next) => {
   try {
     const {
       contractId,
@@ -59,8 +61,11 @@ secondaryRoyaltyRouter.post("/", async (req, res, next) => {
         .json({ error: "Royalty rate must be between 0 and 10000 basis points." });
     }
 
-    // Calculate royalty amount
-    const royaltyAmount = Math.floor((salePrice * royaltyRate) / 10000);
+    // Fetch on-chain royalty rate instead of trusting client-supplied value
+    const onChainRate = await getRoyaltyRateFromContract(contractId);
+
+    // Calculate royalty amount using on-chain rate
+    const royaltyAmount = Math.floor((salePrice * onChainRate) / 10000);
 
     if (royaltyAmount <= 0) {
       return res.status(400).json({ error: "Calculated royalty amount is zero." });
@@ -71,20 +76,27 @@ secondaryRoyaltyRouter.post("/", async (req, res, next) => {
       contractId,
       "secondary_royalty",
       walletAddress,
-      { salePrice: salePrice.toString(), nftId, saleToken, royaltyRate }
+      { salePrice: salePrice.toString(), nftId, saleToken, royaltyRate: onChainRate }
     );
 
-    // Record the secondary sale
-    recordSecondarySale(
-      contractId,
-      nftId,
-      previousOwner,
-      newOwner,
-      salePrice,
-      saleToken,
-      royaltyAmount,
-      royaltyRate
-    );
+    // Record the secondary sale (unique constraint prevents duplicates)
+    try {
+      recordSecondarySale(
+        contractId,
+        nftId,
+        previousOwner,
+        newOwner,
+        salePrice,
+        saleToken,
+        royaltyAmount,
+        onChainRate
+      );
+    } catch (err) {
+      if (err.code === "SQLITE_CONSTRAINT_UNIQUE") {
+        return res.status(409).json({ error: "This sale has already been recorded." });
+      }
+      throw err;
+    }
 
     // Build transaction to record royalty in contract
     const txXdr = await buildTx(walletAddress, contractId, "record_secondary_royalty", [
@@ -97,15 +109,14 @@ secondaryRoyaltyRouter.post("/", async (req, res, next) => {
       nftId,
       salePrice: salePrice.toString(),
       royaltyAmount: royaltyAmount.toString(),
-      royaltyRate,
+      royaltyRateUsed: onChainRate,
     });
 
     res.json({
       xdr: txXdr,
       transactionId,
       royaltyAmount,
-      salePriceInput: salePrice,
-      royaltyRateInput: royaltyRate,
+      royaltyRateUsed: onChainRate,
     });
   } catch (err) {
     next(err);
@@ -117,7 +128,7 @@ secondaryRoyaltyRouter.post("/", async (req, res, next) => {
  * Body: { contractId, walletAddress, royaltyRate }
  * Returns: { xdr, transactionId } — unsigned transaction to set royalty rate
  */
-secondaryRoyaltyRouter.post("/set-rate", async (req, res, next) => {
+secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (req, res, next) => {
   try {
     const { contractId, walletAddress, royaltyRate } = req.body;
 

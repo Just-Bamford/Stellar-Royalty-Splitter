@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   getTransactionHistory,
+  getTransactionCount,
   getTransactionDetails,
   getAuditLog,
   addAuditLog,
@@ -21,11 +22,12 @@ router.get('/history/:contractId', (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
 
     const history = getTransactionHistory(contractId, limit, offset);
+    const total = getTransactionCount(contractId);
 
     res.json({
       success: true,
       data: history,
-      pagination: { limit, offset }
+      pagination: { limit, offset, total }
     });
   } catch (error) {
     console.error('Error fetching transaction history:', error);

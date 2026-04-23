@@ -166,6 +166,24 @@ td:last-child {
   white-space: nowrap;
 }
 
+.share-total {
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+.share-total--valid {
+  color: #86efac;
+}
+.share-total--invalid {
+  color: #fca5a5;
+}
+
+.field-error {
+  display: block;
+  font-size: 0.75rem;
+  color: #fca5a5;
+  margin-bottom: 0.5rem;
+}
+
 .share-bar {
   height: 6px;
   border-radius: 3px;

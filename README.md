@@ -143,12 +143,37 @@ The backend builds unsigned transaction XDR and returns it to the frontend. Frei
 
 ---
 
+## Environment Variables
+
+Copy `backend/.env.example` to `backend/.env` and fill in the values:
+
+| Variable           | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `PORT`             | Port the backend API listens on (default: `3001`)                           |
+| `STELLAR_NETWORK`  | `testnet` or `mainnet`                                                      |
+| `HORIZON_URL`      | Horizon REST endpoint for the chosen network                                |
+| `SOROBAN_RPC_URL`  | Soroban RPC endpoint used to simulate and prepare transactions              |
+| `SERVER_SECRET_KEY`| Server-side keypair used only for read-only simulations — never signs user transactions |
+
+See [`backend/.env.example`](backend/.env.example) for a ready-to-copy template.
+
+---
+
+## What's built
+
+- ✅ Secondary market resale royalty hooks
+- ✅ Dashboard UI for earnings tracking
+
 ## Roadmap
 
 - [ ] Dynamic royalty adjustments via governance
-- [ ] Secondary market resale royalty hooks
 - [ ] Role-based contributor management
-- [ ] Dashboard UI for earnings tracking
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, branch naming conventions, and the PR checklist.
 
 ---
 

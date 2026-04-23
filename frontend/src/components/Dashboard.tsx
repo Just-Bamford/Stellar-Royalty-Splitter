@@ -121,52 +121,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
         <>
           {/* KPI Cards */}
           <div className="kpi-cards">
-            <div className="kpi-card">
-              <div className="kpi-icon">💰</div>
-              <div className="kpi-content">
-                <div className="kpi-label">Total Distributed</div>
-                <div className="kpi-value">
-                  {stats.totalDistributed.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </div>
-                <div className="kpi-unit">Stellar</div>
+            <div className="kpi-card kpi-distributed">
+              <div className="kpi-label">Total Distributed</div>
+              <div className="kpi-value">
+                {stats.totalDistributed.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </div>
+              <div className="kpi-unit">XLM</div>
             </div>
 
-            <div className="kpi-card">
-              <div className="kpi-icon">📈</div>
-              <div className="kpi-content">
-                <div className="kpi-label">Total Transactions</div>
-                <div className="kpi-value">{stats.totalTransactions}</div>
-                <div className="kpi-unit">payouts</div>
-              </div>
+            <div className="kpi-card kpi-transactions">
+              <div className="kpi-label">Total Transactions</div>
+              <div className="kpi-value">{stats.totalTransactions}</div>
+              <div className="kpi-unit">payouts</div>
             </div>
 
-            <div className="kpi-card">
-              <div className="kpi-icon">📊</div>
-              <div className="kpi-content">
-                <div className="kpi-label">Average Payout</div>
-                <div className="kpi-value">
-                  {stats.averagePayout.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </div>
-                <div className="kpi-unit">per transaction</div>
+            <div className="kpi-card kpi-average">
+              <div className="kpi-label">Average Payout</div>
+              <div className="kpi-value">
+                {stats.averagePayout.toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </div>
+              <div className="kpi-unit">per transaction</div>
             </div>
 
-            <div className="kpi-card">
-              <div className="kpi-icon">👥</div>
-              <div className="kpi-content">
-                <div className="kpi-label">Active Collaborators</div>
-                <div className="kpi-value">
-                  {stats.collaboratorStats.length}
-                </div>
-                <div className="kpi-unit">unique addresses</div>
+            <div className="kpi-card kpi-collaborators">
+              <div className="kpi-label">Active Collaborators</div>
+              <div className="kpi-value">
+                {stats.collaboratorStats.length}
               </div>
+              <div className="kpi-unit">unique addresses</div>
             </div>
           </div>
 
@@ -239,14 +227,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                       </div>
                       <div className="earner-stats">
                         <span className="earner-amount">
-                          💰{" "}
                           {earner.totalEarned.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
-                          })}
+                          })} XLM
                         </span>
                         <span className="earner-count">
-                          📊 {earner.payouts} payouts
+                          {earner.payouts} payouts
                         </span>
                       </div>
                     </div>

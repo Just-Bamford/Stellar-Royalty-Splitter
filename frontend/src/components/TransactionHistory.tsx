@@ -13,6 +13,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const LIMIT = 10;
 
   const fetchHistory = async () => {
@@ -21,6 +22,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     try {
       const result = await api.getTransactionHistory(contractId, LIMIT, offset);
       setTransactions(result.data || []);
+      setTotal(result.pagination?.total ?? 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch history");
     } finally {
@@ -128,12 +130,11 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               Previous
             </button>
             <span>
-              Showing {offset + 1}–{offset + transactions.length} of recent
-              transactions
+              Showing {offset + 1}–{offset + transactions.length} of {total} transactions
             </span>
             <button
               onClick={() => setOffset(offset + LIMIT)}
-              disabled={transactions.length < LIMIT}
+              disabled={offset + transactions.length >= total}
             >
               Next
             </button>

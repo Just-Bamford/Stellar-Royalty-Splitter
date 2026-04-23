@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { buildTx, addressToScVal, i128ToScVal } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
+import { validate, distributeSchema } from "../validation.js";
 
 export const distributeRouter = Router();
 
@@ -9,7 +10,7 @@ export const distributeRouter = Router();
  * Body: { contractId, walletAddress, tokenId, amount }
  * Returns: { xdr, transactionId } — unsigned transaction XDR + tracking ID
  */
-distributeRouter.post("/", async (req, res, next) => {
+distributeRouter.post("/", validate(distributeSchema), async (req, res, next) => {
   try {
     const { contractId, walletAddress, tokenId, amount } = req.body;
 

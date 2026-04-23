@@ -257,3 +257,48 @@ fn test_double_initialization_rejected() {
         &vec![&env, 5_000u32, 5_000u32],
     );
 }
+
+#[test]
+#[should_panic(expected = "royalty rate cannot exceed 100%")]
+fn test_royalty_rate_above_max_rejected() {
+    // Verifies that setting a royalty rate above 10000 bp (100%) panics
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, stellar_royalty_splitter::RoyaltySplitter);
+    let splitter = RoyaltySplitterClient::new(&env, &contract_id);
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    splitter.initialize(&vec![&env, a, b], &vec![&env, 5_000u32, 5_000u32]);
+    splitter.set_royalty_rate(&10_001u32); // should panic
+}
+
+#[test]
+#[should_panic(expected = "sale price must be positive")]
+fn test_record_secondary_royalty_zero_price_rejected() {
+    // Verifies that recording a secondary royalty with a zero sale price panics
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, stellar_royalty_splitter::RoyaltySplitter);
+    let splitter = RoyaltySplitterClient::new(&env, &contract_id);
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    splitter.initialize(&vec![&env, a, b], &vec![&env, 5_000u32, 5_000u32]);
+    splitter.set_royalty_rate(&500u32);
+    splitter.record_secondary_royalty(&0i128); // should panic
+}
+
+#[test]
+#[should_panic(expected = "no secondary royalties to distribute")]
+fn test_distribute_empty_pool_rejected() {
+    // Verifies that distributing when the secondary royalty pool is empty panics
+    let env = Env::default();
+    env.mock_all_auths();
+    let token_admin_addr = Address::generate(&env);
+    let token_id = env.register_stellar_asset_contract(token_admin_addr);
+    let contract_id = env.register_contract(None, stellar_royalty_splitter::RoyaltySplitter);
+    let splitter = RoyaltySplitterClient::new(&env, &contract_id);
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    splitter.initialize(&vec![&env, a, b], &vec![&env, 5_000u32, 5_000u32]);
+    splitter.distribute_secondary_royalties(&token_id); // pool is empty, should panic
+}

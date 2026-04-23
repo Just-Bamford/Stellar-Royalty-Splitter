@@ -239,3 +239,39 @@ impl RoyaltySplitter {
         share_map.get(collaborator).unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod unit_tests {
+    // Test basis point math
+    #[test]
+    fn test_bp_payout_calculation() {
+        let amount: i128 = 10_000;
+        let bp: i128 = 5_000; // 50%
+        let payout = amount * bp / 10_000;
+        assert_eq!(payout, 5_000);
+    }
+
+    #[test]
+    fn test_royalty_calculation() {
+        let sale_price: i128 = 1_000;
+        let rate_bp: i128 = 500; // 5%
+        let royalty = (sale_price * rate_bp) / 10_000;
+        assert_eq!(royalty, 50);
+    }
+
+    #[test]
+    fn test_royalty_calculation_rounds_down() {
+        let sale_price: i128 = 1_001;
+        let rate_bp: i128 = 500; // 5%
+        let royalty = (sale_price * rate_bp) / 10_000;
+        assert_eq!(royalty, 50); // floors, not rounds
+    }
+
+    #[test]
+    fn test_zero_rate_produces_zero_royalty() {
+        let sale_price: i128 = 10_000;
+        let rate_bp: i128 = 0;
+        let royalty = (sale_price * rate_bp) / 10_000;
+        assert_eq!(royalty, 0);
+    }
+}

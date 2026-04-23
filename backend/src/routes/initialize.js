@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { buildTx, addressToScVal, u32ToScVal, vecToScVal } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
+import { validate, initializeSchema } from "../validation.js";
 
 export const initializeRouter = Router();
 
@@ -9,7 +10,7 @@ export const initializeRouter = Router();
  * Body: { contractId, walletAddress, collaborators: string[], shares: number[] }
  * Returns: { xdr, transactionId } — unsigned transaction XDR for the frontend to sign & submit + tracking ID
  */
-initializeRouter.post("/", async (req, res, next) => {
+initializeRouter.post("/", validate(initializeSchema), async (req, res, next) => {
   try {
     const { contractId, walletAddress, collaborators, shares } = req.body;
 

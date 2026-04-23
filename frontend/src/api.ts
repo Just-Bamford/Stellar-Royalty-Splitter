@@ -96,7 +96,7 @@ export const api = {
 
   // Transaction History & Audit Log APIs
   getTransactionHistory: (contractId: string, limit = 50, offset = 0) =>
-    get<{ success: boolean; data: TransactionRecord[] }>(
+    get<{ success: boolean; data: TransactionRecord[]; pagination: { limit: number; offset: number; total: number } }>(
       `/history/${contractId}?limit=${limit}&offset=${offset}`,
     ),
 
