@@ -7,6 +7,7 @@ import {
   addAuditLog,
   updateTransactionStatus
 } from '../database.js';
+import { validateContractId, parsePagination } from '../validation.js';
 
 const router = express.Router();
 
@@ -18,8 +19,11 @@ const router = express.Router();
 router.get('/history/:contractId', (req, res) => {
   try {
     const { contractId } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-    const offset = parseInt(req.query.offset) || 0;
+    if (!validateContractId(contractId, res)) return;
+
+    const pagination = parsePagination(req.query, res, 50, 100);
+    if (!pagination) return;
+    const { limit, offset } = pagination;
 
     const history = getTransactionHistory(contractId, limit, offset);
     const total = getTransactionCount(contractId);
@@ -31,10 +35,7 @@ router.get('/history/:contractId', (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching transaction history:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -107,8 +108,11 @@ router.post('/transaction/confirm/:txHash', (req, res) => {
 router.get('/audit/:contractId', (req, res) => {
   try {
     const { contractId } = req.params;
-    const limit = Math.min(parseInt(req.query.limit) || 100, 200);
-    const offset = parseInt(req.query.offset) || 0;
+    if (!validateContractId(contractId, res)) return;
+
+    const pagination = parsePagination(req.query, res, 100, 200);
+    if (!pagination) return;
+    const { limit, offset } = pagination;
 
     const auditLog = getAuditLog(contractId, limit, offset);
 
@@ -119,10 +123,7 @@ router.get('/audit/:contractId', (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching audit log:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
