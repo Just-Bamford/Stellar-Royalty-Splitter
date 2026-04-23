@@ -21,6 +21,7 @@ import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
 import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalties";
 import ResaleHistory from "./components/ResaleHistory";
+import { api } from "./api";
 import "./App.css";
 
 function isValidContractId(id: string): boolean {
@@ -50,6 +51,26 @@ export default function App() {
     }
     tryReconnect();
   }, []);
+
+  // Fetch on-chain royalty rate when contract changes
+  useEffect(() => {
+    async function fetchRate() {
+      if (!contractIdValid) {
+        setRoyaltyRate(500); // Default placeholder
+        return;
+      }
+      try {
+        const { royaltyRate } = await api.getRoyaltyRate(contractId);
+        setRoyaltyRate(royaltyRate);
+      } catch (err) {
+        console.error("Failed to fetch royalty rate:", err);
+        // If contract is uninitialized or error, we might want 0 or default
+        // The contract returns 0 if get_royalty_rate fails in the backend helper
+        setRoyaltyRate(0);
+      }
+    }
+    fetchRate();
+  }, [contractId, contractIdValid]);
 
   function handleContractChange(value: string) {
     setContractId(value);
@@ -133,6 +154,7 @@ export default function App() {
               walletAddress={walletAddress}
               onSuccess={() => {}}
               onRateUpdate={setRoyaltyRate}
+              initialRoyaltyRate={royaltyRate}
             />
             <RecordSecondarySale
               contractId={contractId}

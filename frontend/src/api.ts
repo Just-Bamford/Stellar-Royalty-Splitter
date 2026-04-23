@@ -177,6 +177,11 @@ export const api = {
   getRoyaltyStats: (contractId: string) =>
     get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
 
+  getRoyaltyRate: (contractId: string) =>
+    get<{ contractId: string; royaltyRate: number }>(
+      `/secondary-royalty/rate/${contractId}`,
+    ),
+
   getSecondarySales: (
     contractId: string,
     limit = 50,

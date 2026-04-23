@@ -167,6 +167,22 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
 });
 
 /**
+ * GET /api/secondary-royalty/rate/:contractId
+ * Returns the current on-chain royalty rate for the contract.
+ */
+secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
+
+    const rate = await getRoyaltyRateFromContract(contractId);
+    res.json({ contractId, royaltyRate: rate });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/secondary-royalty/distribute
  * Body: { contractId, walletAddress, tokenId }
  * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 
@@ -8,6 +8,7 @@ interface Props {
   walletAddress: string;
   onSuccess: () => void;
   onRateUpdate?: (rate: number) => void;
+  initialRoyaltyRate?: number;
 }
 
 export default function SecondaryRoyaltyConfig({
@@ -15,13 +16,23 @@ export default function SecondaryRoyaltyConfig({
   walletAddress,
   onSuccess,
   onRateUpdate,
+  initialRoyaltyRate,
 }: Props) {
-  const [royaltyRate, setRoyaltyRate] = useState<string>("500"); // Default 5%
+  const [royaltyRate, setRoyaltyRate] = useState<string>(
+    initialRoyaltyRate?.toString() ?? "500"
+  );
   const [status, setStatus] = useState<{
     type: "ok" | "error" | "info";
     msg: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Sync with initialRoyaltyRate when it changes from parent
+  useEffect(() => {
+    if (initialRoyaltyRate !== undefined) {
+      setRoyaltyRate(initialRoyaltyRate.toString());
+    }
+  }, [initialRoyaltyRate]);
 
   async function submit() {
     if (!contractId) {

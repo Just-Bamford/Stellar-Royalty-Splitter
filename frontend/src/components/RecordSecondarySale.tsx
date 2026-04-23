@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 
@@ -31,19 +31,19 @@ export default function RecordSecondarySale({
   const [loading, setLoading] = useState(false);
   const [calculatedRoyalty, setCalculatedRoyalty] = useState<number | null>(null);
 
+  // Update calculated royalty if royaltyRate or salePrice changes
+  useEffect(() => {
+    const price = parseInt(formData.salePrice);
+    if (!isNaN(price) && price > 0) {
+      const royalty = Math.floor((price * royaltyRate) / 10000);
+      setCalculatedRoyalty(royalty);
+    } else {
+      setCalculatedRoyalty(null);
+    }
+  }, [royaltyRate, formData.salePrice]);
+
   function updateField(field: string, value: string) {
     setFormData((prev) => ({ ...prev, [field]: value }));
-
-    // Calculate royalty on price change
-    if (field === "salePrice") {
-      const price = parseInt(value);
-      if (!isNaN(price) && price > 0) {
-        const royalty = Math.floor((price * royaltyRate) / 10000);
-        setCalculatedRoyalty(royalty);
-      } else {
-        setCalculatedRoyalty(null);
-      }
-    }
   }
 
   async function submit() {
