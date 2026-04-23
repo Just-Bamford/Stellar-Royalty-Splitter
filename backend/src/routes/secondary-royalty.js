@@ -16,7 +16,7 @@ import {
   updateTransactionHash,
   addAuditLog,
 } from "../database.js";
-import { validate, recordSecondarySaleSchema, setRoyaltyRateSchema } from "../validation.js";
+import { validate, recordSecondarySaleSchema, setRoyaltyRateSchema, validateContractId, parsePagination } from "../validation.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -248,13 +248,14 @@ secondaryRoyaltyRouter.get("/stats/:contractId", (req, res, next) => {
 secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
   try {
     const { contractId } = req.params;
-    const { limit = 50, offset = 0, nftId } = req.query;
+    if (!validateContractId(contractId, res)) return;
 
-    if (!contractId) {
-      return res.status(400).json({ error: "Contract ID is required." });
-    }
+    const pagination = parsePagination(req.query, res, 50, 100);
+    if (!pagination) return;
+    const { limit, offset } = pagination;
 
-    const sales = getSecondarySales(contractId, parseInt(limit), parseInt(offset), nftId);
+    const { nftId } = req.query;
+    const sales = getSecondarySales(contractId, limit, offset, nftId);
 
     res.json({ sales, total: sales.length });
   } catch (err) {
