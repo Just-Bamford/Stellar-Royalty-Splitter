@@ -1,11 +1,11 @@
 import { Router } from "express";
 import {
+  Address,
   Contract,
   SorobanRpc,
   TransactionBuilder,
   BASE_FEE,
   Account,
-  xdr,
 } from "@stellar/stellar-sdk";
 import { server, networkPassphrase, addressToScVal } from "../stellar.js";
 
@@ -46,7 +46,7 @@ collaboratorsRouter.get("/:contractId", async (req, res, next) => {
 
     const addresses =
       resultVal.vec()?.map((scv) => {
-        return scv.address().accountId().ed25519().toString("hex");
+        return Address.fromScVal(scv).toString();
       }) ?? [];
 
     // Fetch share for each address
