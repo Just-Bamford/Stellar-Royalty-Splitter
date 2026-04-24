@@ -21,13 +21,19 @@ import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
 import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalties";
 import ResaleHistory from "./components/ResaleHistory";
+import { api } from "./api";
 import "./App.css";
+
+function isValidContractId(id: string): boolean {
+  return id.startsWith("C") && id.length === 56;
+}
 
 export default function App() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [contractId, setContractId] = useState(
     () => localStorage.getItem("lastContractId") ?? ""
   );
+  const [contractIdError, setContractIdError] = useState<string | null>(null);
   const [royaltyRate, setRoyaltyRate] = useState(500); // Default 5%
   const [currentPage, setCurrentPage] = useState("dashboard");
 
@@ -46,11 +52,40 @@ export default function App() {
     tryReconnect();
   }, []);
 
+  // Fetch on-chain royalty rate when contract changes
+  useEffect(() => {
+    async function fetchRate() {
+      if (!contractIdValid) {
+        setRoyaltyRate(500); // Default placeholder
+        return;
+      }
+      try {
+        const { royaltyRate } = await api.getRoyaltyRate(contractId);
+        setRoyaltyRate(royaltyRate);
+      } catch (err) {
+        console.error("Failed to fetch royalty rate:", err);
+        // If contract is uninitialized or error, we might want 0 or default
+        // The contract returns 0 if get_royalty_rate fails in the backend helper
+        setRoyaltyRate(0);
+      }
+    }
+    fetchRate();
+  }, [contractId, contractIdValid]);
+
   function handleContractChange(value: string) {
     setContractId(value);
-    if (value) localStorage.setItem("lastContractId", value);
-    else localStorage.removeItem("lastContractId");
+    if (!value) {
+      setContractIdError(null);
+      localStorage.removeItem("lastContractId");
+    } else if (!isValidContractId(value)) {
+      setContractIdError("Contract ID must start with C and be 56 characters");
+    } else {
+      setContractIdError(null);
+      localStorage.setItem("lastContractId", value);
+    }
   }
+
+  const contractIdValid = isValidContractId(contractId);
 
   const renderPage = () => {
     switch (currentPage) {
@@ -119,6 +154,7 @@ export default function App() {
               walletAddress={walletAddress}
               onSuccess={() => {}}
               onRateUpdate={setRoyaltyRate}
+              initialRoyaltyRate={royaltyRate}
             />
             <RecordSecondarySale
               contractId={contractId}
@@ -170,14 +206,17 @@ export default function App() {
           <div className="sidebar-card">
             <h3>📋 Contract ID</h3>
             <input
-              className="contract-input"
+              className={`contract-input${contractIdError ? " contract-input--error" : ""}`}
               placeholder="C..."
               value={contractId}
               onChange={(e) => handleContractChange(e.target.value)}
             />
+            {contractIdError && (
+              <p className="contract-input-error">{contractIdError}</p>
+            )}
           </div>
 
-          {contractId && (
+          {contractIdValid && (
             <div className="sidebar-card">
               <h3>📊 Quick Actions</h3>
               <div className="quick-actions">

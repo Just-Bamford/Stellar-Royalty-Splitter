@@ -79,6 +79,17 @@
   background: var(--bg-primary);
 }
 
+.contract-input--error {
+  border-color: #e53e3e;
+  box-shadow: 0 0 0 3px rgba(229, 62, 62, 0.15);
+}
+
+.contract-input-error {
+  margin: 4px 0 0 0;
+  font-size: 0.78rem;
+  color: #e53e3e;
+}
+
 .quick-actions {
   display: flex;
   flex-direction: column;

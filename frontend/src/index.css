@@ -139,6 +139,13 @@ button:disabled {
   background: #450a0a;
   color: #fca5a5;
 }
+.status.error .freighter-link {
+  color: #fca5a5;
+  text-decoration: underline;
+}
+.status.error .freighter-link:hover {
+  color: #fff;
+}
 .status.info {
   background: #1e3a5f;
   color: #93c5fd;

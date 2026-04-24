@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, RoyaltyStats } from "../api";
-import { signAndSubmitTransaction } from "../stellar.js";
+import { signAndSubmitTransaction } from "../stellar";
+
 
 interface Props {
   contractId: string;
@@ -59,10 +60,17 @@ export default function DistributeSecondaryRoyalties({
       // Sign and submit transaction
       const result = await signAndSubmitTransaction(xdr);
 
+      setStatus({ type: "info", msg: "Waiting for confirmation..." });
+      await api.confirmTransaction(result, {
+        status: "confirmed",
+        blockTime: new Date().toISOString(),
+      });
+
       setStatus({
         type: "ok",
         msg: `Distributed ${totalRoyalties} tokens from ${numberOfSales} sales! TX: ${result}`,
       });
+
 
       setTokenId("");
       onSuccess();

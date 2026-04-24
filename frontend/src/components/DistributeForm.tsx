@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useSettings } from "../context/SettingsContext";
+import { signAndSubmitTransaction } from "../stellar";
+
 
 interface Props {
   contractId: string;
@@ -43,8 +45,19 @@ export default function DistributeForm({
         tokenId,
         amount: parseInt(amount),
       });
-      setStatus({ type: "ok", msg: `Distributed. Tx: ${res.txHash}` });
+
+      setStatus({ type: "info", msg: "Signing transaction with Freighter..." });
+      const hash = await signAndSubmitTransaction(res.xdr);
+
+      setStatus({ type: "info", msg: "Waiting for confirmation..." });
+      await api.confirmTransaction(hash, {
+        status: "confirmed",
+        blockTime: new Date().toISOString(),
+      });
+
+      setStatus({ type: "ok", msg: `Distributed. Tx: ${hash}` });
       onSuccess();
+
     } catch (e: any) {
       setStatus({ type: "error", msg: e.message });
     } finally {

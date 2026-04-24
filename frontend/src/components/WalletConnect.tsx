@@ -18,12 +18,15 @@ declare global {
 export default function WalletConnect({ onConnect }: Props) {
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [freighterMissing, setFreighterMissing] = useState(false);
 
   async function connect() {
     setError("");
+    setFreighterMissing(false);
 
+    // Check at call-time, not render-time, so the extension has time to inject
     if (!window.freighter) {
-      setError("Freighter not found. Install it at freighter.app");
+      setFreighterMissing(true);
       return;
     }
 
@@ -38,22 +41,10 @@ export default function WalletConnect({ onConnect }: Props) {
 
   function disconnect() {
     setAddress(null);
+    setFreighterMissing(false);
+    setError("");
     onConnect(null);
     localStorage.removeItem("lastWalletAddress");
-  }
-
-  if (!window.freighter) {
-    return (
-      <div className="card">
-        <div className="wallet-row">
-          <span className="badge">Wallet</span>
-          <a href="https://freighter.app" target="_blank" rel="noreferrer">
-            Install Freighter
-          </a>
-        </div>
-        {error && <div className="status error">{error}</div>}
-      </div>
-    );
   }
 
   return (
@@ -75,6 +66,21 @@ export default function WalletConnect({ onConnect }: Props) {
           </button>
         )}
       </div>
+
+      {freighterMissing && (
+        <div className="status error">
+          Freighter wallet not found. Install it at{" "}
+          <a
+            href="https://freighter.app"
+            target="_blank"
+            rel="noreferrer"
+            className="freighter-link"
+          >
+            freighter.app
+          </a>
+        </div>
+      )}
+
       {error && <div className="status error">{error}</div>}
     </div>
   );

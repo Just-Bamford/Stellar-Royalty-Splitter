@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { api } from "../api";
+import { signAndSubmitTransaction } from "../stellar";
+
 
 interface Collaborator {
   address: string;
@@ -114,8 +116,19 @@ export default function InitializeForm({
         collaborators: addresses,
         shares: collaborators.map((c: Collaborator) => parseInt(c.basisPoints)),
       });
-      setStatus({ type: "ok", msg: `Initialized. Tx: ${res.transactionId}` });
+
+      setStatus({ type: "info", msg: "Signing transaction with Freighter..." });
+      const hash = await signAndSubmitTransaction(res.xdr);
+
+      setStatus({ type: "info", msg: "Waiting for confirmation..." });
+      await api.confirmTransaction(hash, {
+        status: "confirmed",
+        blockTime: new Date().toISOString(),
+      });
+
+      setStatus({ type: "ok", msg: `Initialized. Tx: ${hash}` });
       onSuccess();
+
     } catch (e: unknown) {
       setStatus({ type: "error", msg: e instanceof Error ? e.message : "Unknown error" });
     } finally {

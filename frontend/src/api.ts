@@ -66,11 +66,14 @@ export interface SecondarySale {
 
 export interface RoyaltyStats {
   totalSecondarySales: number;
-  totalRoyaltiesGenerated: number | string;
+  totalRoyaltiesGenerated: string; // always 7 decimal places, never null
+  totalVolume: string;             // always 7 decimal places, never null
+  pendingRoyaltyPool: string;      // undistributed royalties, 7 decimal places
   lastDistribution: {
     timestamp: string;
     totalRoyaltiesDistributed: string;
     numberOfSales: number;
+    txHash: string | null;
   } | null;
 }
 
@@ -173,6 +176,11 @@ export const api = {
 
   getRoyaltyStats: (contractId: string) =>
     get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
+
+  getRoyaltyRate: (contractId: string) =>
+    get<{ contractId: string; royaltyRate: number }>(
+      `/secondary-royalty/rate/${contractId}`,
+    ),
 
   getSecondarySales: (
     contractId: string,

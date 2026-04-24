@@ -64,3 +64,37 @@ export function validate(schema) {
     next();
   };
 }
+
+/**
+ * Validate a Stellar contract ID path param.
+ * Returns true if valid, otherwise sends a 400 and returns false.
+ */
+export function validateContractId(contractId, res) {
+  if (!/^C[A-Z2-7]{55}$/.test(contractId)) {
+    res.status(400).json({ success: false, error: "Invalid contract ID format" });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Parse and validate limit/offset query params.
+ * Returns { limit, offset } on success, or sends a 400 and returns null.
+ * @param {object} query - req.query
+ * @param {object} res   - express response
+ * @param {number} defaultLimit
+ * @param {number} maxLimit
+ */
+export function parsePagination(query, res, defaultLimit = 50, maxLimit = 100) {
+  if (query.limit !== undefined && isNaN(parseInt(query.limit))) {
+    res.status(400).json({ success: false, error: "limit must be a number" });
+    return null;
+  }
+  if (query.offset !== undefined && isNaN(parseInt(query.offset))) {
+    res.status(400).json({ success: false, error: "offset must be a number" });
+    return null;
+  }
+  const limit = Math.min(Math.max(parseInt(query.limit) || defaultLimit, 1), maxLimit);
+  const offset = Math.max(parseInt(query.offset) || 0, 0);
+  return { limit, offset };
+}

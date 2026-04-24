@@ -16,7 +16,7 @@ import {
   updateTransactionHash,
   addAuditLog,
 } from "../database.js";
-import { validate, recordSecondarySaleSchema, setRoyaltyRateSchema } from "../validation.js";
+import { validate, recordSecondarySaleSchema, setRoyaltyRateSchema, validateContractId, parsePagination } from "../validation.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -167,6 +167,22 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
 });
 
 /**
+ * GET /api/secondary-royalty/rate/:contractId
+ * Returns the current on-chain royalty rate for the contract.
+ */
+secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
+
+    const rate = await getRoyaltyRateFromContract(contractId);
+    res.json({ contractId, royaltyRate: rate });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/secondary-royalty/distribute
  * Body: { contractId, walletAddress, tokenId }
  * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties
@@ -222,8 +238,11 @@ secondaryRoyaltyRouter.post("/distribute", async (req, res, next) => {
 
 /**
  * GET /api/secondary-royalty/stats/:contractId
- * Returns royalty statistics for a contract
+ * Returns royalty statistics for a contract.
+ * Results are cached in-memory for 60 seconds to avoid hammering the DB.
  */
+const statsCache = new Map(); // key: contractId, value: { data, expiresAt }
+
 secondaryRoyaltyRouter.get("/stats/:contractId", (req, res, next) => {
   try {
     const { contractId } = req.params;
@@ -232,7 +251,13 @@ secondaryRoyaltyRouter.get("/stats/:contractId", (req, res, next) => {
       return res.status(400).json({ error: "Contract ID is required." });
     }
 
+    const cached = statsCache.get(contractId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.data);
+    }
+
     const stats = getRoyaltyStatistics(contractId);
+    statsCache.set(contractId, { data: stats, expiresAt: Date.now() + 60_000 });
 
     res.json(stats);
   } catch (err) {
@@ -248,13 +273,14 @@ secondaryRoyaltyRouter.get("/stats/:contractId", (req, res, next) => {
 secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
   try {
     const { contractId } = req.params;
-    const { limit = 50, offset = 0, nftId } = req.query;
+    if (!validateContractId(contractId, res)) return;
 
-    if (!contractId) {
-      return res.status(400).json({ error: "Contract ID is required." });
-    }
+    const pagination = parsePagination(req.query, res, 50, 100);
+    if (!pagination) return;
+    const { limit, offset } = pagination;
 
-    const sales = getSecondarySales(contractId, parseInt(limit), parseInt(offset), nftId);
+    const { nftId } = req.query;
+    const sales = getSecondarySales(contractId, limit, offset, nftId);
 
     res.json({ sales, total: sales.length });
   } catch (err) {

@@ -390,30 +390,47 @@ export function getSecondaryRoyaltyDistributions(contractId, limit = 50, offset 
 
 /**
  * Get royalty statistics for a contract.
+ * Always returns consistent types — numeric fields use toFixed(7) strings,
+ * counts are integers, and null is never returned for aggregates.
  */
 export function getRoyaltyStatistics(contractId) {
   const totalSalesStmt = db.prepare(`
-    SELECT COUNT(*) as count, SUM(CAST(royaltyAmount as REAL)) as totalRoyalties
+    SELECT
+      COUNT(*) as count,
+      COALESCE(SUM(CAST(royaltyAmount as REAL)), 0) as totalRoyalties,
+      COALESCE(SUM(CAST(salePrice as REAL)), 0) as totalVolume
     FROM secondary_sales
     WHERE contractId = ?
   `);
-
   const totalSales = totalSalesStmt.get(contractId);
 
-  const lastDistributionStmt = db.prepare(`
-    SELECT timestamp, totalRoyaltiesDistributed, numberOfSales
-    FROM secondary_royalty_distributions
+  const pendingPoolStmt = db.prepare(`
+    SELECT COALESCE(SUM(CAST(royaltyAmount as REAL)), 0) as pendingPool
+    FROM secondary_sales
     WHERE contractId = ?
-    ORDER BY timestamp DESC
+      AND timestamp > COALESCE(
+        (SELECT MAX(timestamp) FROM secondary_royalty_distributions WHERE contractId = ?),
+        '1970-01-01'
+      )
+  `);
+  const pendingPool = pendingPoolStmt.get(contractId, contractId);
+
+  const lastDistributionStmt = db.prepare(`
+    SELECT srd.timestamp, srd.totalRoyaltiesDistributed, srd.numberOfSales, t.txHash
+    FROM secondary_royalty_distributions srd
+    LEFT JOIN transactions t ON srd.transactionId = t.id
+    WHERE srd.contractId = ?
+    ORDER BY srd.timestamp DESC
     LIMIT 1
   `);
-
   const lastDistribution = lastDistributionStmt.get(contractId);
 
   return {
-    totalSecondarySales: totalSales?.count || 0,
-    totalRoyaltiesGenerated: totalSales?.totalRoyalties || 0,
-    lastDistribution: lastDistribution || null
+    totalSecondarySales: totalSales.count,
+    totalRoyaltiesGenerated: totalSales.totalRoyalties.toFixed(7),
+    totalVolume: totalSales.totalVolume.toFixed(7),
+    pendingRoyaltyPool: pendingPool.pendingPool.toFixed(7),
+    lastDistribution: lastDistribution || null,
   };
 }
 
