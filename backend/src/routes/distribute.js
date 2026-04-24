@@ -14,11 +14,14 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
   try {
     const { contractId, walletAddress, tokenId, amount } = req.body;
 
-    if (!contractId || !walletAddress || !tokenId || amount == null) {
+    if (!contractId || !walletAddress) {
       return res.status(400).json({ error: "Missing required fields." });
     }
-    if (amount <= 0) {
-      return res.status(400).json({ error: "Amount must be positive." });
+    if (!tokenId) {
+      return res.status(400).json({ error: "Token ID is required" });
+    }
+    if (typeof amount !== "number" || amount <= 0) {
+      return res.status(400).json({ error: "Amount must be a positive number" });
     }
 
     // Record transaction in database for audit trail
