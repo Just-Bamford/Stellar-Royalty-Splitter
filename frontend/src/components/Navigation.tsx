@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTheme } from "../context/ThemeContext";
 import "./Navigation.css";
 
 interface NavigationProps {
@@ -14,6 +15,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { isDark, toggleTheme } = useTheme();
 
   function copyAddress() {
     if (!walletAddress) return;
@@ -73,6 +75,13 @@ export const Navigation: React.FC<NavigationProps> = ({
         </ul>
 
         <div className="nav-wallet">
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+          >
+            {isDark ? "☀️" : "🌙"}
+          </button>
           {walletAddress && (
             <>
               <span className="wallet-info" title={walletAddress}>
