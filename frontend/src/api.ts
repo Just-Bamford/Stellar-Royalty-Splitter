@@ -208,6 +208,7 @@ export const api = {
         status: string;
         initiatorAddress: string;
       }>;
+      total: number;
     }>(
       `/secondary-royalty/distributions/${contractId}?limit=${limit}&offset=${offset}`,
     ),
