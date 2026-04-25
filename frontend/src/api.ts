@@ -243,4 +243,10 @@ export const api = {
     }>(
       `/analytics/${contractId}${dateRange ? `?start=${dateRange.start}&end=${dateRange.end}` : ""}`,
     ),
+
+  // Contract version API
+  getContractVersion: (contractId: string) =>
+    get<{ contractId: string; version: string }>(
+      `/contract/version/${contractId}`,
+    ),
 };

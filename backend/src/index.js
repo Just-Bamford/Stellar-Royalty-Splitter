@@ -11,6 +11,7 @@ import { collaboratorsRouter } from "./routes/collaborators.js";
 import { secondaryRoyaltyRouter } from "./routes/secondary-royalty.js";
 import historyRouter from "./routes/history.js";
 import { analyticsRouter } from "./routes/analytics.js";
+import { contractRouter } from "./routes/contract.js";
 import { initializeDatabase, getMigrationVersion } from "./database.js";
 
 // Initialize database on startup
@@ -62,6 +63,7 @@ app.use("/api/collaborators", collaboratorsRouter);
 app.use("/api/secondary-royalty", secondaryRoyaltyRouter);
 app.use("/api", historyRouter);
 app.use("/api", analyticsRouter);
+app.use("/api/contract", contractRouter);
 
 // Health check
 app.get("/api/health", (_req, res) =>
