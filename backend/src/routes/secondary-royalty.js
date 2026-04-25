@@ -66,10 +66,10 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
     // Fetch on-chain royalty rate instead of trusting client-supplied value
     const onChainRate = await getRoyaltyRateFromContract(contractId);
 
-    // Calculate royalty amount using on-chain rate
-    const royaltyAmount = Math.floor((salePrice * onChainRate) / 10000);
+    // Calculate royalty amount using BigInt for precision
+    const royaltyAmount = BigInt(salePrice) * BigInt(onChainRate) / 10000n;
 
-    if (royaltyAmount <= 0) {
+    if (royaltyAmount <= 0n) {
       return res.status(400).json({ error: "Calculated royalty amount is zero." });
     }
 
@@ -117,7 +117,7 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
     res.json({
       xdr: txXdr,
       transactionId,
-      royaltyAmount,
+      royaltyAmount: royaltyAmount.toString(),
       royaltyRateUsed: onChainRate,
     });
   } catch (err) {

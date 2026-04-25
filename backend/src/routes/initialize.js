@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { buildTx, addressToScVal, u32ToScVal, vecToScVal } from "../stellar.js";
+import { retryBuildTx, addressToScVal, u32ToScVal, vecToScVal } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
 import { validate, initializeSchema } from "../validation.js";
 
@@ -45,7 +45,7 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
     const collaboratorVec = vecToScVal(collaborators.map(addressToScVal));
     const sharesVec = vecToScVal(shares.map(u32ToScVal));
 
-    const txXdr = await buildTx(walletAddress, contractId, "initialize", [
+    const txXdr = await retryBuildTx(walletAddress, contractId, "initialize", [
       collaboratorVec,
       sharesVec,
     ]);
@@ -59,6 +59,9 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
 
     res.json({ xdr: txXdr, transactionId });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });

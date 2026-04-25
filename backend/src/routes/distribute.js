@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { buildTx, addressToScVal, i128ToScVal } from "../stellar.js";
+import { retryBuildTx, addressToScVal, i128ToScVal } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
 import { validate, distributeSchema } from "../validation.js";
 
@@ -32,7 +32,7 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
       { requestedAmount: amount.toString(), tokenId },
     );
 
-    const txXdr = await buildTx(walletAddress, contractId, "distribute", [
+    const txXdr = await retryBuildTx(walletAddress, contractId, "distribute", [
       addressToScVal(tokenId),
       i128ToScVal(amount),
     ]);
@@ -46,6 +46,9 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
 
     res.json({ xdr: txXdr, transactionId });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });

@@ -9,6 +9,7 @@ pub enum DataKey {
     Admin,
     ShareMap,
     Collaborators,
+    SecondaryRoyaltyPool,
     SecondaryPool,
     SecondaryToken,
 }
@@ -51,6 +52,10 @@ impl RoyaltySplitter {
         env.storage().instance().set(&DataKey::ShareMap, &share_map);
     }
 
+    pub fn set_royalty_rate(env: Env, new_rate: u32) {
+        if new_rate > 10_000 {
+            panic!("royalty rate cannot exceed 10000 basis points");
+        }
     /// Distribute `amount` of `token` from the contract balance to all collaborators.
     pub fn distribute(env: Env, token: Address, amount: i128) {
         let admin: Address = env
@@ -137,6 +142,10 @@ impl RoyaltySplitter {
             .get(&DataKey::Admin)
             .expect("contract not initialized");
         admin.require_auth();
+        if total_amount <= 0 {
+            panic!("amount must be positive");
+        }
+        let rate: u32 = env.storage().instance().get(&DataKey::RoyaltyRate).unwrap_or(0);
 
         let pool: i128 = env
             .storage()
@@ -189,6 +198,19 @@ impl RoyaltySplitter {
         env.storage().instance().set(&DataKey::SecondaryPool, &0_i128);
     }
 
+    pub fn record_secondary_royalty(env: Env, sale_price: i128) -> i128 {
+        if sale_price <= 0 {
+            panic!("sale price must be positive");
+        }
+        let rate: u32 = env.storage().instance().get(&DataKey::RoyaltyRate).unwrap_or(0);
+        let royalty_amount = sale_price * rate as i128 / 10_000;
+        let current_pool: i128 = env.storage().instance().get(&DataKey::SecondaryRoyaltyPool).unwrap_or(0);
+        env.storage().instance().set(&DataKey::SecondaryRoyaltyPool, &(current_pool + royalty_amount));
+        royalty_amount
+    }
+
+    pub fn get_royalty_rate(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::RoyaltyRate).unwrap_or(0)
     pub fn get_share(env: Env, collaborator: Address) -> u32 {
         let share_map: Map<Address, u32> = env
             .storage()

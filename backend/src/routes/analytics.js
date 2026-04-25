@@ -1,6 +1,10 @@
 import express from "express";
 import db from "../database.js"; // default export — no getDatabase() call needed
 
+// Simple in-memory cache with TTL
+const cache = new Map();
+const CACHE_TTL = 60 * 1000; // 60 seconds
+
 const router = express.Router();
 
 router.get("/analytics/:contractId", (req, res) => {
@@ -29,6 +33,16 @@ router.get("/analytics/:contractId", (req, res) => {
       return res
         .status(400)
         .json({ success: false, error: "start date must be before end date." });
+    }
+
+    // Create cache key
+    const cacheKey = `${contractId}-${startDate.toISOString()}-${endDate.toISOString()}`;
+    
+    // Check cache
+    const cached = cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      res.set('Cache-Control', 'max-age=60');
+      return res.json(cached.data);
     }
 
     // Run the same SQL-aggregated analytics that were previously provided
@@ -92,7 +106,7 @@ router.get("/analytics/:contractId", (req, res) => {
       )
       .all(contractId, startDate.toISOString(), endDate.toISOString());
 
-    res.json({
+    const data = {
       success: true,
       data: {
         totalDistributed: Math.round((summary.totalDistributed ?? 0) * 100) / 100,
@@ -111,7 +125,13 @@ router.get("/analytics/:contractId", (req, res) => {
           totalEarned: Math.round(c.totalEarned * 100) / 100,
         })),
       },
-    });
+    };
+
+    // Cache the result
+    cache.set(cacheKey, { data, timestamp: Date.now() });
+
+    res.set('Cache-Control', 'max-age=60');
+    res.json(data);
   } catch (error) {
     console.error("Analytics error:", error);
     res.status(500).json({ success: false, message: "Failed to load analytics data" });
