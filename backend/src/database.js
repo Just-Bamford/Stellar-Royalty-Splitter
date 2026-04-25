@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import logger from "./logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.join(__dirname, "..", "audit.db");
@@ -40,7 +41,7 @@ export function initializeDatabase() {
       db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(
         migration.version,
       );
-      console.log(`Applied migration v${migration.version}`);
+      logger.info(`Applied migration v${migration.version}`);
     }
   }
 

@@ -9,6 +9,7 @@ import {
 } from '../database.js';
 import { validateContractId, parsePagination } from '../validation.js';
 import { server } from '../stellar.js';
+import logger from '../logger.js';
 
 const router = express.Router();
 
@@ -35,7 +36,7 @@ router.get('/history/:contractId', (req, res) => {
       pagination: { limit, offset, total }
     });
   } catch (error) {
-    console.error('Error fetching transaction history:', error);
+    logger.error('Error fetching transaction history:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -62,7 +63,7 @@ router.get('/transaction/:txHash', (req, res) => {
       data: transaction
     });
   } catch (error) {
-    console.error('Error fetching transaction details:', error);
+    logger.error('Error fetching transaction details:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -121,7 +122,7 @@ router.post('/transaction/confirm/:txHash', async (req, res) => {
       message: `Transaction ${txHash.substring(0, 8)}... marked as ${resolvedStatus}`
     });
   } catch (error) {
-    console.error('Error updating transaction status:', error);
+    logger.error('Error updating transaction status:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -148,7 +149,7 @@ router.get('/audit/:contractId', (req, res) => {
       pagination: { limit, offset }
     });
   } catch (error) {
-    console.error('Error fetching audit log:', error);
+    logger.error('Error fetching audit log:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -176,7 +177,7 @@ router.post('/audit/:contractId', (req, res) => {
       message: 'Audit log entry created'
     });
   } catch (error) {
-    console.error('Error creating audit log entry:', error);
+    logger.error('Error creating audit log entry:', error);
     res.status(500).json({
       success: false,
       error: error.message
