@@ -28,7 +28,6 @@ export const distributeSchema = z.object({
   contractId: contractAddress,
   walletAddress: stellarAddress,
   tokenId: contractAddress,
-  amount: z.number().int().positive(),
 });
 
 export const setRoyaltyRateSchema = z.object({

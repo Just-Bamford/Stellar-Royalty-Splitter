@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { api } from "../api";
-import { useSettings } from "../context/SettingsContext";
 import { signAndSubmitTransaction } from "../stellar";
 
 
@@ -15,9 +14,7 @@ export default function DistributeForm({
   walletAddress,
   onSuccess,
 }: Props) {
-  const { settings } = useSettings();
   const [tokenId, setTokenId] = useState("");
-  const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<{
     type: "ok" | "error" | "info";
     msg: string;
@@ -27,24 +24,14 @@ export default function DistributeForm({
   async function submit() {
     if (!contractId)
       return setStatus({ type: "error", msg: "Enter a contract ID first." });
-    if (!tokenId || !amount)
-      return setStatus({ type: "error", msg: "Fill in token and amount." });
-
-    const numeric = parseFloat(amount);
-    if (numeric < settings.minPayoutAmount) {
-      return setStatus({ type: "error", msg: `Amount is below minimum payout (${settings.minPayoutAmount}).` });
-    }
+    if (!tokenId)
+      return setStatus({ type: "error", msg: "Enter a token address." });
 
     setLoading(true);
     setStatus({ type: "info", msg: "Building transaction…" });
 
     try {
-      const res = await api.distribute({
-        contractId,
-        walletAddress,
-        tokenId,
-        amount: parseInt(amount),
-      });
+      const res = await api.distribute({ contractId, walletAddress, tokenId });
 
       setStatus({ type: "info", msg: "Signing transaction with Freighter..." });
       const hash = await signAndSubmitTransaction(res.xdr);
@@ -57,9 +44,8 @@ export default function DistributeForm({
 
       setStatus({ type: "ok", msg: `Distributed. Tx: ${hash}` });
       onSuccess();
-
-    } catch (e: any) {
-      setStatus({ type: "error", msg: e.message });
+    } catch (e: unknown) {
+      setStatus({ type: "error", msg: e instanceof Error ? e.message : "Unknown error" });
     } finally {
       setLoading(false);
     }
@@ -74,13 +60,7 @@ export default function DistributeForm({
         value={tokenId}
         onChange={(e) => setTokenId(e.target.value)}
       />
-      <label>Amount (stroops)</label>
-      <input
-        placeholder="e.g. 10000000"
-        type="number"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-      />
+      <p className="description">Distributes the full contract balance to all collaborators.</p>
       <button className="btn-primary" onClick={submit} disabled={loading}>
         {loading ? "Submitting…" : "Distribute funds"}
       </button>

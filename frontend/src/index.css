@@ -191,6 +191,10 @@ td:last-child {
   margin-bottom: 0.5rem;
 }
 
+.input-error {
+  border-color: var(--error-color) !important;
+}
+
 .share-bar {
   height: 6px;
   border-radius: 3px;

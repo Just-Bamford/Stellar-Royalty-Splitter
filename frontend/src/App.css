@@ -90,6 +90,19 @@
   color: #e53e3e;
 }
 
+.contract-status {
+  margin: 4px 0 0 0;
+  font-size: 0.78rem;
+}
+
+.contract-status--ok {
+  color: #38a169;
+}
+
+.contract-status--warn {
+  color: #d69e2e;
+}
+
 .quick-actions {
   display: flex;
   flex-direction: column;

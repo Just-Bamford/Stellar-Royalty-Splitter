@@ -117,7 +117,7 @@ export async function getRoyaltyRateFromContract(contractId) {
 }
 
 /**
- * Check if a contract has been initialized by simulating get_admin().
+ * Check if a contract has been initialized by simulating is_initialized().
  * Returns true if initialized, false if not.
  */
 export async function isContractInitialized(contractId) {
@@ -130,21 +130,11 @@ export async function isContractInitialized(contractId) {
     fee: BASE_FEE,
     networkPassphrase,
   })
-    .addOperation(contract.call("get_admin"))
+    .addOperation(contract.call("is_initialized"))
     .setTimeout(30)
     .build();
 
   const sim = await server.simulateTransaction(tx);
-  // If simulation succeeds, contract is initialized
-  if (SorobanRpc.Api.isSimulationError(sim)) {
-    const errorMsg = sim.error?.toString() || '';
-    // If error contains "not initialized", contract is not initialized
-    if (errorMsg.includes('not initialized')) {
-      return false;
-    }
-    // Other errors might mean contract doesn't exist or other issues
-    return false;
-  }
-  // Successfully got admin address, so contract is initialized
-  return true;
+  if (SorobanRpc.Api.isSimulationError(sim)) return false;
+  return sim.result?.retval?.bool() ?? false;
 }

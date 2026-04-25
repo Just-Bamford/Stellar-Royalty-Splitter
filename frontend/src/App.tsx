@@ -34,6 +34,7 @@ export default function App() {
     () => localStorage.getItem("lastContractId") ?? ""
   );
   const [contractIdError, setContractIdError] = useState<string | null>(null);
+  const [contractInitialized, setContractInitialized] = useState<boolean | null>(null);
   const [royaltyRate, setRoyaltyRate] = useState(500); // Default 5%
   const [currentPage, setCurrentPage] = useState("dashboard");
 
@@ -70,6 +71,17 @@ export default function App() {
       }
     }
     fetchRate();
+  }, [contractId, contractIdValid]);
+
+  // Fetch contract initialized status when contractId changes (#101)
+  useEffect(() => {
+    if (!contractIdValid) {
+      setContractInitialized(null);
+      return;
+    }
+    api.getContractStatus(contractId)
+      .then(({ initialized }) => setContractInitialized(initialized))
+      .catch(() => setContractInitialized(null));
   }, [contractId, contractIdValid]);
 
   function handleContractChange(value: string) {
@@ -200,7 +212,10 @@ export default function App() {
         <div className="app-sidebar">
           <div className="sidebar-card">
             <h3>🔗 Wallet Connection</h3>
-            <WalletConnect onConnect={setWalletAddress} />
+            <WalletConnect
+              onConnect={setWalletAddress}
+              onDisconnect={() => setWalletAddress(null)}
+            />
           </div>
 
           <div className="sidebar-card">
@@ -213,6 +228,11 @@ export default function App() {
             />
             {contractIdError && (
               <p className="contract-input-error">{contractIdError}</p>
+            )}
+            {contractIdValid && contractInitialized !== null && (
+              <p className={`contract-status ${contractInitialized ? "contract-status--ok" : "contract-status--warn"}`}>
+                {contractInitialized ? "✅ Initialized" : "⚠️ Not initialized"}
+              </p>
             )}
           </div>
 

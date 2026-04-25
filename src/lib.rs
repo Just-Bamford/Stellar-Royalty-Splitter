@@ -51,8 +51,18 @@ impl RoyaltySplitter {
         env.storage().instance().set(&DataKey::ShareMap, &share_map);
     }
 
-    /// Distribute `amount` of `token` from the contract balance to all collaborators.
-    pub fn distribute(env: Env, token: Address, amount: i128) {
+    /// Returns true if the contract has been initialized.
+    pub fn is_initialized(env: Env) -> bool {
+        env.storage().instance().has(&DataKey::Admin)
+    }
+
+    /// Returns the contract's current balance of `token`.
+    pub fn get_balance(env: Env, token: Address) -> i128 {
+        token::Client::new(&env, &token).balance(&env.current_contract_address())
+    }
+
+    /// Distribute the full contract balance of `token` to all collaborators.
+    pub fn distribute(env: Env, token: Address) {
         let admin: Address = env
             .storage()
             .instance()
@@ -61,11 +71,9 @@ impl RoyaltySplitter {
         admin.require_auth();
 
         let token_client = token::Client::new(&env, &token);
-
-        // Assert full balance is available before any transfers begin.
-        let balance = token_client.balance(&env.current_contract_address());
-        if amount > balance {
-            panic!("amount exceeds contract balance");
+        let amount = token_client.balance(&env.current_contract_address());
+        if amount == 0 {
+            panic!("no balance to distribute");
         }
 
         let collaborators: Vec<Address> = env
@@ -275,7 +283,7 @@ mod tests {
 
         client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
         mint(&env, &token, &contract_id, 1000);
-        client.distribute(&token, &1000_i128);
+        client.distribute(&token);
 
         assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
         assert_eq!(TokenClient::new(&env, &token).balance(&b), 500);
@@ -292,11 +300,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "amount exceeds contract balance")]
-    fn test_distribute_panics_when_amount_exceeds_balance() {
+    #[should_panic(expected = "no balance to distribute")]
+    fn test_distribute_panics_when_balance_is_zero() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client) = setup(&env);
+        let (_, client) = setup(&env);
 
         let admin = Address::generate(&env);
         let b = Address::generate(&env);
@@ -304,16 +312,12 @@ mod tests {
         let token = make_token(&env, &token_admin);
 
         client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
-        mint(&env, &token, &contract_id, 500);
-        client.distribute(&token, &1000_i128);
+        // No mint — balance is zero
+        client.distribute(&token);
     }
 
-    /// Issue #92 — balance validated before loop; no partial distribution possible.
-    /// With 3 collaborators, if the contract only holds enough for the first payout,
-    /// the balance check must fire before any transfer occurs.
     #[test]
-    #[should_panic(expected = "amount exceeds contract balance")]
-    fn test_no_partial_distribution_on_insufficient_balance() {
+    fn test_distribute_uses_actual_balance() {
         let env = Env::default();
         env.mock_all_auths();
         let (contract_id, client) = setup(&env);
@@ -324,23 +328,18 @@ mod tests {
         let token_admin = Address::generate(&env);
         let token = make_token(&env, &token_admin);
 
-        // 3-way split: 50 / 30 / 20
         client.initialize(
             &vec![&env, admin.clone(), b.clone(), c.clone()],
             &vec![&env, 5000_u32, 3000_u32, 2000_u32],
         );
 
-        // Fund only 300 but request distribution of 1000.
-        // Without the pre-loop balance check, the first transfer (500) would succeed,
-        // the second (300) would succeed, and the third (200) would fail — leaving a
-        // partial state. The guard must reject the whole call upfront.
+        // Fund 300 — distribute uses actual balance, not a caller-supplied amount.
         mint(&env, &token, &contract_id, 300);
-        client.distribute(&token, &1000_i128);
+        client.distribute(&token);
 
-        // Verify no collaborator received anything (guard fired before any transfer).
-        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
-        assert_eq!(TokenClient::new(&env, &token).balance(&b), 0);
-        assert_eq!(TokenClient::new(&env, &token).balance(&c), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 150);
+        assert_eq!(TokenClient::new(&env, &token).balance(&b), 90);
+        assert_eq!(TokenClient::new(&env, &token).balance(&c), 60);
     }
 
     #[test]
@@ -388,7 +387,7 @@ mod tests {
         // then drain balance via primary distribute — pool > balance.
         mint(&env, &token, &contract_id, 100);
         client.record_secondary_royalty(&token, &contract_id, &100_i128);
-        client.distribute(&token, &100_i128); // balance → 0, pool still = 100
+        client.distribute(&token); // balance → 0, pool still = 100
         client.distribute_secondary_royalties(); // should panic
     }
 }

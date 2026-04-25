@@ -89,13 +89,15 @@ export const api = {
     contractId: string;
     walletAddress: string;
     tokenId: string;
-    amount: number;
   }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
 
   getCollaborators: (contractId: string) =>
     get<{ address: string; basisPoints: number }[]>(
       `/collaborators/${contractId}`,
     ),
+
+  getContractStatus: (contractId: string) =>
+    get<{ initialized: boolean }>(`/contract/status/${contractId}`),
 
   // Transaction History & Audit Log APIs
   getTransactionHistory: (contractId: string, limit = 50, offset = 0) =>
