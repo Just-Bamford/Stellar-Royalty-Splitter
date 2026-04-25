@@ -9,13 +9,11 @@ import {
 import {
   recordTransaction,
   recordSecondarySale,
-  recordSecondaryRoyaltyDistribution,
   getSecondarySales,
   countSecondarySales,
   markSalesDistributed,
   getSecondaryRoyaltyDistributions,
   getRoyaltyStatistics,
-  updateTransactionHash,
   addAuditLog,
 } from "../database.js";
 import { validate, recordSecondarySaleSchema, setRoyaltyRateSchema, validateContractId, parsePagination } from "../validation.js";

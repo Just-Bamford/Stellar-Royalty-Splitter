@@ -5,18 +5,35 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import logger from "./logger.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
 import { collaboratorsRouter } from "./routes/collaborators.js";
 import { secondaryRoyaltyRouter } from "./routes/secondary-royalty.js";
 import historyRouter from "./routes/history.js";
 import { analyticsRouter } from "./routes/analytics.js";
+import { contractRouter } from "./routes/contract.js";
 import { initializeDatabase, getMigrationVersion } from "./database.js";
 
 // Initialize database on startup
 initializeDatabase();
 
 const app = express();
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    logger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`, {
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      duration,
+    });
+  });
+  next();
+});
 
 // Security headers
 app.use(helmet());
@@ -83,11 +100,11 @@ app.use("/api", (req, res) => {
 
 // Central error handler
 app.use((err, _req, res, _next) => {
-  console.error(err);
+  logger.error(err);
   res.status(500).json({ error: err.message ?? "Internal server error" });
 });
 
 const PORT = process.env.PORT ?? 3001;
 app.listen(PORT, () =>
-  console.log(`API listening on http://localhost:${PORT}`),
+  logger.info(`API listening on http://localhost:${PORT}`),
 );

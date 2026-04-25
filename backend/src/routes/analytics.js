@@ -1,5 +1,6 @@
 import express from "express";
 import db from "../database.js"; // default export — no getDatabase() call needed
+import logger from "../logger.js";
 
 // Simple in-memory cache with TTL
 const cache = new Map();
@@ -134,7 +135,7 @@ router.get("/analytics/:contractId", (req, res) => {
     res.set('Cache-Control', 'max-age=60');
     res.json(data);
   } catch (error) {
-    console.error("Analytics error:", error);
+    logger.error("Analytics error:", error);
     res.status(500).json({ success: false, message: "Failed to load analytics data" });
   }
 });

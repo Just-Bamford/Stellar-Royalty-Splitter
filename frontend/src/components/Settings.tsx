@@ -5,9 +5,10 @@ import "./Settings.css";
 
 interface SettingsProps {
   contractId: string;
+  onClearContract?: () => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ contractId }) => {
+export const Settings: React.FC<SettingsProps> = ({ contractId, onClearContract }) => {
   const { isDark, toggleTheme } = useTheme();
   const { settings, updateSettings } = useSettings();
   const [localSettings, setLocalSettings] = useState(() => ({ ...settings }));
@@ -248,6 +249,11 @@ export const Settings: React.FC<SettingsProps> = ({ contractId }) => {
         <button className="btn-secondary" onClick={handleReset}>
           🔄 Reset to Defaults
         </button>
+        {onClearContract && (
+          <button className="btn-secondary" onClick={onClearContract}>
+            🗑️ Clear Saved Contract
+          </button>
+        )}
       </div>
     </div>
   );
