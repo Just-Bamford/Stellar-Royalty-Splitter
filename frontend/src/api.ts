@@ -47,7 +47,7 @@ export interface AuditLogEntry {
   contractId: string;
   action: string;
   user: string | null;
-  details: string | null;
+  details: Record<string, unknown> | null;
   timestamp: string;
 }
 

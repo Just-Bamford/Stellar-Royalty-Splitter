@@ -270,7 +270,11 @@ export function getAuditLog(contractId, limit = 100, offset = 0) {
     LIMIT ? OFFSET ?
   `);
 
-  return stmt.all(contractId, limit, offset);
+  return stmt.all(contractId, limit, offset).map((row) => {
+    let details = null;
+    try { details = JSON.parse(row.details || "{}"); } catch (_) {}
+    return { ...row, details };
+  });
 }
 
 export function addAuditLog(contractId, action, user, details) {
