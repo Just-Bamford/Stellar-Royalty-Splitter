@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { retryBuildTx, addressToScVal, u32ToScVal, vecToScVal } from "../stellar.js";
+import { retryBuildTx, addressToScVal, u32ToScVal, vecToScVal, isContractInitialized } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
 import { validate, initializeSchema } from "../validation.js";
 
@@ -32,6 +32,16 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
       return res
         .status(400)
         .json({ error: "Shares must sum to 10000 basis points" });
+    }
+
+    // Check if contract is already initialized on-chain
+    const alreadyInitialized = await isContractInitialized(contractId);
+    if (alreadyInitialized) {
+      return res
+        .status(409)
+        .json({ 
+          error: "Contract is already initialized. Cannot re-initialize an existing contract." 
+        });
     }
 
     // Record transaction in database for audit trail

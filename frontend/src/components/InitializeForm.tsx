@@ -130,7 +130,16 @@ export default function InitializeForm({
       onSuccess();
 
     } catch (e: unknown) {
-      setStatus({ type: "error", msg: e instanceof Error ? e.message : "Unknown error" });
+      // Handle 409 Conflict error specifically
+      const errorMessage = e instanceof Error ? e.message : "Unknown error";
+      if (errorMessage.includes('409') || errorMessage.includes('already initialized')) {
+        setStatus({ 
+          type: "error", 
+          msg: "⚠️ This contract is already initialized. You cannot re-initialize an existing contract." 
+        });
+      } else {
+        setStatus({ type: "error", msg: errorMessage });
+      }
     } finally {
       setLoading(false);
     }
