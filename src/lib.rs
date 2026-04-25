@@ -39,7 +39,6 @@ impl RoyaltySplitter {
         let mut share_map: Map<Address, u32> = Map::new(&env);
         for i in 0..collaborators.len() {
             let addr = collaborators.get(i).unwrap();
-            // Bug fix #1: reject duplicate collaborator addresses
             if share_map.contains_key(addr.clone()) {
                 panic!("duplicate collaborator address");
             }
@@ -52,10 +51,6 @@ impl RoyaltySplitter {
         env.storage().instance().set(&DataKey::ShareMap, &share_map);
     }
 
-    pub fn set_royalty_rate(env: Env, new_rate: u32) {
-        if new_rate > 10_000 {
-            panic!("royalty rate cannot exceed 10000 basis points");
-        }
     /// Distribute `amount` of `token` from the contract balance to all collaborators.
     pub fn distribute(env: Env, token: Address, amount: i128) {
         let admin: Address = env
@@ -65,8 +60,9 @@ impl RoyaltySplitter {
             .expect("contract not initialized");
         admin.require_auth();
 
-        // Bug fix #2: assert amount <= contract token balance
         let token_client = token::Client::new(&env, &token);
+
+        // Assert full balance is available before any transfers begin.
         let balance = token_client.balance(&env.current_contract_address());
         if amount > balance {
             panic!("amount exceeds contract balance");
@@ -84,26 +80,30 @@ impl RoyaltySplitter {
             .expect("no share map");
 
         let n = collaborators.len();
-        let mut distributed: i128 = 0;
 
+        // Pre-calculate all payouts before executing any transfers.
+        let mut payouts: Vec<(Address, i128)> = Vec::new(&env);
+        let mut total_calculated: i128 = 0;
         for i in 0..(n - 1) {
             let addr = collaborators.get(i).unwrap();
             let share = share_map.get(addr.clone()).unwrap_or(0);
             let payout = amount * share as i128 / 10_000;
+            payouts.push_back((addr, payout));
+            total_calculated += payout;
+        }
+        // Last collaborator gets the remainder to avoid rounding dust loss.
+        let last = collaborators.get(n - 1).unwrap();
+        payouts.push_back((last, amount - total_calculated));
+
+        // All validation passed — execute transfers.
+        for (addr, payout) in payouts.iter() {
             token_client.transfer(&env.current_contract_address(), &addr, &payout);
-            distributed += payout;
             env.events().publish((symbol_short!("dist"),), (addr, payout));
         }
-
-        // Last collaborator gets the remainder to avoid rounding dust loss
-        let last = collaborators.get(n - 1).unwrap();
-        let remainder = amount - distributed;
-        token_client.transfer(&env.current_contract_address(), &last, &remainder);
-        env.events().publish((symbol_short!("dist"),), (last, remainder));
     }
 
-    /// Record a secondary-market royalty: caller must transfer `royalty_amount` tokens
-    /// to the contract before or within this call (via pre-approval + transfer_from).
+    /// Record a secondary-market royalty: caller must pre-approve the contract to
+    /// pull `royalty_amount` tokens via transfer_from.
     pub fn record_secondary_royalty(
         env: Env,
         token: Address,
@@ -112,7 +112,6 @@ impl RoyaltySplitter {
     ) {
         from.require_auth();
 
-        // Bug fix #3: actually pull tokens into the contract so the pool is real
         let token_client = token::Client::new(&env, &token);
         token_client.transfer_from(
             &env.current_contract_address(),
@@ -142,10 +141,6 @@ impl RoyaltySplitter {
             .get(&DataKey::Admin)
             .expect("contract not initialized");
         admin.require_auth();
-        if total_amount <= 0 {
-            panic!("amount must be positive");
-        }
-        let rate: u32 = env.storage().instance().get(&DataKey::RoyaltyRate).unwrap_or(0);
 
         let pool: i128 = env
             .storage()
@@ -162,8 +157,9 @@ impl RoyaltySplitter {
             .get(&DataKey::SecondaryToken)
             .expect("no secondary token set");
 
-        // Bug fix #3: assert pool <= actual contract balance before distributing
         let token_client = token::Client::new(&env, &token);
+
+        // Assert full pool is available before any transfers begin.
         let balance = token_client.balance(&env.current_contract_address());
         if pool > balance {
             panic!("pool exceeds contract balance");
@@ -181,36 +177,27 @@ impl RoyaltySplitter {
             .expect("no share map");
 
         let n = collaborators.len();
-        let mut distributed: i128 = 0;
 
+        // Pre-calculate all payouts before executing any transfers.
+        let mut payouts: Vec<(Address, i128)> = Vec::new(&env);
+        let mut total_calculated: i128 = 0;
         for i in 0..(n - 1) {
             let addr = collaborators.get(i).unwrap();
             let share = share_map.get(addr.clone()).unwrap_or(0);
             let payout = pool * share as i128 / 10_000;
-            token_client.transfer(&env.current_contract_address(), &addr, &payout);
-            distributed += payout;
+            payouts.push_back((addr, payout));
+            total_calculated += payout;
         }
-
         let last = collaborators.get(n - 1).unwrap();
-        let remainder = pool - distributed;
-        token_client.transfer(&env.current_contract_address(), &last, &remainder);
+        payouts.push_back((last, pool - total_calculated));
+
+        for (addr, payout) in payouts.iter() {
+            token_client.transfer(&env.current_contract_address(), &addr, &payout);
+        }
 
         env.storage().instance().set(&DataKey::SecondaryPool, &0_i128);
     }
 
-    pub fn record_secondary_royalty(env: Env, sale_price: i128) -> i128 {
-        if sale_price <= 0 {
-            panic!("sale price must be positive");
-        }
-        let rate: u32 = env.storage().instance().get(&DataKey::RoyaltyRate).unwrap_or(0);
-        let royalty_amount = sale_price * rate as i128 / 10_000;
-        let current_pool: i128 = env.storage().instance().get(&DataKey::SecondaryRoyaltyPool).unwrap_or(0);
-        env.storage().instance().set(&DataKey::SecondaryRoyaltyPool, &(current_pool + royalty_amount));
-        royalty_amount
-    }
-
-    pub fn get_royalty_rate(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::RoyaltyRate).unwrap_or(0)
     pub fn get_share(env: Env, collaborator: Address) -> u32 {
         let share_map: Map<Address, u32> = env
             .storage()
@@ -246,9 +233,8 @@ impl RoyaltySplitter {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        testutils::{Address as _, MockAuth, MockAuthInvoke},
         token::{Client as TokenClient, StellarAssetClient},
-        vec, Address, Env, IntoVal,
+        vec, Address, Env,
     };
 
     fn setup(env: &Env) -> (Address, RoyaltySplitterClient) {
@@ -258,16 +244,12 @@ mod tests {
     }
 
     fn make_token(env: &Env, admin: &Address) -> Address {
-        let token_id = env.register_stellar_asset_contract(admin.clone());
-        token_id
+        env.register_stellar_asset_contract(admin.clone())
     }
 
-    fn mint(env: &Env, token: &Address, admin: &Address, to: &Address, amount: i128) {
+    fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
         StellarAssetClient::new(env, token).mint(to, &amount);
-        let _ = admin;
     }
-
-    // ── existing tests ────────────────────────────────────────────────────
 
     #[test]
     fn test_admin_is_stored_on_initialize() {
@@ -276,9 +258,7 @@ mod tests {
         let (_, client) = setup(&env);
         let a = Address::generate(&env);
         let b = Address::generate(&env);
-        let collaborators = vec![&env, a.clone(), b.clone()];
-        let shares = vec![&env, 5000_u32, 5000_u32];
-        client.initialize(&collaborators, &shares);
+        client.initialize(&vec![&env, a.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
         assert_eq!(client.get_admin(), a);
     }
 
@@ -293,20 +273,13 @@ mod tests {
         let token_admin = Address::generate(&env);
         let token = make_token(&env, &token_admin);
 
-        let collaborators = vec![&env, admin.clone(), b.clone()];
-        let shares = vec![&env, 5000_u32, 5000_u32];
-        client.initialize(&collaborators, &shares);
-
-        // Fund the contract
-        mint(&env, &token, &token_admin, &contract_id, 1000);
-
+        client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+        mint(&env, &token, &contract_id, 1000);
         client.distribute(&token, &1000_i128);
 
         assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
         assert_eq!(TokenClient::new(&env, &token).balance(&b), 500);
     }
-
-    // ── Bug fix #1: duplicate collaborator ────────────────────────────────
 
     #[test]
     #[should_panic(expected = "duplicate collaborator address")]
@@ -315,13 +288,8 @@ mod tests {
         env.mock_all_auths();
         let (_, client) = setup(&env);
         let a = Address::generate(&env);
-        // same address twice
-        let collaborators = vec![&env, a.clone(), a.clone()];
-        let shares = vec![&env, 5000_u32, 5000_u32];
-        client.initialize(&collaborators, &shares);
+        client.initialize(&vec![&env, a.clone(), a.clone()], &vec![&env, 5000_u32, 5000_u32]);
     }
-
-    // ── Bug fix #2: over-distribution ────────────────────────────────────
 
     #[test]
     #[should_panic(expected = "amount exceeds contract balance")]
@@ -335,16 +303,45 @@ mod tests {
         let token_admin = Address::generate(&env);
         let token = make_token(&env, &token_admin);
 
-        let collaborators = vec![&env, admin.clone(), b.clone()];
-        let shares = vec![&env, 5000_u32, 5000_u32];
-        client.initialize(&collaborators, &shares);
-
-        // Fund with 500 but try to distribute 1000
-        mint(&env, &token, &token_admin, &contract_id, 500);
+        client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+        mint(&env, &token, &contract_id, 500);
         client.distribute(&token, &1000_i128);
     }
 
-    // ── Bug fix #3: secondary royalty pool ───────────────────────────────
+    /// Issue #92 — balance validated before loop; no partial distribution possible.
+    /// With 3 collaborators, if the contract only holds enough for the first payout,
+    /// the balance check must fire before any transfer occurs.
+    #[test]
+    #[should_panic(expected = "amount exceeds contract balance")]
+    fn test_no_partial_distribution_on_insufficient_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+
+        let admin = Address::generate(&env);
+        let b = Address::generate(&env);
+        let c = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+
+        // 3-way split: 50 / 30 / 20
+        client.initialize(
+            &vec![&env, admin.clone(), b.clone(), c.clone()],
+            &vec![&env, 5000_u32, 3000_u32, 2000_u32],
+        );
+
+        // Fund only 300 but request distribution of 1000.
+        // Without the pre-loop balance check, the first transfer (500) would succeed,
+        // the second (300) would succeed, and the third (200) would fail — leaving a
+        // partial state. The guard must reject the whole call upfront.
+        mint(&env, &token, &contract_id, 300);
+        client.distribute(&token, &1000_i128);
+
+        // Verify no collaborator received anything (guard fired before any transfer).
+        assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&b), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&c), 0);
+    }
 
     #[test]
     fn test_secondary_royalty_end_to_end() {
@@ -358,15 +355,11 @@ mod tests {
         let token_admin = Address::generate(&env);
         let token = make_token(&env, &token_admin);
 
-        let collaborators = vec![&env, admin.clone(), b.clone()];
-        let shares = vec![&env, 5000_u32, 5000_u32];
-        client.initialize(&collaborators, &shares);
+        client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
 
-        // Mint royalty tokens to seller, then record secondary royalty
-        mint(&env, &token, &token_admin, &seller, 200);
+        mint(&env, &token, &seller, 200);
         client.record_secondary_royalty(&token, &seller, &200_i128);
 
-        // Pool should reflect real tokens
         assert_eq!(client.get_secondary_pool(), 200);
         assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 200);
 
@@ -389,29 +382,13 @@ mod tests {
         let token_admin = Address::generate(&env);
         let token = make_token(&env, &token_admin);
 
-        let collaborators = vec![&env, admin.clone(), b.clone()];
-        let shares = vec![&env, 5000_u32, 5000_u32];
-        client.initialize(&collaborators, &shares);
+        client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
 
-        // Manually set pool > balance by minting to contract then draining via distribute,
-        // then calling distribute_secondary_royalties with a stale pool value.
-        // Simplest: mint to contract, record pool via secondary royalty, then drain balance.
-        mint(&env, &token, &token_admin, &contract_id, 100);
-        // Directly set pool to 500 while balance is only 100 by calling distribute first
-        // to drain, leaving pool > balance scenario.
-        // We simulate this by funding 100, distributing 100 (drains balance),
-        // then trying to distribute_secondary_royalties with pool=100 but balance=0.
-        client.distribute(&token, &100_i128); // drains balance to 0
-
-        // Now set up a secondary pool of 100 with no backing balance
-        // We can't call record_secondary_royalty (no tokens), so we test the assertion
-        // by minting to contract and then distributing primary first to drain it.
-        // Instead: mint fresh tokens, record secondary royalty (funds contract),
-        // then drain via primary distribute, leaving pool > balance.
-        mint(&env, &token, &token_admin, &contract_id, 100);
+        // Fund contract, record secondary royalty (pool = 100, balance = 100),
+        // then drain balance via primary distribute — pool > balance.
+        mint(&env, &token, &contract_id, 100);
         client.record_secondary_royalty(&token, &contract_id, &100_i128);
-        // pool = 100, balance = 100; now drain balance via primary distribute
-        client.distribute(&token, &100_i128); // balance = 0, pool still = 100
+        client.distribute(&token, &100_i128); // balance → 0, pool still = 100
         client.distribute_secondary_royalties(); // should panic
     }
 }
