@@ -56,16 +56,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [allTime, setAllTime] = useState(false);
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0],
     end: new Date().toISOString().split("T")[0],
   });
+  const [dateError, setDateError] = useState<string | null>(null);
+  const today = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
     loadStats();
-  }, [contractId, dateRange]);
+  }, [contractId, dateRange, allTime]);
 
   const loadStats = async () => {
     if (!contractId) {
@@ -77,7 +80,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     setError(null);
 
     try {
-      const response = await api.getAnalytics(contractId, dateRange);
+      const response = await api.getAnalytics(contractId, allTime ? undefined : dateRange);
 
       if (response.success) {
         setStats(response.data);
@@ -109,25 +112,48 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
       <div className="dashboard-header">
         <h1>Analytics Dashboard</h1>
         <div className="date-range-filter">
+          <button
+            onClick={() => setAllTime(!allTime)}
+            className={`preset-btn${allTime ? " active" : ""}`}
+          >
+            All time
+          </button>
           <input
             type="date"
             value={dateRange.start}
-            onChange={(e) =>
-              setDateRange({ ...dateRange, start: e.target.value })
-            }
+            max={today}
+            disabled={allTime}
+            onChange={(e) => {
+              const start = e.target.value;
+              if (start > dateRange.end) {
+                setDateError("Start date must be on or before end date.");
+              } else {
+                setDateError(null);
+                setDateRange({ ...dateRange, start });
+              }
+            }}
           />
           <span>to</span>
           <input
             type="date"
             value={dateRange.end}
-            onChange={(e) =>
-              setDateRange({ ...dateRange, end: e.target.value })
-            }
+            max={today}
+            disabled={allTime}
+            onChange={(e) => {
+              const end = e.target.value;
+              if (end < dateRange.start) {
+                setDateError("End date must be on or after start date.");
+              } else {
+                setDateError(null);
+                setDateRange({ ...dateRange, end });
+              }
+            }}
           />
           <button onClick={loadStats} className="refresh-btn">
             🔄 Refresh
           </button>
         </div>
+        {dateError && <div className="date-error">{dateError}</div>}
       </div>
 
       {loading && (
@@ -140,6 +166,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
       {stats && !loading && (
         <>
+          {stats.totalTransactions === 0 && (
+            <div className="empty-data-warning">
+              ⚠️ No data found for this period. Try widening your date range or selecting <strong>All time</strong>.
+            </div>
+          )}
           {/* KPI Cards */}
           <div className="kpi-cards">
               <div className="kpi-card kpi-distributed">

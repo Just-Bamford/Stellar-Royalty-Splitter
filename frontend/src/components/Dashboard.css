@@ -570,3 +570,31 @@
     font-size: 0.85rem;
   }
 }
+
+.preset-btn {
+  padding: 6px 12px;
+  border: 1px solid #667eea;
+  border-radius: 4px;
+  background: transparent;
+  color: #667eea;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.preset-btn.active {
+  background: #667eea;
+  color: #fff;
+}
+.date-error {
+  color: #e53e3e;
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+.empty-data-warning {
+  background: #fffbeb;
+  border: 1px solid #f6ad55;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  color: #744210;
+  font-size: 0.9rem;
+}
