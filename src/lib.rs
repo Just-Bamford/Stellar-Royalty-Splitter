@@ -52,6 +52,11 @@ impl RoyaltySplitter {
         for i in 0..collaborators.len() {
 
             let addr = collaborators.get(i).unwrap();
+            let share = shares.get(i).unwrap();
+
+            if share == 0 {
+                panic!("share cannot be zero");
+            }
 
             if share_map.contains_key(addr.clone()) {
                 panic!("duplicate collaborator address");
@@ -59,7 +64,7 @@ impl RoyaltySplitter {
 
             share_map.set(
                 addr,
-                shares.get(i).unwrap(),
+                share,
             );
         }
 
