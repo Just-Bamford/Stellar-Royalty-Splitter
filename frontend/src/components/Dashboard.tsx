@@ -249,10 +249,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                       </div>
                     </div>
                     <div className="earner-percentage">
-                      {(
-                        (earner.totalEarned / stats.totalDistributed) *
-                        100
-                      ).toFixed(1)}
+                      {stats.totalDistributed > 0
+                        ? ((earner.totalEarned / stats.totalDistributed) * 100).toFixed(1)
+                        : "0.0"}
                       %
                     </div>
                   </div>
@@ -289,12 +288,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                         </td>
                         <td className="text-right">{collab.payoutCount}</td>
                         <td className="text-right">
-                          {(
-                            collab.totalEarned / collab.payoutCount
-                          ).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {collab.payoutCount > 0
+                            ? (collab.totalEarned / collab.payoutCount).toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                            : "0.00"}
                         </td>
                       </tr>
                     ))
