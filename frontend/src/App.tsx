@@ -22,6 +22,8 @@ import RecordSecondarySale from "./components/RecordSecondarySale";
 import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalties";
 import ResaleHistory from "./components/ResaleHistory";
 import { api } from "./api";
+
+
 import "./App.css";
 
 function isValidContractId(id: string): boolean {
@@ -38,6 +40,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(
     () => localStorage.getItem("srs_currentPage") ?? "dashboard"
   );
+    const contractIdValid = isValidContractId(contractId);
 
   function handlePageChange(page: string) {
     localStorage.setItem("srs_currentPage", page);
@@ -99,7 +102,7 @@ export default function App() {
     }
   }
 
-  const contractIdValid = isValidContractId(contractId);
+
 
   const renderPage = () => {
     switch (currentPage) {
