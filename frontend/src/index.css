@@ -8,8 +8,8 @@
 
 body {
   font-family: "Inter", system-ui, sans-serif;
-  background: #0d0f14;
-  color: #e2e8f0;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   min-height: 100vh;
 }
 
@@ -28,12 +28,12 @@ h2 {
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 1rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .card {
-  background: #161b27;
-  border: 1px solid #1e2a3a;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
@@ -45,31 +45,31 @@ h2 {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #1e3a5f;
-  color: #60a5fa;
+  background: var(--accent-primary-light);
+  color: var(--info);
   margin-bottom: 1rem;
 }
 
 label {
   display: block;
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-bottom: 4px;
 }
 
 input {
   width: 100%;
-  background: #0d0f14;
-  border: 1px solid #1e2a3a;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
   outline: none;
 }
 input:focus {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .row {
@@ -96,20 +96,20 @@ button:disabled {
 }
 
 .btn-primary {
-  background: #3b82f6;
-  color: #fff;
+  background: var(--info);
+  color: var(--text-inverse);
 }
 .btn-primary:hover:not(:disabled) {
   opacity: 0.85;
 }
 .btn-danger {
-  background: #ef4444;
-  color: #fff;
+  background: var(--error-color);
+  color: var(--text-inverse);
   padding: 0.45rem 0.75rem;
 }
 .btn-add {
-  background: #1e3a5f;
-  color: #60a5fa;
+  background: var(--accent-primary-light);
+  color: var(--info);
   margin-top: 0.5rem;
 }
 
@@ -136,19 +136,19 @@ button:disabled {
   color: #86efac;
 }
 .status.error {
-  background: #450a0a;
-  color: #fca5a5;
+  background: var(--error-light);
+  color: var(--error-dark);
 }
 .status.error .freighter-link {
-  color: #fca5a5;
+  color: var(--error-dark);
   text-decoration: underline;
 }
 .status.error .freighter-link:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 .status.info {
-  background: #1e3a5f;
-  color: #93c5fd;
+  background: var(--accent-primary-light);
+  color: var(--info);
 }
 
 table {
@@ -158,14 +158,14 @@ table {
 }
 th {
   text-align: left;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 500;
   padding: 0.4rem 0;
-  border-bottom: 1px solid #1e2a3a;
+  border-bottom: 1px solid var(--border-color);
 }
 td {
   padding: 0.5rem 0;
-  border-bottom: 1px solid #1e2a3a;
+  border-bottom: 1px solid var(--border-color);
   word-break: break-all;
 }
 td:last-child {
@@ -178,23 +178,23 @@ td:last-child {
   margin-bottom: 0.75rem;
 }
 .share-total--valid {
-  color: #86efac;
+  color: var(--success);
 }
 .share-total--invalid {
-  color: #fca5a5;
+  color: var(--error-color);
 }
 
 .field-error {
   display: block;
   font-size: 0.75rem;
-  color: #fca5a5;
+  color: var(--error-color);
   margin-bottom: 0.5rem;
 }
 
 .share-bar {
   height: 6px;
   border-radius: 3px;
-  background: #3b82f6;
+  background: var(--info);
   margin-top: 4px;
 }
 
@@ -205,7 +205,7 @@ td:last-child {
 }
 .wallet-addr {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-secondary);
   font-family: monospace;
 }
 
@@ -213,18 +213,18 @@ td:last-child {
 .section-divider {
   margin: 2.5rem 0 1.5rem 0;
   padding: 1rem 0 0 0;
-  border-top: 2px solid #1e2a3a;
+  border-top: 2px solid var(--border-color);
 }
 
 .section-divider h2 {
   margin-top: 1rem;
   margin-bottom: 1.5rem;
-  color: #60a5fa;
+  color: var(--info);
 }
 
 .description {
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-bottom: 1rem;
 }
 
@@ -255,8 +255,8 @@ td:last-child {
 .rate-display {
   display: inline-block;
   padding: 0.4rem 0.8rem;
-  background: #1e3a5f;
-  color: #60a5fa;
+  background: var(--accent-primary-light);
+  color: var(--info);
   border-radius: 6px;
   font-weight: 600;
   font-size: 0.85rem;
@@ -275,8 +275,8 @@ td:last-child {
 }
 
 .stats-summary {
-  background: #1a2332;
-  border: 1px solid #1e2a3a;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1rem;
@@ -293,7 +293,7 @@ td:last-child {
 
 .stat-label {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -301,7 +301,7 @@ td:last-child {
 .stat-value {
   font-size: 1rem;
   font-weight: 700;
-  color: #60a5fa;
+  color: var(--info);
 }
 
 .message {
@@ -314,24 +314,24 @@ td:last-child {
 .message.ok {
   background: #14532d;
   color: #86efac;
-  border: 1px solid #22c55e;
+  border: 1px solid var(--success);
 }
 
 .message.error {
-  background: #450a0a;
-  color: #fca5a5;
-  border: 1px solid #ef4444;
+  background: var(--error-light);
+  color: var(--error-dark);
+  border: 1px solid var(--error-color);
 }
 
 .message.info {
-  background: #1e3a5f;
-  color: #93c5fd;
-  border: 1px solid #3b82f6;
+  background: var(--accent-primary-light);
+  color: var(--info);
+  border: 1px solid var(--info);
 }
 
 small {
   display: block;
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin-top: 0.25rem;
 }

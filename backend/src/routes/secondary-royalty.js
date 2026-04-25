@@ -11,6 +11,8 @@ import {
   recordSecondarySale,
   recordSecondaryRoyaltyDistribution,
   getSecondarySales,
+  countSecondarySales,
+  markSalesDistributed,
   getSecondaryRoyaltyDistributions,
   getRoyaltyStatistics,
   updateTransactionHash,
@@ -64,10 +66,10 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
     // Fetch on-chain royalty rate instead of trusting client-supplied value
     const onChainRate = await getRoyaltyRateFromContract(contractId);
 
-    // Calculate royalty amount using on-chain rate
-    const royaltyAmount = Math.floor((salePrice * onChainRate) / 10000);
+    // Calculate royalty amount using BigInt for precision
+    const royaltyAmount = BigInt(salePrice) * BigInt(onChainRate) / 10000n;
 
-    if (royaltyAmount <= 0) {
+    if (royaltyAmount <= 0n) {
       return res.status(400).json({ error: "Calculated royalty amount is zero." });
     }
 
@@ -115,7 +117,7 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
     res.json({
       xdr: txXdr,
       transactionId,
-      royaltyAmount,
+      royaltyAmount: royaltyAmount.toString(),
       royaltyRateUsed: onChainRate,
     });
   } catch (err) {
@@ -136,7 +138,7 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
       return res.status(400).json({ error: "Missing required fields." });
     }
 
-    if (royaltyRate < 0 || royaltyRate > 10000) {
+    if (!Number.isInteger(royaltyRate) || royaltyRate < 0 || royaltyRate > 10000) {
       return res
         .status(400)
         .json({ error: "Royalty rate must be between 0 and 10000 basis points." });
@@ -195,8 +197,8 @@ secondaryRoyaltyRouter.post("/distribute", async (req, res, next) => {
       return res.status(400).json({ error: "Missing required fields." });
     }
 
-    // Get pending secondary sales
-    const pendingSales = getSecondarySales(contractId);
+    // Get pending (undistributed) secondary sales
+    const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
 
     if (pendingSales.length === 0) {
       return res.status(400).json({ error: "No pending secondary royalties to distribute." });
@@ -218,6 +220,9 @@ secondaryRoyaltyRouter.post("/distribute", async (req, res, next) => {
     const txXdr = await buildTx(walletAddress, contractId, "distribute_secondary_royalties", [
       addressToScVal(tokenId),
     ]);
+
+    // Mark sales as distributed
+    markSalesDistributed(pendingSales.map((s) => s.id));
 
     addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
       transactionId,
@@ -281,8 +286,9 @@ secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
 
     const { nftId } = req.query;
     const sales = getSecondarySales(contractId, limit, offset, nftId);
+    const total = countSecondarySales(contractId, nftId);
 
-    res.json({ sales, total: sales.length });
+    res.json({ sales, total });
   } catch (err) {
     next(err);
   }

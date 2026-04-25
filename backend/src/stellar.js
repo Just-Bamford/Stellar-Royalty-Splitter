@@ -43,6 +43,38 @@ export async function buildTx(callerAddress, contractId, method, args = []) {
   return prepared.toXDR();
 }
 
+/**
+ * Retry wrapper for buildTx with friendly error handling.
+ */
+export async function retryBuildTx(callerAddress, contractId, method, args = []) {
+  const maxRetries = 3;
+  const backoffMs = 1000;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await buildTx(callerAddress, contractId, method, args);
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries;
+      const isNetworkError = error.message?.includes('network') || error.message?.includes('timeout') || error.code === 'ENOTFOUND';
+      const isAccountNotFound = error.message?.includes('account not found');
+      const isSimulationError = error.message?.includes('simulation') || error.message?.includes('prepare');
+
+      if (isAccountNotFound) {
+        throw { status: 400, message: "Caller account not found on Stellar network" };
+      }
+      if (isNetworkError || isSimulationError) {
+        if (isLastAttempt) {
+          throw { status: 503, message: "Stellar RPC is currently unavailable. Please try again later." };
+        }
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      // Re-throw other errors as-is
+      throw error;
+    }
+  }
+}
+
 // ── ScVal helpers ────────────────────────────────────────────────────────
 
 export function addressToScVal(addr) {

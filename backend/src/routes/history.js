@@ -8,6 +8,7 @@ import {
   updateTransactionStatus
 } from '../database.js';
 import { validateContractId, parsePagination } from '../validation.js';
+import { server } from '../stellar.js';
 
 const router = express.Router();
 
@@ -71,32 +72,57 @@ router.get('/transaction/:txHash', (req, res) => {
 
 /**
  * POST /api/transaction/confirm/:txHash
- * Confirm a transaction (update status based on chain verification)
+ * Verify on-chain status via Soroban RPC before updating the DB.
+ * Returns 409 if the requested status contradicts the on-chain result.
  */
-router.post('/transaction/confirm/:txHash', (req, res) => {
+router.post('/transaction/confirm/:txHash', async (req, res) => {
   try {
     const { txHash } = req.params;
-    const { status, blockTime, errorMessage } = req.body;
+    const { blockTime, errorMessage } = req.body;
 
-    if (!['confirmed', 'failed', 'pending'].includes(status)) {
-      return res.status(400).json({
+    // Return 404 if transaction does not exist
+    const existing = getTransactionDetails(txHash);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
+
+    // Prevent overwriting already-settled transactions
+    if (existing.status !== 'pending') {
+      return res.status(409).json({
         success: false,
-        error: 'Invalid status'
+        error: `Transaction already ${existing.status}`
       });
     }
 
-    updateTransactionStatus(txHash, status, blockTime, errorMessage);
+    // Verify on-chain status
+    let onChainResult;
+    try {
+      onChainResult = await server.getTransaction(txHash);
+    } catch {
+      return res.status(502).json({ success: false, error: 'Failed to reach Stellar RPC' });
+    }
+
+    // Map Stellar RPC status to our DB status
+    const STATUS_MAP = { SUCCESS: 'confirmed', FAILED: 'failed' };
+    const resolvedStatus = STATUS_MAP[onChainResult.status];
+
+    if (!resolvedStatus) {
+      // NOT_FOUND or still pending on-chain
+      return res.status(409).json({
+        success: false,
+        error: `Transaction not yet finalized on-chain (status: ${onChainResult.status})`
+      });
+    }
+
+    updateTransactionStatus(txHash, resolvedStatus, blockTime ?? null, errorMessage ?? null);
 
     res.json({
       success: true,
-      message: `Transaction ${txHash.substring(0, 8)}... marked as ${status}`
+      message: `Transaction ${txHash.substring(0, 8)}... marked as ${resolvedStatus}`
     });
   } catch (error) {
     console.error('Error updating transaction status:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

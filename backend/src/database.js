@@ -62,6 +62,7 @@ export function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS distribution_payouts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transactionId INTEGER NOT NULL,
+      contractId TEXT NOT NULL DEFAULT '',
       collaboratorAddress TEXT NOT NULL,
       amountReceived TEXT NOT NULL,
       FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
@@ -77,6 +78,7 @@ export function initializeDatabase() {
       saleToken TEXT NOT NULL,
       royaltyAmount TEXT NOT NULL,
       royaltyRate INTEGER NOT NULL,
+      distributed INTEGER NOT NULL DEFAULT 0,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       transactionHash TEXT
     );
@@ -111,6 +113,15 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_secondary_sales_dedup ON secondary_sales(contractId, nftId, previousOwner, newOwner, salePrice, saleToken);
   `);
+
+  // Migration guards for existing databases
+  try {
+    db.exec(`ALTER TABLE secondary_sales ADD COLUMN distributed INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) { /* column already exists */ }
+
+  try {
+    db.exec(`ALTER TABLE distribution_payouts ADD COLUMN contractId TEXT NOT NULL DEFAULT ''`);
+  } catch (_) { /* column already exists */ }
 }
 
 // Transaction tracking functions
@@ -160,16 +171,17 @@ export function updateTransactionStatus(
 
 export function addDistributionPayout(
   transactionId,
+  contractId,
   collaboratorAddress,
   amountReceived,
 ) {
   const stmt = db.prepare(`
     INSERT INTO distribution_payouts 
-    (transactionId, collaboratorAddress, amountReceived)
-    VALUES (?, ?, ?)
+    (transactionId, contractId, collaboratorAddress, amountReceived)
+    VALUES (?, ?, ?, ?)
   `);
 
-  stmt.run(transactionId, collaboratorAddress, amountReceived);
+  stmt.run(transactionId, contractId, collaboratorAddress, amountReceived);
 }
 
 export function getTransactionCount(contractId) {
@@ -310,8 +322,9 @@ export function recordSecondarySale(
 
 /**
  * Get all secondary sales for a contract with optional filtering.
+ * Pass undistributedOnly=true to return only rows where distributed = 0.
  */
-export function getSecondarySales(contractId, limit = 50, offset = 0, nftId = null) {
+export function getSecondarySales(contractId, limit = 50, offset = 0, nftId = null, undistributedOnly = false) {
   let query = `
     SELECT 
       id,
@@ -322,6 +335,7 @@ export function getSecondarySales(contractId, limit = 50, offset = 0, nftId = nu
       saleToken,
       royaltyAmount,
       royaltyRate,
+      distributed,
       timestamp,
       transactionHash
     FROM secondary_sales
@@ -334,11 +348,37 @@ export function getSecondarySales(contractId, limit = 50, offset = 0, nftId = nu
     params.push(nftId);
   }
 
+  if (undistributedOnly) {
+    query += ` AND distributed = 0`;
+  }
+
   query += ` ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
-  const stmt = db.prepare(query);
-  return stmt.all(...params);
+  return db.prepare(query).all(...params);
+}
+
+/**
+ * Count secondary sales for a contract (ignores LIMIT/OFFSET).
+ */
+export function countSecondarySales(contractId, nftId = null) {
+  let query = `SELECT COUNT(*) as total FROM secondary_sales WHERE contractId = ?`;
+  const params = [contractId];
+
+  if (nftId) {
+    query += ` AND nftId = ?`;
+    params.push(nftId);
+  }
+
+  return db.prepare(query).get(...params).total;
+}
+
+/**
+ * Mark an array of secondary sale IDs as distributed.
+ */
+export function markSalesDistributed(ids) {
+  const placeholders = ids.map(() => "?").join(",");
+  db.prepare(`UPDATE secondary_sales SET distributed = 1 WHERE id IN (${placeholders})`).run(...ids);
 }
 
 /**

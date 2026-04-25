@@ -1,20 +1,9 @@
 import { useState, useEffect } from "react";
-import { api } from "../api";
+import { api, TransactionRecord } from "../api";
 import "./AdminDashboard.css";
 
 interface AdminDashboardProps {
   contractId: string;
-}
-
-interface InitializeHistory {
-  id: number;
-  contractId: string;
-  initiatorAddress: string;
-  collaborators: string;
-  shares: string;
-  timestamp: string;
-  txHash: string | null;
-  status: string;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -22,7 +11,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [initHistory, setInitHistory] = useState<InitializeHistory[]>([]);
+  const [initHistory, setInitHistory] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -40,7 +29,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const initTransactions = response.data.filter(
           (t) => t.type === "initialize",
         );
-        setInitHistory(initTransactions as any);
+        setInitHistory(initTransactions);
       }
     } catch (err) {
       console.error("Error loading initialize history:", err);
@@ -133,10 +122,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {record.initiatorAddress.slice(0, 10)}...
                       {record.initiatorAddress.slice(-6)}
                     </code>
-                  </div>
-                  <div className="detail-row">
-                    <span className="label">Collaborators:</span>
-                    <span className="value">{record.collaborators}</span>
                   </div>
                   <div className="detail-row">
                     <span className="label">Status:</span>

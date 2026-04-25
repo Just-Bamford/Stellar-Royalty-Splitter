@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { buildTx, addressToScVal, i128ToScVal } from "../stellar.js";
+import { retryBuildTx, addressToScVal, i128ToScVal } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
 import { validate, distributeSchema } from "../validation.js";
 
@@ -14,11 +14,14 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
   try {
     const { contractId, walletAddress, tokenId, amount } = req.body;
 
-    if (!contractId || !walletAddress || !tokenId || amount == null) {
+    if (!contractId || !walletAddress) {
       return res.status(400).json({ error: "Missing required fields." });
     }
-    if (amount <= 0) {
-      return res.status(400).json({ error: "Amount must be positive." });
+    if (!tokenId) {
+      return res.status(400).json({ error: "Token ID is required" });
+    }
+    if (typeof amount !== "number" || amount <= 0) {
+      return res.status(400).json({ error: "Amount must be a positive number" });
     }
 
     // Record transaction in database for audit trail
@@ -29,7 +32,7 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
       { requestedAmount: amount.toString(), tokenId },
     );
 
-    const txXdr = await buildTx(walletAddress, contractId, "distribute", [
+    const txXdr = await retryBuildTx(walletAddress, contractId, "distribute", [
       addressToScVal(tokenId),
       i128ToScVal(amount),
     ]);
@@ -43,6 +46,9 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
 
     res.json({ xdr: txXdr, transactionId });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });

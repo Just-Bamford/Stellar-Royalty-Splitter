@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { buildTx, addressToScVal, u32ToScVal, vecToScVal } from "../stellar.js";
+import { retryBuildTx, addressToScVal, u32ToScVal, vecToScVal } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database.js";
 import { validate, initializeSchema } from "../validation.js";
 
@@ -25,13 +25,13 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
     if (collaborators.length !== shares.length) {
       return res
         .status(400)
-        .json({ error: "collaborators and shares length mismatch." });
+        .json({ error: "Collaborators and shares arrays must be the same length" });
     }
     const total = shares.reduce((s, n) => s + n, 0);
     if (total !== 10_000) {
       return res
         .status(400)
-        .json({ error: `Shares must sum to 10000 bp (got ${total}).` });
+        .json({ error: "Shares must sum to 10000 basis points" });
     }
 
     // Record transaction in database for audit trail
@@ -45,7 +45,7 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
     const collaboratorVec = vecToScVal(collaborators.map(addressToScVal));
     const sharesVec = vecToScVal(shares.map(u32ToScVal));
 
-    const txXdr = await buildTx(walletAddress, contractId, "initialize", [
+    const txXdr = await retryBuildTx(walletAddress, contractId, "initialize", [
       collaboratorVec,
       sharesVec,
     ]);
@@ -59,6 +59,9 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
 
     res.json({ xdr: txXdr, transactionId });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });
