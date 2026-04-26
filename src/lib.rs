@@ -126,6 +126,11 @@ impl RoyaltySplitter {
                 &DataKey::RoyaltyRate,
                 &new_rate,
             );
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("rate_set")),
+            new_rate,
+        );
     }
 
     /// Returns true if the contract has been initialized.
@@ -222,6 +227,11 @@ impl RoyaltySplitter {
                 (addr, payout),
             );
         }
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("dist_all")),
+            (token, amount),
+        );
     }
 
     pub fn record_secondary_royalty(
@@ -366,6 +376,11 @@ impl RoyaltySplitter {
                 &DataKey::SecondaryPool,
                 &0_i128,
             );
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("sec_dist")),
+            (token, pool),
+        );
     }
 
     pub fn record_secondary_sale(
