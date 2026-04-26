@@ -76,6 +76,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// Per-request timeout middleware
+const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? "30000");
+app.use((req, res, next) => {
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(503).json({ error: "Request timed out. Please try again later." });
+    }
+  }, REQUEST_TIMEOUT_MS);
+  res.on("finish", () => clearTimeout(timer));
+  res.on("close", () => clearTimeout(timer));
+  next();
+});
+
 // Apply write limiter to mutating endpoints
 app.use("/api/v1/initialize", writeLimiter);
 app.use("/api/v1/distribute", writeLimiter);
@@ -105,6 +118,10 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT ?? 3001;
-app.listen(PORT, () =>
+const server = app.listen(PORT, () =>
   logger.info(`API listening on http://localhost:${PORT}`),
 );
+
+// Prevent hung connections from exhausting the connection pool
+server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS ?? "35000");
+server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS ?? "40000");
