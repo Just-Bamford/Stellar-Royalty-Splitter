@@ -8,6 +8,7 @@ import {
   Account,
 } from "@stellar/stellar-sdk";
 import { server, networkPassphrase, addressToScVal } from "../stellar.js";
+import { validateContractIdMiddleware } from "../validation.js";
 import logger from "../logger.js";
 
 export const collaboratorsRouter = Router();
@@ -18,7 +19,7 @@ export const collaboratorsRouter = Router();
  *
  * Uses a read-only simulation (no signing required).
  */
-collaboratorsRouter.get("/:contractId", async (req, res, next) => {
+collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
     const contract = new Contract(contractId);

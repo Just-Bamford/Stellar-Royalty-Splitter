@@ -7,15 +7,13 @@ import {
   Account,
 } from "@stellar/stellar-sdk";
 import { isContractInitialized, server, networkPassphrase, addressToScVal } from "../stellar.js";
+import { validateContractIdMiddleware } from "../validation.js";
 
 export const contractRouter = Router();
 
-contractRouter.get("/status/:contractId", async (req, res, next) => {
+contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
-    if (!contractId || !/^C[A-Z2-7]{55}$/.test(contractId)) {
-      return res.status(400).json({ error: "Invalid contract ID" });
-    }
     const initialized = await isContractInitialized(contractId);
     res.json({ initialized });
   } catch (err) {
@@ -28,7 +26,7 @@ contractRouter.get("/status/:contractId", async (req, res, next) => {
  * Returns the contract's token balance via simulation.
  * Response: { balance: string }
  */
-contractRouter.get("/balance/:contractId", async (req, res, next) => {
+contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
     const { tokenId } = req.query;
@@ -69,7 +67,7 @@ contractRouter.get("/balance/:contractId", async (req, res, next) => {
  * Returns the sum of all collaborator shares via simulation.
  * Response: { contractId, totalShares: number }
  */
-contractRouter.get("/shares-total/:contractId", async (req, res, next) => {
+contractRouter.get("/shares-total/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
     const contract = new Contract(contractId);

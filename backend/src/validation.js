@@ -65,6 +65,18 @@ export function validate(schema) {
 }
 
 /**
+ * Express middleware that validates :contractId route param.
+ * Returns 400 { error: "Invalid contract ID format" } if invalid.
+ */
+export function validateContractIdMiddleware(req, res, next) {
+  const contractId = req.params.contractId;
+  if (!contractId || !/^C[A-Z2-7]{55}$/.test(contractId)) {
+    return res.status(400).json({ error: "Invalid contract ID format" });
+  }
+  next();
+}
+
+/**
  * Validate a Stellar contract ID path param.
  * Returns true if valid, otherwise sends a 400 and returns false.
  */

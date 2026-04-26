@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../database.js"; // default export — no getDatabase() call needed
 import logger from "../logger.js";
+import { validateContractIdMiddleware } from "../validation.js";
 
 // Simple in-memory cache with TTL
 const cache = new Map();
@@ -8,7 +9,7 @@ const CACHE_TTL = 60 * 1000; // 60 seconds
 
 const router = express.Router();
 
-router.get("/analytics/:contractId", (req, res) => {
+router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) => {
   const { contractId } = req.params;
   const { start, end } = req.query;
 
