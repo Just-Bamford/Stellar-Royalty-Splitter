@@ -39,7 +39,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "admin", label: "Admin", icon: "👑" },
     { id: "initialize", label: "Initialize", icon: "⚙️" },
     { id: "distribute", label: "Distribute", icon: "💰" },
-    { id: "secondary", label: "Secondary Royalties", icon: "🔄" },
+    { id: "secondary", label: "Secondary", icon: "🔄" },
     { id: "settings", label: "Settings", icon: "⚡" },
   ];
 

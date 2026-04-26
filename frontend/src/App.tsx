@@ -298,7 +298,7 @@ export default function App() {
                       }`}
                       onClick={() => handlePageChange("secondary")}
                     >
-                      Secondary Royalties
+                      Secondary
                     </button>
                   </>
                 )}
