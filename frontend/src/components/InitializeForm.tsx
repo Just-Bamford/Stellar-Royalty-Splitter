@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
+import FormStatus from "./FormStatus";
+import { useFormStatus } from "../hooks/useFormStatus";
 
 
 interface Collaborator {
@@ -27,10 +29,7 @@ export default function InitializeForm({
   const [errors, setErrors] = useState<
     Record<number, { address?: string; basisPoints?: string }>
   >({});
-  const [status, setStatus] = useState<{
-    type: "ok" | "error" | "info";
-    msg: string;
-  } | null>(null);
+  const { status, setStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
 
   function update(i: number, field: keyof Collaborator, value: string) {
@@ -90,24 +89,18 @@ export default function InitializeForm({
 
   async function submit() {
     if (!contractId)
-      return setStatus({ type: "error", msg: "Enter a contract ID first." });
+      return setStatus("error", "Enter a contract ID first.");
     if (total !== 10_000)
-      return setStatus({
-        type: "error",
-        msg: `Shares must sum to 10,000 bp (currently ${total}).`,
-      });
+      return setStatus("error", `Shares must sum to 10,000 bp (currently ${total}).`);
 
     const addresses = collaborators.map((c: Collaborator) => c.address);
     const hasDuplicates = new Set(addresses).size !== addresses.length;
     if (hasDuplicates) {
-      return setStatus({
-        type: "error",
-        msg: "Duplicate addresses are not allowed.",
-      });
+      return setStatus("error", "Duplicate addresses are not allowed.");
     }
 
     setLoading(true);
-    setStatus({ type: "info", msg: "Building transaction…" });
+    setStatus("info", "Building transaction…");
 
     try {
       const res = await api.initialize({
@@ -117,28 +110,25 @@ export default function InitializeForm({
         shares: collaborators.map((c: Collaborator) => parseInt(c.basisPoints)),
       });
 
-      setStatus({ type: "info", msg: "Signing transaction with Freighter..." });
+      setStatus("info", "Signing transaction with Freighter...");
       const hash = await signAndSubmitTransaction(res.xdr);
 
-      setStatus({ type: "info", msg: "Waiting for confirmation..." });
+      setStatus("info", "Waiting for confirmation...");
       await api.confirmTransaction(hash, {
         status: "confirmed",
         blockTime: new Date().toISOString(),
       });
 
-      setStatus({ type: "ok", msg: `Initialized. Tx: ${hash}` });
+      setStatus("ok", `Initialized. Tx: ${hash}`);
       onSuccess();
 
     } catch (e: unknown) {
       // Handle 409 Conflict error specifically
       const errorMessage = e instanceof Error ? e.message : "Unknown error";
       if (errorMessage.includes('409') || errorMessage.includes('already initialized')) {
-        setStatus({ 
-          type: "error", 
-          msg: "⚠️ This contract is already initialized. You cannot re-initialize an existing contract." 
-        });
+        setStatus("error", "⚠️ This contract is already initialized. You cannot re-initialize an existing contract.");
       } else {
-        setStatus({ type: "error", msg: errorMessage });
+        setStatus("error", errorMessage);
       }
     } finally {
       setLoading(false);
@@ -200,7 +190,7 @@ export default function InitializeForm({
         </button>
       </div>
 
-      {status && <div className={`status ${status.type}`}>{status.msg}</div>}
+      {status && <FormStatus type={status.type} message={status.message} />}
     </div>
   );
 }

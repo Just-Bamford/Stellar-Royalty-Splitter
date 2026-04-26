@@ -352,6 +352,31 @@ td:last-child {
   border: 1px solid var(--info);
 }
 
+.form-status {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.form-status--ok {
+  background: #14532d;
+  color: #86efac;
+  border: 1px solid var(--success);
+}
+
+.form-status--error {
+  background: var(--error-light);
+  color: var(--error-dark);
+  border: 1px solid var(--error-color);
+}
+
+.form-status--info {
+  background: var(--accent-primary-light);
+  color: var(--info);
+  border: 1px solid var(--info);
+}
+
 small {
   display: block;
   font-size: 0.75rem;
