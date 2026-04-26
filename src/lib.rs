@@ -447,6 +447,15 @@ impl RoyaltySplitter {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Returns the full share map (Address → basis points) in a single call,
+    /// eliminating the need for N individual get_share simulations.
+    pub fn get_all_shares(env: Env) -> Map<Address, u32> {
+        env.storage()
+            .instance()
+            .get(&DataKey::ShareMap)
+            .unwrap_or(Map::new(&env))
+    }
+
     pub fn get_secondary_pool(
         env: Env,
     ) -> i128 {
