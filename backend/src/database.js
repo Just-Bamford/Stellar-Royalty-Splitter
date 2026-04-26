@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import logger from "./logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, "..", "audit.db");
+const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "audit.db");
 
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
@@ -12,6 +12,19 @@ db.pragma("synchronous = NORMAL"); // safe with WAL, much faster
 db.pragma("cache_size = -64000"); // 64MB page cache
 db.pragma("foreign_keys = ON"); // enforce FK constraints
 db.pragma("temp_store = MEMORY"); // temp tables in memory
+
+// Checkpoint the WAL periodically to prevent unbounded growth.
+let _writeCount = 0;
+export function countWrite() {
+  if (++_writeCount % 100 === 0) {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  }
+}
+
+// Final checkpoint on clean shutdown.
+process.on("exit", () => db.pragma("wal_checkpoint(TRUNCATE)"));
+process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));
 
 // Initialize database schema
 export function initializeDatabase() {
@@ -187,6 +200,7 @@ export function recordTransaction(contractId, type, initiatorAddress, data) {
     requestedAmount,
     tokenId,
   );
+  countWrite();
   return result.lastInsertRowid;
 }
 
@@ -198,6 +212,7 @@ export function updateTransactionHash(transactionId, txHash) {
   `);
 
   stmt.run(txHash, transactionId);
+  countWrite();
 }
 
 export function updateTransactionStatus(
@@ -213,6 +228,7 @@ export function updateTransactionStatus(
   `);
 
   stmt.run(status, blockTime, errorMessage, txHash);
+  countWrite();
 }
 
 export function addDistributionPayout(
@@ -228,6 +244,7 @@ export function addDistributionPayout(
   `);
 
   stmt.run(transactionId, contractId, collaboratorAddress, amountReceived);
+  countWrite();
 }
 
 export function getTransactionCount(contractId) {
@@ -331,6 +348,7 @@ export function addAuditLog(contractId, action, user, details) {
   `);
 
   stmt.run(contractId, action, user, JSON.stringify(details));
+  countWrite();
 }
 
 // ── Secondary Royalty Functions ──────────────────────────────────────────
@@ -367,6 +385,7 @@ export function recordSecondarySale(
     royaltyRate,
     transactionHash
   );
+  countWrite();
   return result.lastInsertRowid;
 }
 
@@ -429,6 +448,7 @@ export function countSecondarySales(contractId, nftId = null) {
 export function markSalesDistributed(ids) {
   const placeholders = ids.map(() => "?").join(",");
   db.prepare(`UPDATE secondary_sales SET distributed = 1 WHERE id IN (${placeholders})`).run(...ids);
+  countWrite();
 }
 
 /**
@@ -446,12 +466,14 @@ export function recordSecondaryRoyaltyDistribution(
     VALUES (?, ?, ?, ?)
   `);
 
-  return stmt.run(
+  const result = stmt.run(
     transactionId,
     contractId,
     totalRoyaltiesDistributed.toString(),
     numberOfSales
   );
+  countWrite();
+  return result;
 }
 
 /**
