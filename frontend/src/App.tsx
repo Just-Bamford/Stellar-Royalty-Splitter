@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Navigation } from "./components/Navigation";
+import HelpModal from "./components/HelpModal";
+import { useTheme } from "./context/ThemeContext";
 
 // Freighter is injected at runtime by the browser extension
 declare global {
@@ -31,6 +33,11 @@ function isValidContractId(id: string): boolean {
 }
 
 export default function App() {
+  const { toggleTheme } = useTheme();
+  const contractInputRef = useRef<HTMLInputElement>(null);
+  const [showHelp, setShowHelp] = useState(
+    () => !localStorage.getItem("srs_help_seen")
+  );
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [contractId, setContractId] = useState(
     () => localStorage.getItem("lastContractId") ?? ""
@@ -114,6 +121,24 @@ export default function App() {
       localStorage.setItem("lastContractId", value);
     }
   }
+
+  function closeHelp() {
+    localStorage.setItem("srs_help_seen", "1");
+    setShowHelp(false);
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA";
+      if (e.key === "?" && !typing) { setShowHelp(true); return; }
+      if (e.key === "Escape") { setShowHelp(false); return; }
+      if (e.ctrlKey && e.key === "k") { e.preventDefault(); contractInputRef.current?.focus(); return; }
+      if (e.ctrlKey && e.key === "d") { e.preventDefault(); toggleTheme(); return; }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleTheme]);
 
 
 
@@ -220,6 +245,7 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
+      {showHelp && <HelpModal onClose={closeHelp} />}
       <Navigation
         currentPage={currentPage}
         onPageChange={handlePageChange}
@@ -239,6 +265,7 @@ export default function App() {
           <div className="sidebar-card">
             <h3>📋 Contract ID</h3>
             <input
+              ref={contractInputRef}
               className={`contract-input${contractIdError ? " contract-input--error" : ""}`}
               placeholder="C..."
               value={contractId}
