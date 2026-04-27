@@ -270,8 +270,10 @@ secondaryRoyaltyRouter.get("/stats/:contractId", validateContractIdMiddleware, (
 
 /**
  * GET /api/secondary-royalty/sales/:contractId
- * Query params: limit, offset, nftId
- * Returns paginated list of secondary sales
+ * Query params: limit, offset, nftId, startDate, endDate
+ * Returns paginated list of secondary sales with optional date range filtering.
+ * startDate and endDate are ISO 8601 strings (e.g. "2024-01-01T00:00:00Z").
+ * Returns 400 if startDate > endDate.
  */
 secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
   try {
@@ -282,9 +284,26 @@ secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
     if (!pagination) return;
     const { limit, offset } = pagination;
 
-    const { nftId } = req.query;
-    const sales = getSecondarySales(contractId, limit, offset, nftId);
-    const total = countSecondarySales(contractId, nftId);
+    const { nftId, startDate, endDate } = req.query;
+
+    // Validate date range when either bound is supplied
+    if (startDate || endDate) {
+      const start = startDate ? new Date(startDate) : null;
+      const end = endDate ? new Date(endDate) : null;
+
+      if (start && isNaN(start.getTime())) {
+        return res.status(400).json({ error: "Invalid startDate." });
+      }
+      if (end && isNaN(end.getTime())) {
+        return res.status(400).json({ error: "Invalid endDate." });
+      }
+      if (start && end && start > end) {
+        return res.status(400).json({ error: "startDate must be before or equal to endDate." });
+      }
+    }
+
+    const sales = getSecondarySales(contractId, limit, offset, nftId, false, startDate, endDate);
+    const total = countSecondarySales(contractId, nftId, startDate, endDate);
 
     res.json({ sales, total });
   } catch (err) {

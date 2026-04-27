@@ -310,3 +310,91 @@ fn test_unauthorized_init_rejected() {
     let b = Address::generate(&env);
     client.initialize(&vec![&env, admin, b], &vec![&env, 5000_u32, 5000_u32]);
 }
+
+/// Issue #160 — pause blocks distribute.
+#[test]
+#[should_panic(expected = "contract is paused")]
+fn test_distribute_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+    mint(&env, &token, &contract_id, 1000);
+
+    client.pause();
+    // Must panic with "contract is paused"
+    client.distribute(&token);
+}
+
+/// Issue #160 — pause blocks distribute_secondary_royalties.
+#[test]
+#[should_panic(expected = "contract is paused")]
+fn test_distribute_secondary_blocked_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+
+    let pool_amount: i128 = 500;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+
+    client.pause();
+    // Must panic with "contract is paused"
+    client.distribute_secondary_royalties();
+}
+
+/// Issue #160 — unpause re-enables distribute.
+#[test]
+fn test_distribute_succeeds_after_unpause() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+    mint(&env, &token, &contract_id, 1000);
+
+    client.pause();
+    assert!(client.is_paused());
+
+    client.unpause();
+    assert!(!client.is_paused());
+
+    // Should succeed now
+    client.distribute(&token);
+    assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
+    assert_eq!(TokenClient::new(&env, &token).balance(&b), 500);
+}
+
+/// Issue #160 — pause and unpause require admin auth.
+#[test]
+#[should_panic]
+fn test_pause_requires_admin_auth() {
+    let env = Env::default();
+    // No mock_all_auths — require_auth() must reject non-admin callers.
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+    // Clear auths so the next call has no authorization
+    env.mock_auths(&[]);
+    client.pause();
+}
