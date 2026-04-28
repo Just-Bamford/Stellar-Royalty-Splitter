@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { api, RoyaltyStats } from "../api";
-import { signAndSubmitTransaction } from "../stellar";
-
+import { signAndSubmitTransaction } from "../stellar.js";
 
 interface Props {
   contractId: string;
@@ -21,20 +20,28 @@ export default function DistributeSecondaryRoyalties({
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<RoyaltyStats | null>(null);
+  const [poolBalance, setPoolBalance] = useState<string>("");
 
-  // Load royalty stats on component mount and contract change
+  // Load royalty stats and pool balance on mount/contract change
   useEffect(() => {
     if (!contractId) return;
 
-    api
-      .getRoyaltyStats(contractId)
+    api.getRoyaltyStats(contractId)
       .then(setStats)
       .catch(() => setStats(null));
+
+    api.getSecondaryRoyaltyPool(contractId)
+      .then((res) => setPoolBalance(res.poolBalance))
+      .catch(() => setPoolBalance("0"));
   }, [contractId]);
 
   async function submit() {
     if (!contractId || !tokenId) {
       return setStatus({ type: "error", msg: "Please fill in all fields." });
+    }
+
+    if (poolBalance === "0") {
+      return setStatus({ type: "error", msg: "No royalties available to distribute." });
     }
 
     setLoading(true);
@@ -57,20 +64,12 @@ export default function DistributeSecondaryRoyalties({
 
       setStatus({ type: "info", msg: "Please sign the transaction..." });
 
-      // Sign and submit transaction
       const result = await signAndSubmitTransaction(xdr);
-
-      setStatus({ type: "info", msg: "Waiting for confirmation..." });
-      await api.confirmTransaction(result, {
-        status: "confirmed",
-        blockTime: new Date().toISOString(),
-      });
 
       setStatus({
         type: "ok",
         msg: `Distributed ${totalRoyalties} tokens from ${numberOfSales} sales! TX: ${result}`,
       });
-
 
       setTokenId("");
       onSuccess();
@@ -105,14 +104,17 @@ export default function DistributeSecondaryRoyalties({
             <div className="stat-item">
               <span className="stat-label">Last Distribution:</span>
               <span className="stat-value">
-                {new Date(
-                  stats.lastDistribution.timestamp,
-                ).toLocaleDateString()}
+                {new Date(stats.lastDistribution.timestamp).toLocaleDateString()}
               </span>
             </div>
           )}
         </div>
       )}
+
+      <div className="stat-item">
+        <span className="stat-label">Current Pool Balance:</span>
+        <span className="stat-value">{poolBalance}</span>
+      </div>
 
       <div className="form-group">
         <label>Token Address</label>
@@ -127,9 +129,14 @@ export default function DistributeSecondaryRoyalties({
 
       {status && <div className={`message ${status.type}`}>{status.msg}</div>}
 
-      <button onClick={submit} disabled={loading} className="btn-primary">
+      <button
+        onClick={submit}
+        disabled={loading || poolBalance === "0"}
+        className="btn-primary"
+      >
         {loading ? "Processing..." : "Distribute Royalties"}
       </button>
     </div>
   );
 }
+
