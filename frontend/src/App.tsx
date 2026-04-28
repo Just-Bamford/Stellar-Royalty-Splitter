@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Navigation } from "./components/Navigation";
+import HelpModal from "./components/HelpModal";
+import { useTheme } from "./context/ThemeContext";
 
 // Freighter is injected at runtime by the browser extension
 declare global {
@@ -21,6 +23,7 @@ import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
 import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalties";
 import ResaleHistory from "./components/ResaleHistory";
+import { Skeleton } from "./components/Skeleton";
 import { api } from "./api";
 
 
@@ -31,6 +34,11 @@ function isValidContractId(id: string): boolean {
 }
 
 export default function App() {
+  const { toggleTheme } = useTheme();
+  const contractInputRef = useRef<HTMLInputElement>(null);
+  const [showHelp, setShowHelp] = useState(
+    () => !localStorage.getItem("srs_help_seen")
+  );
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [contractId, setContractId] = useState(
     () => localStorage.getItem("lastContractId") ?? ""
@@ -41,6 +49,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(
     () => localStorage.getItem("srs_currentPage") ?? "dashboard"
   );
+  const [initialLoading, setInitialLoading] = useState(true);
 
   function handlePageChange(page: string) {
     localStorage.setItem("srs_currentPage", page);
@@ -58,12 +67,17 @@ export default function App() {
   useEffect(() => {
     async function tryReconnect() {
       // window.freighter is injected at runtime by the browser extension
-      if (!window.freighter) return;
+      if (!window.freighter) {
+        setInitialLoading(false);
+        return;
+      }
       try {
         const { address } = await window.freighter.getAddress();
         if (address) setWalletAddress(address);
       } catch {
         // Not yet authorized — user must connect manually
+      } finally {
+        setInitialLoading(false);
       }
     }
     tryReconnect();
@@ -114,6 +128,24 @@ export default function App() {
       localStorage.setItem("lastContractId", value);
     }
   }
+
+  function closeHelp() {
+    localStorage.setItem("srs_help_seen", "1");
+    setShowHelp(false);
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA";
+      if (e.key === "?" && !typing) { setShowHelp(true); return; }
+      if (e.key === "Escape") { setShowHelp(false); return; }
+      if (e.ctrlKey && e.key === "k") { e.preventDefault(); contractInputRef.current?.focus(); return; }
+      if (e.ctrlKey && e.key === "d") { e.preventDefault(); toggleTheme(); return; }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleTheme]);
 
 
 
@@ -218,8 +250,20 @@ export default function App() {
     }
   };
 
+  if (initialLoading) {
+    return (
+      <div className="app-wrapper">
+        <div className="app-loading">
+          <Skeleton width="200px" height="40px" className="mb-4" />
+          <Skeleton width="100%" height="60vh" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-wrapper">
+      {showHelp && <HelpModal onClose={closeHelp} />}
       <Navigation
         currentPage={currentPage}
         onPageChange={handlePageChange}
@@ -239,6 +283,7 @@ export default function App() {
           <div className="sidebar-card">
             <h3>📋 Contract ID</h3>
             <input
+              ref={contractInputRef}
               className={`contract-input${contractIdError ? " contract-input--error" : ""}`}
               placeholder="C..."
               value={contractId}

@@ -8,12 +8,22 @@
     "start": "node src/index.js",
     "lint": "eslint src/**/*.js",
     "format": "prettier --write src/**/*.js",
-    "test": "echo \"No tests yet — see open issues\" && exit 0"
+    "test": "echo \"No tests yet — see open issues\" && exit 0",
+    "test:backend": "node --experimental-vm-modules node_modules/.bin/jest --testPathPatterns=tests/"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {},
+    "moduleNameMapper": {
+      "^better-sqlite3$": "<rootDir>/__mocks__/better-sqlite3.js"
+    }
   },
   "devDependencies": {
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.2.0"
+    "jest": "^30.3.0",
+    "prettier": "^3.2.0",
+    "supertest": "^7.2.2"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",

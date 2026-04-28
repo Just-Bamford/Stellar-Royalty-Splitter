@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
+import FormStatus from "./FormStatus";
+import { useFormStatus } from "../hooks/useFormStatus";
 
 interface Props {
   contractId: string;
@@ -17,10 +19,7 @@ export default function DistributeForm({
   const [amount, setAmount] = useState("");
   const [contractBalance, setContractBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
-  const [status, setStatus] = useState<{
-    type: "ok" | "error" | "info";
-    msg: string;
-  } | null>(null);
+  const { status, setStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
 
   // Fetch contract balance whenever tokenId changes (debounced)
@@ -50,33 +49,33 @@ export default function DistributeForm({
 
   async function submit() {
     if (!contractId)
-      return setStatus({ type: "error", msg: "Enter a contract ID first." });
+      return setStatus("error", "Enter a contract ID first.");
     if (!tokenId)
-      return setStatus({ type: "error", msg: "Enter a token address." });
+      return setStatus("error", "Enter a token address.");
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0)
-      return setStatus({ type: "error", msg: "Enter a valid amount." });
+      return setStatus("error", "Enter a valid amount.");
     if (exceedsBalance)
-      return setStatus({ type: "error", msg: "Amount exceeds contract balance." });
+      return setStatus("error", "Amount exceeds contract balance.");
 
     setLoading(true);
-    setStatus({ type: "info", msg: "Building transaction…" });
+    setStatus("info", "Building transaction…");
 
     try {
       const res = await api.distribute({ contractId, walletAddress, tokenId });
 
-      setStatus({ type: "info", msg: "Signing transaction with Freighter..." });
+      setStatus("info", "Signing transaction with Freighter...");
       const hash = await signAndSubmitTransaction(res.xdr);
 
-      setStatus({ type: "info", msg: "Waiting for confirmation..." });
+      setStatus("info", "Waiting for confirmation...");
       await api.confirmTransaction(hash, {
         status: "confirmed",
         blockTime: new Date().toISOString(),
       });
 
-      setStatus({ type: "ok", msg: `Distributed. Tx: ${hash}` });
+      setStatus("ok", `Distributed. Tx: ${hash}`);
       onSuccess();
     } catch (e: unknown) {
-      setStatus({ type: "error", msg: e instanceof Error ? e.message : "Unknown error" });
+      setStatus("error", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setLoading(false);
     }
@@ -123,7 +122,7 @@ export default function DistributeForm({
       >
         {loading ? "Submitting…" : "Distribute funds"}
       </button>
-      {status && <div className={`status ${status.type}`}>{status.msg}</div>}
+      {status && <FormStatus type={status.type} message={status.message} />}
     </div>
   );
 }

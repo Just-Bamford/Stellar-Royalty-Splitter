@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
+import FormStatus from "./FormStatus";
+import { useFormStatus } from "../hooks/useFormStatus";
 
 const G_ADDR = /^G[A-Z2-7]{55}$/;
 const C_ADDR = /^C[A-Z2-7]{55}$/;
@@ -27,10 +29,7 @@ export default function RecordSecondarySale({
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [status, setStatus] = useState<{
-    type: "ok" | "error" | "info";
-    msg: string;
-  } | null>(null);
+  const { status, setStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
   const [calculatedRoyalty, setCalculatedRoyalty] = useState<bigint | null>(null);
 
@@ -70,14 +69,14 @@ export default function RecordSecondarySale({
 
   async function submit() {
     if (!contractId) {
-      return setStatus({ type: "error", msg: "Enter a contract ID first." });
+      return setStatus("error", "Enter a contract ID first.");
     }
     if (!isFormValid) {
-      return setStatus({ type: "error", msg: "Please fix all field errors before submitting." });
+      return setStatus("error", "Please fix all field errors before submitting.");
     }
 
     setLoading(true);
-    setStatus({ type: "info", msg: "Recording secondary sale..." });
+    setStatus("info", "Recording secondary sale...");
 
     try {
       const { xdr, royaltyAmount } = await api.recordSecondarySale({
@@ -91,28 +90,22 @@ export default function RecordSecondarySale({
         royaltyRate,
       });
 
-      setStatus({ type: "info", msg: "Please sign the transaction..." });
+      setStatus("info", "Please sign the transaction...");
       const result = await signAndSubmitTransaction(xdr);
 
-      setStatus({ type: "info", msg: "Waiting for confirmation..." });
+      setStatus("info", "Waiting for confirmation...");
       await api.confirmTransaction(result, {
         status: "confirmed",
         blockTime: new Date().toISOString(),
       });
 
-      setStatus({
-        type: "ok",
-        msg: `Secondary sale recorded! Royalty: ${royaltyAmount} tokens. TX: ${result}`,
-      });
+      setStatus("ok", `Secondary sale recorded! Royalty: ${royaltyAmount} tokens. TX: ${result}`);
 
       setFormData({ nftId: "", previousOwner: "", newOwner: "", salePrice: "", saleToken: "" });
       setCalculatedRoyalty(null);
       onSuccess();
     } catch (err) {
-      setStatus({
-        type: "error",
-        msg: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
-      });
+      setStatus("error", `Error: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setLoading(false);
     }
@@ -204,11 +197,7 @@ export default function RecordSecondarySale({
         </div>
       </div>
 
-      {status && (
-        <div className={`message ${status.type}`}>
-          {status.msg}
-        </div>
-      )}
+      {status && <FormStatus type={status.type} message={status.message} />}
 
       <button onClick={submit} disabled={loading || !isFormValid} className="btn-primary">
         {loading ? "Processing..." : "Record Sale"}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api, TransactionRecord } from "../api";
+import { QRCodeSVG } from "qrcode.react";
 import "./AdminDashboard.css";
 
 interface AdminDashboardProps {
@@ -10,7 +11,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   contractId,
 }) => {
   const [showModal, setShowModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [initHistory, setInitHistory] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [contractVersion, setContractVersion] = useState<string>("loading...");
@@ -61,6 +64,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const exportContractInfo = () => {
+    const contractInfo = {
+      contractId,
+      version: contractVersion,
+      network: "Stellar Testnet",
+      runtime: "Soroban",
+      exportedAt: new Date().toISOString(),
+      features: [
+        "Automated Revenue Distribution",
+        "Multi-Collaborator Support",
+        "Transaction Audit Trail",
+        "Secondary Royalty Management",
+        "Real-time Analytics"
+      ]
+    };
+
+    const blob = new Blob([JSON.stringify(contractInfo, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `contract-${contractId.slice(0, 8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const generateShareLink = () => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?contract=${contractId}`;
+    navigator.clipboard.writeText(shareUrl);
+    setShareLinkCopied(true);
+    setTimeout(() => setShareLinkCopied(false), 2000);
+  };
+
   if (!contractId) {
     return (
       <div className="admin-empty">
@@ -96,6 +135,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {copied ? "✓ Copied" : "📋 Copy"}
             </button>
           </div>
+        </div>
+
+        <div className="contract-actions">
+          <button className="action-btn export" onClick={exportContractInfo} title="Export contract info as JSON">
+            📥 Export
+          </button>
+          <button 
+            className={`action-btn share ${shareLinkCopied ? "copied" : ""}`}
+            onClick={generateShareLink}
+            title="Generate shareable link"
+          >
+            {shareLinkCopied ? "✓ Link Copied" : "🔗 Share"}
+          </button>
+          <button className="action-btn qr" onClick={() => setShowQRModal(true)} title="Show QR code">
+            📱 QR Code
+          </button>
         </div>
 
         <div className="contract-version-display">
@@ -265,6 +320,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="modal-footer">
               <button className="btn-close" onClick={() => setShowModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {showQRModal && (
+        <div className="modal-overlay" onClick={() => setShowQRModal(false)}>
+          <div className="modal qr-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Contract QR Code</h2>
+              <button
+                className="modal-close"
+                onClick={() => setShowQRModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-content qr-content">
+              <div className="qr-code-container">
+                <QRCodeSVG 
+                  value={contractId} 
+                  size={256}
+                  level="H"
+                  includeMargin={true}
+                />
+              </div>
+              <div className="qr-info">
+                <p>Scan this QR code to share the contract ID</p>
+                <code className="qr-contract-id">{contractId}</code>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-close" onClick={() => setShowQRModal(false)}>
                 Close
               </button>
             </div>

@@ -7,7 +7,7 @@ import {
   addAuditLog,
   updateTransactionStatus
 } from '../database.js';
-import { validateContractId, parsePagination } from '../validation.js';
+import { validateContractId, validateContractIdMiddleware, parsePagination } from '../validation.js';
 import { server } from '../stellar.js';
 import logger from '../logger.js';
 
@@ -18,7 +18,7 @@ const router = express.Router();
  * Get transaction history for a contract
  * Query params: limit (default 50), offset (default 0)
  */
-router.get('/history/:contractId', (req, res) => {
+router.get('/history/:contractId', validateContractIdMiddleware, (req, res) => {
   try {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
@@ -81,6 +81,14 @@ router.post('/transaction/confirm/:txHash', async (req, res) => {
     const { txHash } = req.params;
     const { blockTime, errorMessage } = req.body;
 
+    // Validate transaction hash format (64 hex characters)
+    if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid transaction hash format. Expected 64 hexadecimal characters.'
+      });
+    }
+
     // Return 404 if transaction does not exist
     const existing = getTransactionDetails(txHash);
     if (!existing) {
@@ -132,7 +140,7 @@ router.post('/transaction/confirm/:txHash', async (req, res) => {
  * Get audit log for a contract
  * Query params: limit (default 100), offset (default 0)
  */
-router.get('/audit/:contractId', (req, res) => {
+router.get('/audit/:contractId', validateContractIdMiddleware, (req, res) => {
   try {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
@@ -158,7 +166,7 @@ router.get('/audit/:contractId', (req, res) => {
  * POST /api/audit/:contractId
  * Add audit log entry
  */
-router.post('/audit/:contractId', (req, res) => {
+router.post('/audit/:contractId', validateContractIdMiddleware, (req, res) => {
   try {
     const { contractId } = req.params;
     const { action, user, details } = req.body;

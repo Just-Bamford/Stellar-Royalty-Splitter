@@ -145,3 +145,207 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
 });
 
 // ... (rest of your existing routes remain unchanged)
+/**
+ * POST /api/secondary-royalty/set-rate
+ * Body: { contractId, walletAddress, royaltyRate }
+ * Returns: { xdr, transactionId } — unsigned transaction to set royalty rate
+ */
+secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (req, res, next) => {
+  try {
+    const { contractId, walletAddress, royaltyRate } = req.body;
+
+    if (!contractId || !walletAddress || royaltyRate == null) {
+      return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    if (!Number.isInteger(royaltyRate) || royaltyRate < 0 || royaltyRate > 10000) {
+      return res
+        .status(400)
+        .json({ error: "Royalty rate must be between 0 and 10000 basis points." });
+    }
+
+    // Record transaction
+    const transactionId = recordTransaction(
+      contractId,
+      "secondary_royalty",
+      walletAddress,
+      { royaltyRate }
+    );
+
+    // Build transaction to set royalty rate
+    const txXdr = await buildTx(walletAddress, contractId, "set_royalty_rate", [
+      u32ToScVal(royaltyRate),
+    ]);
+
+    addAuditLog(contractId, "royalty_rate_set", walletAddress, {
+      transactionId,
+      royaltyRate,
+    });
+
+    res.json({ xdr: txXdr, transactionId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/secondary-royalty/rate/:contractId
+ * Returns the current on-chain royalty rate for the contract.
+ */
+secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
+
+    const rate = await getRoyaltyRateFromContract(contractId);
+    res.json({ contractId, royaltyRate: rate });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/secondary-royalty/distribute
+ * Body: { contractId, walletAddress, tokenId }
+ * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties
+ */
+secondaryRoyaltyRouter.post("/distribute", async (req, res, next) => {
+  try {
+    const { contractId, walletAddress, tokenId } = req.body;
+
+    if (!contractId || !walletAddress || !tokenId) {
+      return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    // Get pending (undistributed) secondary sales
+    const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
+
+    if (pendingSales.length === 0) {
+      return res.status(400).json({ error: "No pending secondary royalties to distribute." });
+    }
+
+    // Calculate total royalties
+    const totalRoyalties = pendingSales.reduce((sum, sale) => {
+      return sum + BigInt(sale.royaltyAmount);
+    }, 0n);
+
+    const transactionId = recordTransaction(
+      contractId,
+      "secondary_distribute",
+      walletAddress,
+      { totalRoyalties: totalRoyalties.toString(), numberOfSales: pendingSales.length }
+    );
+
+    // Build transaction to distribute secondary royalties
+    const txXdr = await buildTx(walletAddress, contractId, "distribute_secondary_royalties", [
+      addressToScVal(tokenId),
+    ]);
+
+    // Mark sales as distributed
+    markSalesDistributed(pendingSales.map((s) => s.id));
+
+    addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
+      transactionId,
+      numberOfSales: pendingSales.length,
+      totalRoyalties: totalRoyalties.toString(),
+    });
+
+    res.json({
+      xdr: txXdr,
+      transactionId,
+      numberOfSales: pendingSales.length,
+      totalRoyalties: totalRoyalties.toString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/secondary-royalty/stats/:contractId
+ * Returns royalty statistics for a contract.
+ * Results are cached in-memory for 60 seconds to avoid hammering the DB.
+ */
+const statsCache = new Map(); // key: contractId, value: { data, expiresAt }
+
+secondaryRoyaltyRouter.get("/stats/:contractId", validateContractIdMiddleware, (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    const cached = statsCache.get(contractId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.data);
+    }
+
+    const stats = getRoyaltyStatistics(contractId);
+    statsCache.set(contractId, { data: stats, expiresAt: Date.now() + 60_000 });
+
+    res.json(stats);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/secondary-royalty/sales/:contractId
+ * Query params: limit, offset, nftId, startDate, endDate
+ * Returns paginated list of secondary sales with optional date range filtering.
+ * startDate and endDate are ISO 8601 strings (e.g. "2024-01-01T00:00:00Z").
+ * Returns 400 if startDate > endDate.
+ */
+secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
+
+    const pagination = parsePagination(req.query, res, 50, 100);
+    if (!pagination) return;
+    const { limit, offset } = pagination;
+
+    const { nftId, startDate, endDate } = req.query;
+
+    // Validate date range when either bound is supplied
+    if (startDate || endDate) {
+      const start = startDate ? new Date(startDate) : null;
+      const end = endDate ? new Date(endDate) : null;
+
+      if (start && isNaN(start.getTime())) {
+        return res.status(400).json({ error: "Invalid startDate." });
+      }
+      if (end && isNaN(end.getTime())) {
+        return res.status(400).json({ error: "Invalid endDate." });
+      }
+      if (start && end && start > end) {
+        return res.status(400).json({ error: "startDate must be before or equal to endDate." });
+      }
+    }
+
+    const sales = getSecondarySales(contractId, limit, offset, nftId, false, startDate, endDate);
+    const total = countSecondarySales(contractId, nftId, startDate, endDate);
+
+    res.json({ sales, total });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/secondary-royalty/distributions/:contractId
+ * Query params: limit, offset
+ * Returns paginated list of secondary royalty distributions
+ */
+secondaryRoyaltyRouter.get("/distributions/:contractId", validateContractIdMiddleware, (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const distributions = getSecondaryRoyaltyDistributions(
+      contractId,
+      parseInt(limit),
+      parseInt(offset)
+    );
+
+    res.json({ distributions });
+  } catch (err) {
+    next(err);
+  }
+});

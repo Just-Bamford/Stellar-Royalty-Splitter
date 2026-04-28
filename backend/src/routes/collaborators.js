@@ -19,7 +19,7 @@ export const collaboratorsRouter = Router();
  * Uses a single read-only simulation of get_all_shares (Map<Address, u32>)
  * instead of N+1 individual get_share calls.
  */
-collaboratorsRouter.get("/:contractId", async (req, res, next) => {
+collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
     const contract = new Contract(contractId);

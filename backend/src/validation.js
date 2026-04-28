@@ -53,7 +53,7 @@ export function validate(schema) {
     if (!result.success) {
       return res.status(400).json({
         error: "Validation failed",
-        details: result.error.errors.map((e) => ({
+        details: result.error.issues.map((e) => ({
           field: e.path.join("."),
           message: e.message,
         })),
@@ -62,6 +62,18 @@ export function validate(schema) {
     req.body = result.data;
     next();
   };
+}
+
+/**
+ * Express middleware that validates :contractId route param.
+ * Returns 400 { error: "Invalid contract ID format" } if invalid.
+ */
+export function validateContractIdMiddleware(req, res, next) {
+  const contractId = req.params.contractId;
+  if (!contractId || !/^C[A-Z2-7]{55}$/.test(contractId)) {
+    return res.status(400).json({ error: "Invalid contract ID format" });
+  }
+  next();
 }
 
 /**

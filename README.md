@@ -101,7 +101,9 @@ Returns the basis-point share for a given address.
 
 ---
 
-## Example: 3-way split
+## Usage Examples
+
+### Example 1: Initialize a 3-way split
 
 ```bash
 # 50% artist / 30% musician / 20% animator
@@ -112,6 +114,59 @@ stellar contract invoke \
   -- initialize \
   --collaborators '["GARTIST...","GMUSICIAN...","GANIMATOR..."]' \
   --shares '[5000,3000,2000]'
+```
+
+### Example 2: Distribute XLM proceeds
+
+```bash
+# Distribute 1000 XLM from a sale
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source seller \
+  --network testnet \
+  -- distribute \
+  --token CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
+  --amount 10000000000
+```
+
+### Example 3: Check collaborator share
+
+```bash
+# Get share percentage for a collaborator
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source anyone \
+  --network testnet \
+  -- get_share \
+  --collaborator GARTIST...
+```
+
+### Example 4: Record secondary sale royalty
+
+```bash
+# Record a 5% royalty from a 500 XLM resale
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source marketplace \
+  --network testnet \
+  -- record_secondary_sale \
+  --nft_id "NFT_001" \
+  --previous_owner GBUYER1... \
+  --new_owner GBUYER2... \
+  --sale_price 5000000000 \
+  --sale_token CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+```
+
+### Example 5: Distribute accumulated secondary royalties
+
+```bash
+# Distribute all pending secondary royalties to collaborators
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source anyone \
+  --network testnet \
+  -- distribute_secondary_royalties \
+  --token CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 ```
 
 ---
