@@ -1,6 +1,6 @@
 // Thin client that talks to the Express backend
 
-const BASE = "/api/v1";
+const BASE = "/api";
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -47,7 +47,7 @@ export interface AuditLogEntry {
   contractId: string;
   action: string;
   user: string | null;
-  details: Record<string, unknown> | null;
+  details: string | null;
   timestamp: string;
 }
 
@@ -66,14 +66,11 @@ export interface SecondarySale {
 
 export interface RoyaltyStats {
   totalSecondarySales: number;
-  totalRoyaltiesGenerated: string; // always 7 decimal places, never null
-  totalVolume: string;             // always 7 decimal places, never null
-  pendingRoyaltyPool: string;      // undistributed royalties, 7 decimal places
+  totalRoyaltiesGenerated: number | string;
   lastDistribution: {
     timestamp: string;
     totalRoyaltiesDistributed: string;
     numberOfSales: number;
-    txHash: string | null;
   } | null;
 }
 
@@ -89,15 +86,13 @@ export const api = {
     contractId: string;
     walletAddress: string;
     tokenId: string;
+    amount: number;
   }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
 
   getCollaborators: (contractId: string) =>
     get<{ address: string; basisPoints: number }[]>(
       `/collaborators/${contractId}`,
     ),
-
-  getContractStatus: (contractId: string) =>
-    get<{ initialized: boolean }>(`/contract/status/${contractId}`),
 
   // Transaction History & Audit Log APIs
   getTransactionHistory: (contractId: string, limit = 50, offset = 0) =>
@@ -179,11 +174,6 @@ export const api = {
   getRoyaltyStats: (contractId: string) =>
     get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
 
-  getRoyaltyRate: (contractId: string) =>
-    get<{ contractId: string; royaltyRate: number }>(
-      `/secondary-royalty/rate/${contractId}`,
-    ),
-
   getSecondarySales: (
     contractId: string,
     limit = 50,
@@ -210,10 +200,13 @@ export const api = {
         status: string;
         initiatorAddress: string;
       }>;
-      total: number;
     }>(
       `/secondary-royalty/distributions/${contractId}?limit=${limit}&offset=${offset}`,
     ),
+
+  // NEW: Fetch secondary royalty pool balance
+  getSecondaryRoyaltyPool: (contractId: string) =>
+    get<{ poolBalance: string }>(`/secondary-royalty/pool/${contractId}`),
 
   // Analytics API
   getAnalytics: (
@@ -246,13 +239,4 @@ export const api = {
     }>(
       `/analytics/${contractId}${dateRange ? `?start=${dateRange.start}&end=${dateRange.end}` : ""}`,
     ),
-
-  // Contract version API
-  getContractVersion: (contractId: string) =>
-    get<{ contractId: string; version: string }>(
-      `/contract/version/${contractId}`,
-    ),
-
-  getContractBalance: (contractId: string, tokenId: string) =>
-    get<{ balance: string }>(`/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`),
 };
