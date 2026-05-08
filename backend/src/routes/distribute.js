@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { retryBuildTx, addressToScVal } from "../stellar.js";
-import { recordTransaction, addAuditLog } from "../database.js";
+import { addressToScVal } from "../stellar.js";
 import { validate, distributeSchema } from "../validation.js";
+import { buildAndRecordTransaction } from "./_shared.js";
 
 export const distributeRouter = Router();
 
@@ -14,23 +14,18 @@ distributeRouter.post("/", validate(distributeSchema), async (req, res, next) =>
   try {
     const { contractId, walletAddress, tokenId } = req.body;
 
-    const transactionId = recordTransaction(
+    // Use shared handler to record transaction, build XDR, and log audit
+    const { xdr, transactionId } = await buildAndRecordTransaction({
       contractId,
-      "distribute",
       walletAddress,
-      { tokenId },
-    );
-
-    const txXdr = await retryBuildTx(walletAddress, contractId, "distribute", [
-      addressToScVal(tokenId),
-    ]);
-
-    addAuditLog(contractId, "distribution_initiated", walletAddress, {
-      transactionId,
-      tokenId,
+      transactionType: "distribute",
+      scvlArgs: [addressToScVal(tokenId)],
+      auditAction: "distribution_initiated",
+      auditMetadata: { tokenId },
+      transactionMetadata: { tokenId },
     });
 
-    res.json({ xdr: txXdr, transactionId });
+    res.json({ xdr, transactionId });
   } catch (err) {
     if (err.status) {
       return res.status(err.status).json({ error: err.message });

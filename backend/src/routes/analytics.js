@@ -1,5 +1,5 @@
 import express from "express";
-import db from "../database.js"; // default export — no getDatabase() call needed
+import db from "../database/index.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
 
@@ -15,35 +15,27 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
 
   try {
     // Parse date range
-    const startDate = start
-      ? new Date(start)
-      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const startDate = start ? new Date(start) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const endDate = end ? new Date(end) : new Date();
 
     // Validate parsed dates
     if (start && isNaN(startDate.getTime())) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid start date. Use YYYY-MM-DD." });
+      return res.status(400).json({ success: false, error: "Invalid start date. Use YYYY-MM-DD." });
     }
     if (end && isNaN(endDate.getTime())) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid end date. Use YYYY-MM-DD." });
+      return res.status(400).json({ success: false, error: "Invalid end date. Use YYYY-MM-DD." });
     }
     if (start && end && startDate > endDate) {
-      return res
-        .status(400)
-        .json({ success: false, error: "start date must be before end date." });
+      return res.status(400).json({ success: false, error: "start date must be before end date." });
     }
 
     // Create cache key
     const cacheKey = `${contractId}-${startDate.toISOString()}-${endDate.toISOString()}`;
-    
+
     // Check cache
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      res.set('Cache-Control', 'max-age=60');
+      res.set("Cache-Control", "max-age=60");
       return res.json(cached.data);
     }
 
@@ -133,7 +125,7 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
     // Cache the result
     cache.set(cacheKey, { data, timestamp: Date.now() });
 
-    res.set('Cache-Control', 'max-age=60');
+    res.set("Cache-Control", "max-age=60");
     res.json(data);
   } catch (error) {
     logger.error("Analytics error:", error);

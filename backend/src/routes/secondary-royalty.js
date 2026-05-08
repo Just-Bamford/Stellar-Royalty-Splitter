@@ -17,7 +17,7 @@ import {
   markSalesDistributed,
   countSecondarySales,
   addAuditLog,
-} from "../database.js";
+} from "../database/index.js";
 import {
   validate,
   recordSecondarySaleSchema,

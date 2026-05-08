@@ -13,8 +13,8 @@ import { secondaryRoyaltyRouter } from "./routes/secondary-royalty.js";
 import historyRouter from "./routes/history.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
-import { initializeDatabase, getMigrationVersion } from "./database.js";
-import db from "./database.js";
+import { initializeDatabase, getMigrationVersion } from "./database/index.js";
+import db from "./database/index.js";
 
 // Initialize database on startup
 initializeDatabase();
