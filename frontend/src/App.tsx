@@ -139,7 +139,10 @@ export default function App() {
   }, [toggleTheme]);
 
   function handleDisconnect() {
+    // Clear all wallet state and any cached wallet data from localStorage
     setWalletAddress(null);
+    localStorage.removeItem("lastWalletAddress");
+    localStorage.removeItem("freighter_connected");
   }
 
   const renderPage = () => {
