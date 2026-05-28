@@ -337,6 +337,52 @@
     padding: 0.5rem 0.75rem;
     font-size: 0.85rem;
   }
+
+  /* Fix form inputs overflow on mobile */
+  .card {
+    padding: var(--spacing-sm);
+    overflow: hidden;
+  }
+
+  .card input,
+  .card textarea,
+  .card select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    font-size: 0.9rem;
+    padding: 0.65rem 0.75rem;
+    box-sizing: border-box;
+  }
+
+  .card input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  .card input[type="number"]::-webkit-outer-spin-button,
+  .card input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .card label {
+    font-size: 0.85rem;
+    display: block;
+    margin-bottom: 0.25rem;
+    word-wrap: break-word;
+  }
+
+  .card button {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .card .description {
+    font-size: 0.8rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
 }
     min-height: 250px;
     padding: 0.75rem;

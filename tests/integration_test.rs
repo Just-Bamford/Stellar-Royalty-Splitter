@@ -661,6 +661,116 @@ fn test_distribute_secondary_fuzz_style() {
     }
 }
 
+// ── Issue #245: hard cap of 10 recipients ────────────────────────────────────
+
+/// Issue #245 — initialize with exactly 10 recipients must succeed.
+#[test]
+fn test_initialize_with_10_recipients_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let mut addrs: SorobanVec<Address> = SorobanVec::new(&env);
+    let mut shares: SorobanVec<u32> = SorobanVec::new(&env);
+    
+    for _ in 0..10 {
+        addrs.push_back(Address::generate(&env));
+        shares.push_back(1_000_u32);
+    }
+
+    client.initialize(&addrs, &shares);
+    assert_eq!(client.collaborator_count(), 10);
+}
+
+/// Issue #245 — initialize with 11 recipients must panic with descriptive error.
+#[test]
+#[should_panic(expected = "too many recipients: maximum 10 allowed")]
+fn test_initialize_with_11_recipients_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let mut addrs: SorobanVec<Address> = SorobanVec::new(&env);
+    let mut shares: SorobanVec<u32> = SorobanVec::new(&env);
+    
+    for i in 0..11 {
+        addrs.push_back(Address::generate(&env));
+        // First recipient gets 1000, others get 900 to sum to 10,000
+        shares.push_back(if i == 0 { 1_000_u32 } else { 900_u32 });
+    }
+
+    client.initialize(&addrs, &shares);
+}
+
+/// Issue #245 — initialize with 15 recipients must panic with descriptive error.
+#[test]
+#[should_panic(expected = "too many recipients: maximum 10 allowed")]
+fn test_initialize_with_15_recipients_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let mut addrs: SorobanVec<Address> = SorobanVec::new(&env);
+    let mut shares: SorobanVec<u32> = SorobanVec::new(&env);
+    
+    for _ in 0..15 {
+        addrs.push_back(Address::generate(&env));
+        shares.push_back(666_u32); // Won't sum to 10,000 but cap check happens first
+    }
+
+    client.initialize(&addrs, &shares);
+}
+
+// ── Issue #234: re-initialization guard ──────────────────────────────────────
+
+/// Issue #234 — calling initialize twice must panic with descriptive error.
+#[test]
+#[should_panic(expected = "already initialized")]
+fn test_initialize_twice_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    
+    client.initialize(&vec![&env, a.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+    
+    // Second initialization attempt must panic
+    let c = Address::generate(&env);
+    let d = Address::generate(&env);
+    client.initialize(&vec![&env, c, d], &vec![&env, 6000_u32, 4000_u32]);
+}
+
+/// Issue #234 — re-initialization attempt must not modify existing state.
+#[test]
+fn test_reinitialize_does_not_modify_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    
+    client.initialize(&vec![&env, a.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+    
+    let original_count = client.collaborator_count();
+    let original_share_a = client.get_share(&a);
+    
+    // Attempt second initialization (will panic, but we catch it)
+    let c = Address::generate(&env);
+    let d = Address::generate(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.initialize(&vec![&env, c, d], &vec![&env, 6000_u32, 4000_u32]);
+    }));
+    
+    assert!(result.is_err(), "Second initialization should panic");
+    
+    // Verify original state is unchanged
+    assert_eq!(client.collaborator_count(), original_count);
+    assert_eq!(client.get_share(&a), original_share_a);
+}
+
 // ── Issue #242: admin_transfer ───────────────────────────────────────────────
 
 fn read_admin(env: &Env, contract_id: &Address) -> Address {

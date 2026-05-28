@@ -43,7 +43,7 @@ impl RoyaltySplitter {
     ///
     /// # Arguments
     /// * `collaborators` - Ordered list of wallet addresses that will receive payouts.
-    ///   The first address is designated as admin.
+    ///   The first address is designated as admin. Maximum of 10 recipients allowed.
     /// * `shares` - Basis-point allocations corresponding to each collaborator
     ///   (1 bp = 0.01%). Must sum to exactly 10,000 (100%).
     ///
@@ -53,6 +53,7 @@ impl RoyaltySplitter {
     /// # Panics
     /// * `"already initialized"` — contract has already been set up
     /// * `"need at least one collaborator"` — empty collaborator list
+    /// * `"too many recipients: maximum 10 allowed"` — more than 10 recipients
     /// * `"collaborators and shares length mismatch"` — vec lengths differ
     /// * `"shares must sum to 10000"` — allocations don't total 100%
     /// * `"share cannot be zero"` — any individual share is 0
@@ -70,6 +71,10 @@ impl RoyaltySplitter {
 
         if collaborators.is_empty() {
             panic!("need at least one collaborator");
+        }
+
+        if collaborators.len() > 10 {
+            panic!("too many recipients: maximum 10 allowed");
         }
 
         // The first collaborator is the admin and must sign the init tx,
