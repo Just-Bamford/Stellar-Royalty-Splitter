@@ -3,7 +3,7 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
-    vec, Address, Env, IntoVal,
+    vec, Address, Env, IntoVal, Vec as SorobanVec,
 };
 use stellar_royalty_splitter::RoyaltySplitterClient;
 
@@ -465,4 +465,198 @@ fn test_distribute_unauthorized_caller() {
     // Must panic: require_auth() on admin will reject this call before any
     // token transfers occur, leaving the contract balance unchanged.
     client.distribute(&token);
+}
+
+// ── Issue #252: fuzz-style tests for distribute ──────────────────────────────
+
+/// Simple deterministic LCG for reproducible pseudo-random test inputs.
+struct Lcg(u64);
+
+impl Lcg {
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+
+    fn next(&mut self) -> u64 {
+        self.0 = self.0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+
+    fn range(&mut self, min: u64, max: u64) -> u64 {
+        min + self.next() % (max - min + 1)
+    }
+}
+
+/// Issue #252 — fuzz-style: 20 iterations of randomized recipient counts (1–10),
+/// payment amounts (1 to 10^15 stroops), and share splits that sum to 10,000.
+/// Invariant: sum of all payouts equals total distributed amount (no lost dust).
+#[test]
+fn test_distribute_fuzz_style_invariant() {
+    let mut rng = Lcg::new(0xDEAD_BEEF_CAFE_1234);
+
+    for _ in 0..20 {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+
+        let n = rng.range(1, 10) as u32;
+
+        let mut addrs: std::vec::Vec<Address> = std::vec::Vec::new();
+        for _ in 0..n {
+            addrs.push(Address::generate(&env));
+        }
+
+        // Generate shares that sum exactly to 10_000 (≥ 1 each)
+        let mut shares: std::vec::Vec<u32> = std::vec::Vec::new();
+        let mut remaining: u32 = 10_000;
+        for i in 0..n {
+            if i == n - 1 {
+                shares.push(remaining);
+            } else {
+                let slots_left = (n - 1 - i) as u64;
+                let max_share = (remaining - slots_left as u32) as u64;
+                let share = rng.range(1, max_share) as u32;
+                shares.push(share);
+                remaining -= share;
+            }
+        }
+
+        let amount: i128 = rng.range(1, 1_000_000_000_000_000) as i128;
+
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+
+        let mut soroban_addrs: SorobanVec<Address> = SorobanVec::new(&env);
+        let mut soroban_shares: SorobanVec<u32> = SorobanVec::new(&env);
+        for addr in &addrs {
+            soroban_addrs.push_back(addr.clone());
+        }
+        for &s in &shares {
+            soroban_shares.push_back(s);
+        }
+
+        client.initialize(&soroban_addrs, &soroban_shares);
+        mint(&env, &token, &contract_id, amount);
+        client.distribute(&token);
+
+        let mut total_paid: i128 = 0;
+        for addr in &addrs {
+            total_paid += TokenClient::new(&env, &token).balance(addr);
+        }
+        assert_eq!(
+            total_paid, amount,
+            "Payout sum must equal distributed amount (n={n}, amount={amount})"
+        );
+    }
+}
+
+/// Issue #252 — fuzz-style: large payment amounts that previously risked i128 overflow
+/// when multiplied before dividing (now uses u128 intermediate arithmetic).
+/// Tests amounts up to i128::MAX / 10_000 across varied split configurations.
+#[test]
+fn test_distribute_fuzz_large_amounts_no_overflow() {
+    let large_amounts: [i128; 6] = [
+        i128::MAX / 10_001,       // just under overflow boundary
+        i128::MAX / 20_000,
+        1_000_000_000_000_000_000, // 10^18 stroops
+        9_999_999_999_999_999,
+        1,
+        10_000,
+    ];
+
+    let split_configs: [(u32, u32); 4] = [
+        (5_000, 5_000),
+        (9_999, 1),
+        (1, 9_999),
+        (3_333, 6_667),
+    ];
+
+    for amount in large_amounts {
+        for (share_a, share_b) in split_configs {
+            let env = Env::default();
+            env.mock_all_auths();
+            let (contract_id, client) = setup(&env);
+
+            let admin = Address::generate(&env);
+            let b = Address::generate(&env);
+            let token_admin = Address::generate(&env);
+            let token = make_token(&env, &token_admin);
+
+            client.initialize(
+                &vec![&env, admin.clone(), b.clone()],
+                &vec![&env, share_a, share_b],
+            );
+            mint(&env, &token, &contract_id, amount);
+            client.distribute(&token);
+
+            let paid = TokenClient::new(&env, &token).balance(&admin)
+                + TokenClient::new(&env, &token).balance(&b);
+            assert_eq!(paid, amount, "large amount={amount} share=({share_a},{share_b})");
+        }
+    }
+}
+
+/// Issue #252 — fuzz-style: randomized secondary royalty distributions (1–10 recipients)
+/// verify the pool is fully emptied with no dust left behind.
+#[test]
+fn test_distribute_secondary_fuzz_style() {
+    let mut rng = Lcg::new(0xCAFE_BABE_1234_5678);
+
+    for _ in 0..15 {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+
+        let n = rng.range(1, 10) as u32;
+
+        let mut addrs: std::vec::Vec<Address> = std::vec::Vec::new();
+        for _ in 0..n {
+            addrs.push(Address::generate(&env));
+        }
+
+        let mut shares: std::vec::Vec<u32> = std::vec::Vec::new();
+        let mut remaining: u32 = 10_000;
+        for i in 0..n {
+            if i == n - 1 {
+                shares.push(remaining);
+            } else {
+                let slots_left = (n - 1 - i) as u64;
+                let max_share = (remaining - slots_left as u32) as u64;
+                let share = rng.range(1, max_share) as u32;
+                shares.push(share);
+                remaining -= share;
+            }
+        }
+
+        let pool_amount: i128 = rng.range(1, 1_000_000_000_000_000) as i128;
+
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+
+        let mut soroban_addrs: SorobanVec<Address> = SorobanVec::new(&env);
+        let mut soroban_shares: SorobanVec<u32> = SorobanVec::new(&env);
+        for addr in &addrs {
+            soroban_addrs.push_back(addr.clone());
+        }
+        for &s in &shares {
+            soroban_shares.push_back(s);
+        }
+
+        client.initialize(&soroban_addrs, &soroban_shares);
+        mint(&env, &token, &addrs[0], pool_amount);
+        client.record_secondary_royalty(&token, &addrs[0], &pool_amount);
+        client.distribute_secondary_royalties();
+
+        let mut total_paid: i128 = 0;
+        for addr in &addrs {
+            total_paid += TokenClient::new(&env, &token).balance(addr);
+        }
+        assert_eq!(
+            total_paid, pool_amount,
+            "Secondary pool must be fully distributed (n={n}, pool={pool_amount})"
+        );
+        assert_eq!(client.get_secondary_pool(), 0, "Secondary pool must be zero after distribution");
+    }
 }

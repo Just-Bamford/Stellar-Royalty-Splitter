@@ -47,6 +47,12 @@ export const recordSecondarySaleSchema = z.object({
   royaltyRate: basisPoints,
 });
 
+export const distributeSecondarySchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  tokenId: contractAddress,
+});
+
 export function validate(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
@@ -83,6 +89,18 @@ export function validateContractIdMiddleware(req, res, next) {
 export function validateContractId(contractId, res) {
   if (!/^C[A-Z2-7]{55}$/.test(contractId)) {
     res.status(400).json({ success: false, error: "Invalid contract ID format" });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validate a Stellar public key (G...) address.
+ * Returns true if valid, otherwise sends a 400 and returns false.
+ */
+export function validateStellarAddress(address, res) {
+  if (!address || !/^G[A-Z2-7]{55}$/.test(address)) {
+    res.status(400).json({ success: false, error: "Invalid Stellar address format" });
     return false;
   }
   return true;

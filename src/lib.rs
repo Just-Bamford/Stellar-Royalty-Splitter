@@ -289,7 +289,7 @@ impl RoyaltySplitter {
         for i in 0..(n - 1) {
             let addr = collaborators.get(i).unwrap();
             let share = share_map.get(addr.clone()).unwrap_or(0);
-            let payout = amount * share as i128 / 10_000;
+            let payout = (amount as u128 * share as u128 / 10_000) as i128;
             payouts.push_back((addr, payout));
             total_calculated += payout;
         }
@@ -430,7 +430,7 @@ impl RoyaltySplitter {
         for i in 0..(n - 1) {
             let addr = collaborators.get(i).unwrap();
             let share = share_map.get(addr.clone()).unwrap_or(0);
-            let payout = pool * share as i128 / 10_000;
+            let payout = (pool as u128 * share as u128 / 10_000) as i128;
             payouts.push_back((addr, payout));
             total_calculated += payout;
         }
@@ -482,7 +482,7 @@ impl RoyaltySplitter {
             .get(&DataKey::RoyaltyRate)
             .unwrap_or(0);
 
-        sale_price * rate as i128 / 10_000
+        (sale_price as u128 * rate as u128 / 10_000) as i128
     }
 
     /// Returns the current secondary royalty rate in basis points (0–10,000).
