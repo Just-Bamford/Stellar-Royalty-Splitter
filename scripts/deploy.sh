@@ -1,20 +1,41 @@
 #!/usr/bin/env bash
-# deploy.sh — Build and deploy the Stellar Royalty Splitter to Stellar Testnet
+# deploy.sh — Build and deploy the Stellar Royalty Splitter to a Stellar network
 #
 # Prerequisites:
 #   - Rust + wasm32-unknown-unknown target  (rustup target add wasm32-unknown-unknown)
 #   - Stellar CLI                           (cargo install --locked stellar-cli)
-#   - A funded testnet identity             (stellar keys generate --global deployer)
+#   - A funded identity                     (stellar keys generate --global deployer)
+#
+# Environment variables (override defaults via shell or .env):
+#   STELLAR_NETWORK   — target network: "testnet" (default) or "mainnet"
+#   STELLAR_IDENTITY  — signing identity name (default: "deployer")
 #
 # Usage:
 #   chmod +x scripts/deploy.sh
 #   ./scripts/deploy.sh
+#
+# Testnet example:
+#   STELLAR_NETWORK=testnet STELLAR_IDENTITY=deployer ./scripts/deploy.sh
+#
+# Mainnet example:
+#   STELLAR_NETWORK=mainnet STELLAR_IDENTITY=my-mainnet-key ./scripts/deploy.sh
 
 set -euo pipefail
 
-NETWORK="testnet"
-IDENTITY="deployer"
+# ── Network configuration ────────────────────────────────────────────────────
+# Load from environment; fall back to safe testnet defaults.
+NETWORK="${STELLAR_NETWORK:-testnet}"
+IDENTITY="${STELLAR_IDENTITY:-deployer}"
 CONTRACT_NAME="stellar_royalty_splitter"
+
+# Validate network value
+if [[ "$NETWORK" != "testnet" && "$NETWORK" != "mainnet" ]]; then
+  echo "❌ STELLAR_NETWORK must be 'testnet' or 'mainnet' (got: '$NETWORK')"
+  exit 1
+fi
+
+echo "▶ Target network : $NETWORK"
+echo "▶ Signing identity: $IDENTITY"
 
 # ── Preflight checks ────────────────────────────────────────────────────────
 
@@ -31,7 +52,11 @@ command -v stellar >/dev/null 2>&1 || {
 if ! stellar keys show "$IDENTITY" >/dev/null 2>&1; then
   echo "⚠️  Identity '$IDENTITY' not found."
   echo "   Run: stellar keys generate --global $IDENTITY --network $NETWORK"
-  echo "   Then fund it: https://friendbot.stellar.org/?addr=\$(stellar keys address $IDENTITY)"
+  if [[ "$NETWORK" == "testnet" ]]; then
+    echo "   Then fund it: https://friendbot.stellar.org/?addr=\$(stellar keys address $IDENTITY)"
+  else
+    echo "   Fund the mainnet address before deploying."
+  fi
   exit 1
 fi
 

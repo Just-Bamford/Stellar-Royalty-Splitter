@@ -406,3 +406,63 @@ fn test_royalty_rate_above_max_rejected() {
 
     client.set_royalty_rate(&10_001_u32);
 }
+
+// ── Issue #219: unauthorized caller for set_royalty_rate ─────────────────────
+
+/// A non-admin address calling set_royalty_rate must panic.
+/// Does NOT use mock_all_auths() — simulates a real unauthorized caller.
+/// Pattern mirrors test_pause_requires_admin_auth.
+#[test]
+#[should_panic]
+fn test_set_royalty_rate_unauthorized_caller() {
+    let env = Env::default();
+
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    // Initialize with mock_all_auths so setup succeeds
+    env.mock_all_auths();
+    client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+
+    // Clear all auths — the next call has no authorization at all,
+    // simulating a non-admin (or any unauthorized) caller.
+    env.mock_auths(&[]);
+
+    // Must panic: require_auth() on admin will fail
+    client.set_royalty_rate(&500_u32);
+}
+
+// ── Issue #220: unauthorized caller for distribute ───────────────────────────
+
+/// Calling distribute without admin auth must be rejected atomically.
+/// No token transfers should occur and the contract balance must remain unchanged.
+/// Does NOT use mock_all_auths() for the distribute call.
+#[test]
+#[should_panic]
+fn test_distribute_unauthorized_caller() {
+    let env = Env::default();
+
+    let (contract_id, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    // Initialize and fund the contract
+    env.mock_all_auths();
+    client.initialize(&vec![&env, admin.clone(), b.clone()], &vec![&env, 5000_u32, 5000_u32]);
+
+    let amount: i128 = 1_000;
+    mint(&env, &token, &contract_id, amount);
+
+    // Verify the contract has the expected balance before the unauthorized call
+    assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), amount);
+
+    // Clear all auths — simulate a non-admin caller with no authorization
+    env.mock_auths(&[]);
+
+    // Must panic: require_auth() on admin will reject this call before any
+    // token transfers occur, leaving the contract balance unchanged.
+    client.distribute(&token);
+}
