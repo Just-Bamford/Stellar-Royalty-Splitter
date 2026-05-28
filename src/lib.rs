@@ -176,6 +176,36 @@ impl RoyaltySplitter {
         env.storage().instance().set(&DataKey::Paused, &true);
     }
 
+    /// Transfer admin rights to a new address.
+    ///
+    /// # Arguments
+    /// * `new_admin` - Address that will become the contract admin.
+    ///
+    /// # Authorization
+    /// Requires signature from the current admin.
+    ///
+    /// # Panics
+    /// * `"contract not initialized"` — called before `initialize`
+    pub fn admin_transfer(env: Env, new_admin: Address) {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("contract not initialized");
+
+        admin.require_auth();
+
+        let previous_admin = admin.clone();
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("admin_xfr")),
+            (previous_admin, new_admin),
+        );
+    }
+
     /// Unpause the contract — re-enables `distribute` and `distribute_secondary_royalties`.
     ///
     /// # Authorization
