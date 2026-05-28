@@ -55,6 +55,17 @@ export default function InitializeForm({
         const { address: _, ...rest } = rowErrors[i] ?? {};
         rowErrors[i] = rest;
       }
+    } else if (field === "basisPoints") {
+      const bp = parseInt(value);
+      if (value !== "" && (isNaN(bp) || bp < 1 || bp > 10000)) {
+        rowErrors[i] = {
+          ...rowErrors[i],
+          basisPoints: "Must be between 1 and 10,000 basis points (0.01%–100%)",
+        };
+      } else {
+        const { basisPoints: _, ...rest } = rowErrors[i] ?? {};
+        rowErrors[i] = rest;
+      }
     }
     setErrors(rowErrors);
   }
@@ -91,6 +102,25 @@ export default function InitializeForm({
   async function submit() {
     if (!contractId)
       return setStatus("error", "Enter a contract ID first.");
+
+    // Validate all basisPoints values before submission
+    const newErrors = { ...errors };
+    let hasValidationErrors = false;
+    collaborators.forEach((c: Collaborator, i: number) => {
+      const bp = parseInt(c.basisPoints);
+      if (c.basisPoints === "" || isNaN(bp) || bp < 1 || bp > 10000) {
+        newErrors[i] = {
+          ...newErrors[i],
+          basisPoints: "Must be between 1 and 10,000 basis points (0.01%–100%)",
+        };
+        hasValidationErrors = true;
+      }
+    });
+    if (hasValidationErrors) {
+      setErrors(newErrors);
+      return setStatus("error", "Please fix the basis point errors before submitting.");
+    }
+
     if (total !== 10_000)
       return setStatus("error", `Shares must sum to 10,000 bp (currently ${total}).`);
 
@@ -149,22 +179,36 @@ export default function InitializeForm({
                 value={c.address}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
                 onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "address", e.target.value)}
+                aria-label={`Wallet address for collaborator ${i + 1}`}
+                aria-describedby={errors[i]?.address ? `addr-error-${i}` : undefined}
+                aria-invalid={!!errors[i]?.address}
                 style={{ marginBottom: errors[i]?.address ? "0.25rem" : undefined }}
               />
               {errors[i]?.address && (
-                <span className="field-error">{errors[i].address}</span>
+                <span id={`addr-error-${i}`} className="field-error">{errors[i].address}</span>
               )}
             </div>
-            <input
-              placeholder="Basis pts"
-              type="number"
-              min={1}
-              max={10000}
-              value={c.basisPoints}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "basisPoints", e.target.value)}
-              onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
-              style={{ flex: 1 }}
-            />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+              <input
+                placeholder="Basis pts"
+                type="number"
+                min={1}
+                max={10000}
+                value={c.basisPoints}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  update(i, "basisPoints", e.target.value);
+                  validateRow(i, "basisPoints", e.target.value);
+                }}
+                onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
+                aria-label={`Basis points for collaborator ${i + 1}`}
+                aria-describedby={errors[i]?.basisPoints ? `bp-error-${i}` : undefined}
+                aria-invalid={!!errors[i]?.basisPoints}
+                style={{ marginBottom: errors[i]?.basisPoints ? "0.25rem" : undefined }}
+              />
+              {errors[i]?.basisPoints && (
+                <span id={`bp-error-${i}`} className="field-error">{errors[i].basisPoints}</span>
+              )}
+            </div>
             {collaborators.length > 1 && (
               <button className="btn-danger" onClick={() => removeRow(i)}>
                 ✕
