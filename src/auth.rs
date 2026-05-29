@@ -1,6 +1,6 @@
 //! Authorization helpers with consistent, integrator-facing failure context.
 
-use soroban_sdk::{Address, Env, String, symbol_short};
+use soroban_sdk::{symbol_short, Address, Env, String};
 
 /// Static auth failure messages (function context + role).
 pub mod msg {
@@ -11,6 +11,8 @@ pub mod msg {
     pub const ADMIN_TRANSFER_ADMIN: &str = "admin_transfer: admin authorization required";
     pub const SET_DEFAULT_RECIPIENTS_ADMIN: &str =
         "set_default_recipients: admin authorization required";
+    pub const SET_RECIPIENTS_ADMIN: &str = "set_recipients: admin authorization required";
+    pub const WITHDRAW_ADMIN: &str = "withdraw: admin authorization required";
     pub const DISTRIBUTE_ADMIN: &str = "distribute: admin authorization required";
     pub const DISTRIBUTE_OVERRIDE_ADMIN: &str =
         "distribute_with_override: admin authorization required";

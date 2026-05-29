@@ -1,6 +1,6 @@
 import { Router } from "express";
 import StellarSdk from "@stellar/stellar-sdk";
-import { isContractInitialized, server, networkPassphrase, addressToScVal } from "../stellar.js";
+import { isContractInitialized, server, networkPassphrase, addressToScVal, getContractVersionFromContract } from "../stellar.js";
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
 
 const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
@@ -130,4 +130,32 @@ contractRouter.get(
       next(err);
     }
   }
+);
+
+/**
+ * GET /api/contract/version/:contractId
+ * Returns the on-chain contract version via simulation.
+ * Response: { contractId, version: string }
+ */
+contractRouter.get(
+  "/version/:contractId",
+  validateContractIdMiddleware,
+  async (req, res, next) => {
+    try {
+      const { contractId } = req.params;
+      const initialized = await isContractInitialized(contractId);
+      if (!initialized) {
+        return res.status(404).json({ error: "contract not initialized" });
+      }
+
+      const version = await getContractVersionFromContract(contractId);
+      if (!version) {
+        return res.status(404).json({ error: "contract version unavailable" });
+      }
+
+      res.json({ contractId, version });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
