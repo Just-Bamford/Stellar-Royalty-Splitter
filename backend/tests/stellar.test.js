@@ -244,3 +244,104 @@ describe("retryBuildTx sequence-refresh contract (#275)", () => {
     }
   });
 });
+
+// ── #294 — Concurrent build lock ────────────────────────────────────────
+
+describe("buildTx concurrent locking (#294)", () => {
+  test("serializes getAccount for the same caller address", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const getAccount = jest.fn(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+      return {
+        accountId: () => "GTEST",
+        sequenceNumber: () => "1",
+      };
+    });
+    const prepareTransaction = jest.fn(async () => ({ toXDR: () => "MOCK_XDR" }));
+
+    jest.unstable_mockModule("@stellar/stellar-sdk", () => {
+      class Account {
+        constructor(id, seq) {
+          this.id = id;
+          this.seq = seq;
+        }
+        accountId() {
+          return this.id;
+        }
+        sequenceNumber() {
+          return this.seq;
+        }
+      }
+      const mock = {
+        Contract: class {
+          constructor(id) {
+            this.id = id;
+          }
+          call(method, ...args) {
+            return { kind: "op", method, args };
+          }
+        },
+        Networks: {
+          PUBLIC: "Public",
+          TESTNET: "Test SDF Network ; September 2015",
+        },
+        SorobanRpc: {
+          Server: class {
+            constructor() {}
+            getAccount = getAccount;
+            prepareTransaction = prepareTransaction;
+            simulateTransaction = jest.fn();
+          },
+          Api: { isSimulationError: () => false },
+        },
+        TransactionBuilder: class {
+          constructor() {
+            this.ops = [];
+          }
+          addOperation(op) {
+            this.ops.push(op);
+            return this;
+          }
+          setTimeout() {
+            return this;
+          }
+          build() {
+            return {};
+          }
+        },
+        BASE_FEE: "100",
+        nativeToScVal: () => ({}),
+        Address: class {
+          constructor(a) {
+            this.a = a;
+          }
+          toScVal() {
+            return { addr: this.a };
+          }
+        },
+        Account,
+        xdr: { ScVal: { scvU32: () => ({}), scvVec: () => ({}) } },
+      };
+      return { default: mock, ...mock };
+    });
+
+    global.fetch = jest.fn(async () => ({ ok: false, status: 500 }));
+
+    const stellar = await import("../src/stellar.js");
+    stellar._resetFeeCache();
+    stellar._resetAccountBuildLocks();
+
+    await Promise.all([
+      stellar.buildTx("GCALLER", "CCONTRACT", "noop", []),
+      stellar.buildTx("GCALLER", "CCONTRACT", "noop", []),
+    ]);
+
+    expect(maxInFlight).toBe(1);
+    expect(getAccount).toHaveBeenCalledTimes(2);
+  });
+});

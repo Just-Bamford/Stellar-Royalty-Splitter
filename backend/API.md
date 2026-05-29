@@ -140,4 +140,4 @@ environment variables:
 
 When the fee fetch fails the backend falls back to `BASE_FEE` (`100` stroops) so transaction submission keeps working.
 
-Transactions built via `retryBuildTx` refresh the account sequence (#275) on every attempt; retries never reuse a stale sequence.
+Transactions built via `retryBuildTx` refresh the account sequence (#275) on every attempt; retries never reuse a stale sequence. Concurrent builds for the same wallet address are serialized with a per-address lock (#294) so simultaneous requests never fetch the same sequence number and fail with `tx_bad_seq`.

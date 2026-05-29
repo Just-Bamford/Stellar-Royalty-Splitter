@@ -12,6 +12,8 @@
  *     Falls back to BASE_FEE on fetch failure.
  *   - `retryBuildTx` calls `getFreshAccount()` on every attempt, so each
  *     rebuilt transaction carries a freshly refetched sequence number.
+ *   - Per-address build locks (#294) serialize concurrent `buildTx` calls for
+ *     the same wallet so two simultaneous requests never reuse one sequence.
  */
 import StellarSdk from "@stellar/stellar-sdk";
 import logger from "./logger.js";
@@ -231,7 +233,44 @@ export async function getRecommendedFee() {
   }
 }
 
-// ── Build path (#273, #274, #275) ──────────────────────────────────────────
+// ── Per-address build lock (#294) ──────────────────────────────────────────
+
+/** @type {Map<string, Promise<void>>} */
+const accountBuildLocks = new Map();
+
+/**
+ * Serialize async work per Stellar account so concurrent transaction builds
+ * never fetch the same sequence number (#294).
+ */
+export async function withAccountBuildLock(callerAddress, fn) {
+  const key = callerAddress;
+  const previous = accountBuildLocks.get(key) ?? Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  accountBuildLocks.set(
+    key,
+    previous.then(() => current),
+  );
+
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (accountBuildLocks.get(key) === current) {
+      accountBuildLocks.delete(key);
+    }
+  }
+}
+
+/** Reset build locks (for tests). */
+export function _resetAccountBuildLocks() {
+  accountBuildLocks.clear();
+}
+
+// ── Build path (#273, #274, #275, #294) ────────────────────────────────────
 
 /**
  * Fetch a fresh account record (including the current sequence number) for
@@ -251,24 +290,26 @@ export async function getFreshAccount(callerAddress) {
  * The frontend signs and submits it.
  */
 export async function buildTx(callerAddress, contractId, method, args = []) {
-  const account = await getFreshAccount(callerAddress);
-  const fee = await getRecommendedFee();
-  const contract = new Contract(contractId);
+  return withAccountBuildLock(callerAddress, async () => {
+    const account = await getFreshAccount(callerAddress);
+    const fee = await getRecommendedFee();
+    const contract = new Contract(contractId);
 
-  const tx = new TransactionBuilder(account, {
-    fee,
-    networkPassphrase,
-  })
-    .addOperation(contract.call(method, ...args))
-    .setTimeout(30)
-    .build();
+    const tx = new TransactionBuilder(account, {
+      fee,
+      networkPassphrase,
+    })
+      .addOperation(contract.call(method, ...args))
+      .setTimeout(30)
+      .build();
 
-  const prepared = await withTimeout(
-    server.prepareTransaction(tx),
-    SOROBAN_RPC_TIMEOUT_MS,
-    "Soroban prepareTransaction",
-  );
-  return prepared.toXDR();
+    const prepared = await withTimeout(
+      server.prepareTransaction(tx),
+      SOROBAN_RPC_TIMEOUT_MS,
+      "Soroban prepareTransaction",
+    );
+    return prepared.toXDR();
+  });
 }
 
 function isRateLimitError(error) {
@@ -288,10 +329,9 @@ function isTimeoutError(error) {
 /**
  * Retry wrapper for buildTx with exponential backoff.
  *
- * Sequence-number freshness (#275): every attempt re-enters `buildTx`,
- * which always calls `getFreshAccount` — the retry therefore carries the
- * latest sequence number from Horizon, not the one captured by the first
- * attempt.
+ * Sequence-number freshness (#275, #294): every attempt re-enters `buildTx`,
+ * which always calls `getFreshAccount` under a per-address lock — concurrent
+ * requests for the same wallet are serialized so they never reuse one sequence.
  *
  * Timeouts (#273) surface as `{ status: 504 }` and are retried like other
  * network errors up to `maxRetries`.
@@ -456,6 +496,41 @@ export async function isContractInitialized(contractId) {
   );
   if (SorobanRpc.Api.isSimulationError(sim)) return false;
   return sim.result?.retval?.bool() ?? false;
+}
+
+/**
+ * Fetch the on-chain contract version via read-only simulation.
+ * Returns the semver string, or null when the contract is not initialized.
+ */
+export async function getContractVersionFromContract(contractId) {
+  const contract = new Contract(contractId);
+  const dummyAccount = new Account(
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+    "0",
+  );
+  const tx = new TransactionBuilder(dummyAccount, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(contract.call("get_version"))
+    .setTimeout(30)
+    .build();
+
+  const sim = await withTimeout(
+    server.simulateTransaction(tx),
+    SOROBAN_RPC_TIMEOUT_MS,
+    "Soroban simulateTransaction",
+  );
+  if (SorobanRpc.Api.isSimulationError(sim)) return null;
+
+  const retval = sim.result?.retval;
+  if (!retval) return null;
+
+  try {
+    return retval.str().toString();
+  } catch {
+    return null;
+  }
 }
 
 // ── Test exports ───────────────────────────────────────────────────────────
