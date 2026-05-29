@@ -6,6 +6,7 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
+import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
 import { collaboratorsRouter } from "./routes/collaborators.js";
@@ -43,10 +44,15 @@ app.use(helmet());
 
 const corsPreflightMaxAge = parseInt(process.env.CORS_PREFLIGHT_MAX_AGE ?? "86400", 10);
 
-// CORS restricted to configured frontend origin
+// #276: env-driven CORS origin. resolveCorsOrigin validates the value
+// (rejects malformed URLs, rejects '*' in production), and refuses to
+// start when FRONTEND_ORIGIN is unset in production so a misconfigured
+// deployment can never silently open the policy to all origins.
+const corsOrigin = resolveCorsOrigin();
+logger.info("CORS origin configured", { origin: corsOrigin });
 app.use(
   cors({
-    origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
+    origin: corsOrigin,
     methods: ["GET", "POST"],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })

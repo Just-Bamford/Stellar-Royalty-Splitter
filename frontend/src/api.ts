@@ -1,6 +1,37 @@
 // Thin client that talks to the Express backend
 
+import { extractContractError } from "./lib/contract-errors";
+
 const BASE = "/api";
+
+// #279: surface a structured `code + message + details` shape from
+// the backend's error response instead of just `data.error`. The
+// caller's `catch (e)` block can call `extractContractError(e)` to
+// pull the same fields back out and the toast surfaces the real
+// failure reason (`Caller is not the contract admin (code 2)`)
+// rather than a generic "transaction failed".
+export class BackendApiError extends Error {
+  code: string | number | null;
+  details?: string;
+  status: number;
+  constructor(
+    status: number,
+    code: string | number | null,
+    message: string,
+    details?: string,
+  ) {
+    super(message);
+    this.name = "BackendApiError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function readErrorBody(status: number, data: unknown): BackendApiError {
+  const parsed = extractContractError(data ?? { error: "Request failed" });
+  return new BackendApiError(status, parsed.code, parsed.message, parsed.details);
+}
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -9,14 +40,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Request failed");
+  if (!res.ok) throw readErrorBody(res.status, data);
   return data as T;
 }
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Request failed");
+  if (!res.ok) throw readErrorBody(res.status, data);
   return data as T;
 }
 
