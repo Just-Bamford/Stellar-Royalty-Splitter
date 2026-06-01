@@ -4,7 +4,14 @@
  */
 
 // Core database setup
-export { db, countWrite, initializeDatabase, getMigrationVersion } from "./core.js";
+export {
+  db,
+  checkpointDatabase,
+  closeDatabase,
+  countWrite,
+  initializeDatabase,
+  getMigrationVersion,
+} from "./core.js";
 
 // Transaction tracking
 export {

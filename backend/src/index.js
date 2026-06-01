@@ -15,8 +15,8 @@ import historyRouter from "./routes/history.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
-import { initializeDatabase } from "./database/index.js";
-import db from "./database/index.js";
+import { closeDatabase, initializeDatabase } from "./database/index.js";
+import { createGracefulShutdownHandler } from "./shutdown.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -128,35 +128,11 @@ const server = app.listen(PORT, () => logger.info(`API listening on http://local
 server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS ?? "35000");
 server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS ?? "40000");
 
-// Graceful shutdown on SIGTERM (e.g. during deployment / container stop)
-const SHUTDOWN_TIMEOUT_MS = parseInt(process.env.SHUTDOWN_TIMEOUT_MS ?? "10000");
-
-process.on("SIGTERM", () => {
-  logger.info("SIGTERM received — starting graceful shutdown");
-
-  // Stop accepting new connections; wait for in-flight requests to finish.
-  server.close((err) => {
-    if (err) {
-      logger.error("Error while closing HTTP server", err);
-    } else {
-      logger.info("HTTP server closed");
-    }
-
-    // Close the SQLite connection (better-sqlite3 is synchronous).
-    try {
-      db.close();
-      logger.info("Database connection closed");
-    } catch (dbErr) {
-      logger.error("Error while closing database", dbErr);
-    }
-
-    logger.info("Graceful shutdown complete");
-    process.exit(err ? 1 : 0);
-  });
-
-  // Force-exit if in-flight requests don't drain in time.
-  setTimeout(() => {
-    logger.error(`Shutdown timeout (${SHUTDOWN_TIMEOUT_MS}ms) exceeded — forcing exit`);
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS).unref();
+const handleShutdown = createGracefulShutdownHandler({
+  server,
+  closeDatabase,
+  logger,
 });
+
+process.once("SIGTERM", () => handleShutdown("SIGTERM"));
+process.once("SIGINT", () => handleShutdown("SIGINT"));
