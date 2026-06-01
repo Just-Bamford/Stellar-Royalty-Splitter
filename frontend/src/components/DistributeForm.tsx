@@ -249,10 +249,10 @@ export default function DistributeForm({
             <p>Saved token and amount values are available for this contract.</p>
           </div>
           <div className="restore-actions">
-            <button type="button" className="btn-primary" onClick={restoreDraft}>
+            <button type="button" className="btn-primary" onClick={restoreDraft} disabled={loading}>
               Restore
             </button>
-            <button type="button" className="btn-secondary" onClick={discardDraft}>
+            <button type="button" className="btn-secondary" onClick={discardDraft} disabled={loading}>
               Discard
             </button>
           </div>
@@ -266,6 +266,7 @@ export default function DistributeForm({
         value={tokenId}
         autoComplete="off"
         spellCheck={false}
+        disabled={loading}
         onChange={(e) => { setTokenId(e.target.value); setAmount(""); }}
       />
       {tokenId && (
@@ -285,7 +286,7 @@ export default function DistributeForm({
         placeholder="0"
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
-        disabled={contractBalance === null}
+        disabled={contractBalance === null || loading}
         aria-invalid={exceedsBalance ? "true" : undefined}
         aria-describedby={exceedsBalance ? "distribute-amount-error" : undefined}
       />
@@ -348,6 +349,14 @@ export default function DistributeForm({
           message={status.message}
           txHash={successTxHash ?? undefined}
           network={network}
+          distributionData={
+            status.type === "ok"
+              ? {
+                  totalDistributed: parsedAmount,
+                  recipientCount: collaborators.length,
+                }
+              : undefined
+          }
         />
       )}
     </form>
