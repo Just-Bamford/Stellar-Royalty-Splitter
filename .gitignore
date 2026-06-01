@@ -1,6 +1,5 @@
 # Rust
 /target
-Cargo.lock
 *.wasm
 
 # Node
@@ -14,4 +13,3 @@ frontend/.env
 
 # Deployed contract ID
 .contract-id
-

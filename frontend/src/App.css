@@ -61,6 +61,17 @@
   background-clip: text;
 }
 
+.contract-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.contract-input-row .contract-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .contract-input {
   width: 100%;
   padding: var(--spacing-sm);
@@ -326,28 +337,51 @@
     padding: 0.5rem 0.75rem;
     font-size: 0.85rem;
   }
-}
-    min-height: 250px;
-    padding: 0.75rem;
+
+  /* Fix form inputs overflow on mobile */
+  .card {
+    padding: var(--spacing-sm);
+    overflow: hidden;
   }
 
-  .empty-content h2 {
-    font-size: 1rem;
+  .card input,
+  .card textarea,
+  .card select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    font-size: 0.9rem;
+    padding: 0.65rem 0.75rem;
+    box-sizing: border-box;
   }
 
-  .empty-content p,
-  .page-empty p {
+  .card input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  .card input[type="number"]::-webkit-outer-spin-button,
+  .card input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .card label {
     font-size: 0.85rem;
+    display: block;
+    margin-bottom: 0.25rem;
+    word-wrap: break-word;
   }
 
-  .quick-actions {
-    grid-template-columns: 1fr;
-    gap: 0.5rem;
+  .card button {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.9rem;
   }
 
-  .quick-action-btn {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.85rem;
+  .card .description {
+    font-size: 0.8rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
   }
 }
 

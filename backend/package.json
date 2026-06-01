@@ -8,8 +8,8 @@
     "start": "node src/index.js",
     "lint": "eslint src/**/*.js",
     "format": "prettier --write src/**/*.js",
-    "test": "echo \"No tests yet — see open issues\" && exit 0",
-    "test:backend": "node --experimental-vm-modules node_modules/.bin/jest --testPathPatterns=tests/"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",
+    "test:backend": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/"
   },
   "jest": {
     "testEnvironment": "node",

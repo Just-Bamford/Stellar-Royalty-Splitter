@@ -3,16 +3,19 @@ import {
   getTransactionHistory,
   getTransactionCount,
   getTransactionDetails,
+  getTransactionById,
   getAuditLog,
   addAuditLog,
   updateTransactionStatus,
+  updateTransactionHash,
 } from "../database/index.js";
 import {
   validateContractId,
   validateContractIdMiddleware,
   parsePagination,
 } from "../validation.js";
-import { server } from "../stellar.js";
+import { pollHorizonTransaction } from "../stellar.js";
+import { deliverDistributeWebhooks } from "../webhook-delivery.js";
 import logger from "../logger.js";
 
 const router = express.Router();
@@ -77,13 +80,13 @@ router.get("/transaction/:txHash", (req, res) => {
 
 /**
  * POST /api/transaction/confirm/:txHash
- * Verify on-chain status via Soroban RPC before updating the DB.
- * Returns 409 if the requested status contradicts the on-chain result.
+ * Poll Horizon for ledger confirmation (#297), update the DB, and fire
+ * distribute-completion webhooks (#295).
  */
 router.post("/transaction/confirm/:txHash", async (req, res) => {
   try {
     const { txHash } = req.params;
-    const { blockTime, errorMessage } = req.body;
+    const { blockTime, errorMessage, transactionId } = req.body;
 
     // Validate transaction hash format (64 hex characters)
     if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
@@ -93,8 +96,37 @@ router.post("/transaction/confirm/:txHash", async (req, res) => {
       });
     }
 
-    // Return 404 if transaction does not exist
-    const existing = getTransactionDetails(txHash);
+    let existing = getTransactionDetails(txHash);
+
+    if (!existing && transactionId != null) {
+      const parsedId = parseInt(transactionId, 10);
+      if (Number.isNaN(parsedId) || parsedId <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid transactionId" });
+      }
+
+      const pending = getTransactionById(parsedId);
+      if (!pending) {
+        return res.status(404).json({ success: false, error: "Transaction not found" });
+      }
+
+      if (pending.status !== "pending") {
+        return res.status(409).json({
+          success: false,
+          error: `Transaction already ${pending.status}`,
+        });
+      }
+
+      if (pending.txHash && pending.txHash !== txHash) {
+        return res.status(409).json({
+          success: false,
+          error: "Transaction is already linked to a different hash",
+        });
+      }
+
+      updateTransactionHash(parsedId, txHash);
+      existing = getTransactionDetails(txHash);
+    }
+
     if (!existing) {
       return res.status(404).json({ success: false, error: "Transaction not found" });
     }
@@ -107,31 +139,35 @@ router.post("/transaction/confirm/:txHash", async (req, res) => {
       });
     }
 
-    // Verify on-chain status
-    let onChainResult;
+    let pollResult;
     try {
-      onChainResult = await server.getTransaction(txHash);
-    } catch {
-      return res.status(502).json({ success: false, error: "Failed to reach Stellar RPC" });
-    }
-
-    // Map Stellar RPC status to our DB status
-    const STATUS_MAP = { SUCCESS: "confirmed", FAILED: "failed" };
-    const resolvedStatus = STATUS_MAP[onChainResult.status];
-
-    if (!resolvedStatus) {
-      // NOT_FOUND or still pending on-chain
-      return res.status(409).json({
+      pollResult = await pollHorizonTransaction(txHash);
+    } catch (error) {
+      const status = error?.status ?? 504;
+      return res.status(status).json({
         success: false,
-        error: `Transaction not yet finalized on-chain (status: ${onChainResult.status})`,
+        error: error?.message ?? "Failed to confirm transaction on Horizon",
       });
     }
 
-    updateTransactionStatus(txHash, resolvedStatus, blockTime ?? null, errorMessage ?? null);
+    updateTransactionStatus(
+      txHash,
+      pollResult.status,
+      blockTime ?? pollResult.createdAt ?? null,
+      errorMessage ?? null,
+    );
+
+    const confirmed = getTransactionDetails(txHash);
+
+    if (pollResult.status === "confirmed" && confirmed?.type === "distribute") {
+      deliverDistributeWebhooks(confirmed);
+    }
 
     res.json({
       success: true,
-      message: `Transaction ${txHash.substring(0, 8)}... marked as ${resolvedStatus}`,
+      status: pollResult.status,
+      ledger: pollResult.ledger ?? null,
+      message: `Transaction ${txHash.substring(0, 8)}... marked as ${pollResult.status}`,
     });
   } catch (error) {
     logger.error("Error updating transaction status:", error);

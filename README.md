@@ -140,6 +140,10 @@ Returns all registered collaborator addresses.
 
 Returns the basis-point share for a given collaborator address.
 
+### `update_wasm(wasm_hash: BytesN<32>)`
+
+Replaces the contract's executable WASM while preserving all instance storage (admin, collaborators, shares, balances, etc.). Requires admin authorization. The replacement Wasm must be uploaded to the network first via `stellar contract upload`; use the returned hash as `wasm_hash`.
+
 ---
 
 ## Usage Examples
@@ -179,6 +183,26 @@ stellar contract invoke \
   --network testnet \
   -- get_share \
   --collaborator GARTIST...
+```
+
+### Upgrade contract WASM (admin only)
+
+```bash
+# 1. Build and upload the new contract Wasm
+cargo build --target wasm32-unknown-unknown --release
+stellar contract upload \
+  --source deployer \
+  --wasm target/wasm32-unknown-unknown/release/stellar_royalty_splitter.wasm \
+  --network testnet
+# → aa24c81289997ad815489b29db337b53f284cca5aba86e9a8ae5cef7d31842c2
+
+# 2. Invoke update_wasm with the uploaded hash (admin must sign)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- update_wasm \
+  --wasm_hash aa24c81289997ad815489b29db337b53f284cca5aba86e9a8ae5cef7d31842c2
 ```
 
 ### Record a secondary sale royalty
@@ -254,6 +278,8 @@ cp backend/.env.example backend/.env
 | `HORIZON_URL`       | Horizon REST endpoint for the chosen network                                            |
 | `SOROBAN_RPC_URL`   | Soroban RPC endpoint for simulating and preparing transactions                          |
 | `SERVER_SECRET_KEY` | Server-side keypair used for read-only simulations only — never signs user transactions |
+| `SIGNING_KEY_FILE` | Optional secrets-manager file path; takes precedence over `SERVER_SECRET_KEY` on load |
+| `ADMIN_ROTATE_TOKEN` | Bearer token for `POST /admin/rotate-key` hot-reload without redeploy (#293) |
 
 ---
 

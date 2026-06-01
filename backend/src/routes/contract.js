@@ -1,7 +1,9 @@
 import { Router } from "express";
-import { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } from "@stellar/stellar-sdk";
-import { isContractInitialized, server, networkPassphrase, addressToScVal } from "../stellar.js";
-import { validateContractIdMiddleware } from "../validation.js";
+import StellarSdk from "@stellar/stellar-sdk";
+import { isContractInitialized, server, networkPassphrase, addressToScVal, getContractVersionFromContract } from "../stellar.js";
+import { validateContractIdMiddleware, validateContractId } from "../validation.js";
+
+const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
 
 export const contractRouter = Router();
 
@@ -25,6 +27,7 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
     const { contractId } = req.params;
     const { tokenId } = req.query;
     if (!tokenId) return res.status(400).json({ error: "tokenId query param required" });
+    if (!validateContractId(tokenId, res)) return;
 
     const contract = new Contract(contractId);
     const dummyAccount = new Account(
@@ -61,7 +64,7 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
  * Returns the number of collaborators via simulation.
  * Response: { contractId, count: number }
  */
-contractRouter.get("/collaborator-count/:contractId", async (req, res, next) => {
+contractRouter.get("/collaborator-count/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
     const contract = new Contract(contractId);
@@ -127,4 +130,32 @@ contractRouter.get(
       next(err);
     }
   }
+);
+
+/**
+ * GET /api/contract/version/:contractId
+ * Returns the on-chain contract version via simulation.
+ * Response: { contractId, version: string }
+ */
+contractRouter.get(
+  "/version/:contractId",
+  validateContractIdMiddleware,
+  async (req, res, next) => {
+    try {
+      const { contractId } = req.params;
+      const initialized = await isContractInitialized(contractId);
+      if (!initialized) {
+        return res.status(404).json({ error: "contract not initialized" });
+      }
+
+      const version = await getContractVersionFromContract(contractId);
+      if (!version) {
+        return res.status(404).json({ error: "contract version unavailable" });
+      }
+
+      res.json({ contractId, version });
+    } catch (err) {
+      next(err);
+    }
+  },
 );

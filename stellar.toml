@@ -1,0 +1,67 @@
+# stellar.toml — SEP-0001 Stellar TOML
+#
+# This file is hosted at the web root of the project and declares metadata
+# about the Stellar Royalty Splitter for use by Stellar wallets, explorers,
+# and other SEP-1 compliant tools.
+#
+# SEP-0001 specification:
+#   https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md
+
+# ─── General ────────────────────────────────────────────────────────────────
+
+VERSION = "1.0.0"
+
+NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015"
+
+# ─── Point of Contact ───────────────────────────────────────────────────────
+
+[[PRINCIPALS]]
+name = "Stellar Royalty Splitter Maintainers"
+email = "security@stellar-royalty-splitter.dev"
+github = "https://github.com/Just-Bamford"
+# twitter = ""   # add when available
+
+# ─── Documentation ──────────────────────────────────────────────────────────
+
+DOCUMENTATION.ORG_NAME       = "Stellar Royalty Splitter"
+DOCUMENTATION.ORG_DESCRIPTION = "On-chain royalty distribution for NFT collaborators on Stellar. A Soroban smart contract that automatically splits NFT sale proceeds among multiple collaborators based on predefined percentage allocations."
+DOCUMENTATION.ORG_URL        = "https://github.com/Just-Bamford/Stellar-Royalty-Splitter"
+DOCUMENTATION.ORG_GITHUB     = "https://github.com/Just-Bamford/Stellar-Royalty-Splitter"
+
+# ─── Contracts ──────────────────────────────────────────────────────────────
+#
+# Update CONTRACT_ID after each Mainnet deployment.
+# See DEPLOYMENT.md for the full deployment checklist.
+#
+# Testnet contract (current):
+#   Replace with the actual testnet contract ID from .contract-id after deploy.
+#
+# Mainnet contract:
+#   Replace PLACEHOLDER_MAINNET_CONTRACT_ID with the real contract ID
+#   once deployed to Mainnet (see DEPLOYMENT.md).
+
+[[CONTRACTS]]
+name         = "StellarRoyaltySplitter"
+description  = "Soroban smart contract that splits NFT royalty proceeds among collaborators defined at initialization. Shares are expressed in basis points (sum = 10,000). Supports both primary sales and secondary market royalties."
+network      = "Public Global Stellar Network ; September 2015"
+contract_id  = "PLACEHOLDER_MAINNET_CONTRACT_ID"
+version      = "1.0.0"
+
+# Testnet deployment (for developer reference)
+[[CONTRACTS]]
+name         = "StellarRoyaltySplitter-Testnet"
+description  = "Testnet deployment of the Stellar Royalty Splitter contract for development and testing."
+network      = "Test SDF Network ; September 2015"
+contract_id  = "PLACEHOLDER_TESTNET_CONTRACT_ID"
+version      = "1.0.0"
+
+# ─── Compliance Notes ───────────────────────────────────────────────────────
+#
+# This file implements SEP-0001 (Stellar TOML) to declare contract metadata
+# and contact information for use by Stellar-compatible wallets and explorers.
+#
+# To serve this file for SEP-1 compliance, host it at:
+#   https://<your-domain>/.well-known/stellar.toml
+#
+# CORS header required on the hosting server:
+#   Access-Control-Allow-Origin: *

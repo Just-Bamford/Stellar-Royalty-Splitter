@@ -6,18 +6,25 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
+import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
 import { collaboratorsRouter } from "./routes/collaborators.js";
 import { secondaryRoyaltyRouter } from "./routes/secondary-royalty.js";
+import { simulateRouter } from "./routes/simulate.js";
 import historyRouter from "./routes/history.js";
+import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
-import { initializeDatabase, getMigrationVersion } from "./database/index.js";
+import { healthRouter } from "./routes/health.js";
+import { adminRouter } from "./routes/admin.js";
+import { initializeDatabase } from "./database/index.js";
 import db from "./database/index.js";
+import { initializeSigningKey } from "./signing-key.js";
 
 // Initialize database on startup
 initializeDatabase();
+initializeSigningKey();
 
 const app = express();
 
@@ -41,10 +48,15 @@ app.use(helmet());
 
 const corsPreflightMaxAge = parseInt(process.env.CORS_PREFLIGHT_MAX_AGE ?? "86400", 10);
 
-// CORS restricted to configured frontend origin
+// #276: env-driven CORS origin. resolveCorsOrigin validates the value
+// (rejects malformed URLs, rejects '*' in production), and refuses to
+// start when FRONTEND_ORIGIN is unset in production so a misconfigured
+// deployment can never silently open the policy to all origins.
+const corsOrigin = resolveCorsOrigin();
+logger.info("CORS origin configured", { origin: corsOrigin });
 app.use(
   cors({
-    origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
+    origin: corsOrigin,
     methods: ["GET", "POST"],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })
@@ -57,7 +69,7 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
-  skip: (req) => req.path === "/api/health",
+  skip: (req) => req.path === "/api/v1/health" || req.path === "/api/health",
 });
 
 // Write limiter: 10 req / 1 min per IP
@@ -97,17 +109,29 @@ app.use((req, res, next) => {
 app.use("/api/v1/initialize", writeLimiter);
 app.use("/api/v1/distribute", writeLimiter);
 app.use("/api/v1/secondary-royalty", writeLimiter);
+app.use("/api/v1/webhooks", writeLimiter);
 
 app.use("/api/v1/initialize", initializeRouter);
 app.use("/api/v1/distribute", distributeRouter);
 app.use("/api/v1/collaborators", collaboratorsRouter);
 app.use("/api/v1/secondary-royalty", secondaryRoyaltyRouter);
+app.use("/api/v1/simulate", simulateRouter);
 app.use("/api/v1", historyRouter);
+app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
+app.use("/api/v1/health", healthRouter);
 
-// Health check
-app.get("/api/v1/health", (_req, res) => res.json({ ok: true, dbVersion: getMigrationVersion() }));
+// Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
+const adminLimiter = rateLimit({
+  windowMs: 60_000,
+  max: parseInt(process.env.RATE_LIMIT_ADMIN_MAX ?? "5"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many admin requests, please slow down." },
+});
+app.use("/admin", adminLimiter);
+app.use("/admin", adminRouter);
 
 // Legacy /api/* redirect to /api/v1/*
 app.use("/api", (req, res) => {

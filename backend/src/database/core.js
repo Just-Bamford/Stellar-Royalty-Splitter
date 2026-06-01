@@ -42,6 +42,20 @@ export function initializeDatabase() {
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
+      version: 3,
+      sql: `
+        CREATE TABLE IF NOT EXISTS webhooks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          url TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(contractId, url)
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhooks_contractId ON webhooks(contractId);
+      `,
+    },
+    {
       // #133: enforce FK constraints on existing databases by recreating
       // distribution_payouts and secondary_royalty_distributions with
       // ON DELETE CASCADE. SQLite doesn't support ADD CONSTRAINT, so we

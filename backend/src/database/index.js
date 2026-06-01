@@ -15,7 +15,11 @@ export {
   getTransactionCount,
   getTransactionHistory,
   getTransactionDetails,
+  getTransactionById,
 } from "./transactions.js";
+
+// Webhooks (#295)
+export { registerWebhook, listWebhooks, deleteWebhook } from "./webhooks.js";
 
 // Audit logging
 export { getAuditLog, addAuditLog } from "./audit.js";

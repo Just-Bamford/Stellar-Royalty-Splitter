@@ -15,6 +15,8 @@ import RecordSecondarySale from "./components/RecordSecondarySale";
 import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalties";
 import ResaleHistory from "./components/ResaleHistory";
 import { Skeleton } from "./components/Skeleton";
+import { CopyButton } from "./components/CopyButton";
+import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { api } from "./api";
 
 
@@ -63,7 +65,9 @@ export default function App() {
         return;
       }
       try {
-        const { address } = await window.freighter.getAddress();
+        const { address } = window.freighter.getAddress
+          ? await window.freighter.getAddress()
+          : { address: "" };
         if (address) setWalletAddress(address);
       } catch {
         // Not yet authorized — user must connect manually
@@ -139,7 +143,10 @@ export default function App() {
   }, [toggleTheme]);
 
   function handleDisconnect() {
+    // Clear all wallet state and any cached wallet data from localStorage
     setWalletAddress(null);
+    localStorage.removeItem("lastWalletAddress");
+    localStorage.removeItem("freighter_connected");
   }
 
   const renderPage = () => {
@@ -277,13 +284,18 @@ export default function App() {
 
           <div className="sidebar-card">
             <h3>📋 Contract ID</h3>
-            <input
-              ref={contractInputRef}
-              className={`contract-input${contractIdError ? " contract-input--error" : ""}`}
-              placeholder="C..."
-              value={contractId}
-              onChange={(e) => handleContractChange(e.target.value)}
-            />
+            <div className="contract-input-row">
+              <input
+                ref={contractInputRef}
+                className={`contract-input${contractIdError ? " contract-input--error" : ""}`}
+                placeholder="C..."
+                value={contractId}
+                onChange={(e) => handleContractChange(e.target.value)}
+              />
+              {contractIdValid && (
+                <CopyButton value={contractId} label="contract ID" size="sm" />
+              )}
+            </div>
             {contractIdError && (
               <p className="contract-input-error">{contractIdError}</p>
             )}
@@ -350,6 +362,7 @@ export default function App() {
         <div className="app-main">{renderPage()}</div>
       </div>
 
+      <OnboardingWalkthrough />
     </div>
   );
 }

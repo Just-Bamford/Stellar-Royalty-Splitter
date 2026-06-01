@@ -88,6 +88,27 @@ export function getTransactionHistory(contractId, limit = 50, offset = 0) {
   return stmt.all(contractId, limit, offset);
 }
 
+export function getTransactionById(transactionId) {
+  const stmt = db.prepare(`
+    SELECT
+      t.id,
+      t.txHash,
+      t.contractId,
+      t.type,
+      t.initiatorAddress,
+      t.requestedAmount,
+      t.tokenId,
+      t.timestamp,
+      t.blockTime,
+      t.status,
+      t.errorMessage
+    FROM transactions t
+    WHERE t.id = ?
+  `);
+
+  return stmt.get(transactionId) ?? null;
+}
+
 export function getTransactionDetails(txHash) {
   const stmt = db.prepare(`
     SELECT 

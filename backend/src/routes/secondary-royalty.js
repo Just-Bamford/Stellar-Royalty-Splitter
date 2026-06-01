@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  buildTx,
   retryBuildTx,
   addressToScVal,
   i128ToScVal,
@@ -22,6 +23,8 @@ import {
   validate,
   recordSecondarySaleSchema,
   setRoyaltyRateSchema,
+  distributeSecondarySchema,
+  validateContractId,
   validateContractIdMiddleware,
   parsePagination,
 } from "../validation.js";
@@ -32,13 +35,9 @@ export const secondaryRoyaltyRouter = Router();
  * NEW: GET /api/secondary-royalty/pool/:contractId
  * Returns the current secondary royalty pool balance for a contract
  */
-secondaryRoyaltyRouter.get("/pool/:contractId", async (req, res, next) => {
+secondaryRoyaltyRouter.get("/pool/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
-
-    if (!contractId) {
-      return res.status(400).json({ error: "Contract ID is required." });
-    }
 
     // Call the contract method to fetch pool balance
     const result = await server.simulateTransaction({
@@ -213,13 +212,9 @@ secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
  * Body: { contractId, walletAddress, tokenId }
  * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties
  */
-secondaryRoyaltyRouter.post("/distribute", async (req, res, next) => {
+secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), async (req, res, next) => {
   try {
     const { contractId, walletAddress, tokenId } = req.body;
-
-    if (!contractId || !walletAddress || !tokenId) {
-      return res.status(400).json({ error: "Missing required fields." });
-    }
 
     // Get pending (undistributed) secondary sales
     const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);

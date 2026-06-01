@@ -1,15 +1,17 @@
 import { Router } from "express";
-import {
+import StellarSdk from "@stellar/stellar-sdk";
+import { server, networkPassphrase } from "../stellar.js";
+import logger from "../logger.js";
+import { validateContractIdMiddleware } from "../validation.js";
+
+const {
   Address,
   Contract,
   SorobanRpc,
   TransactionBuilder,
   BASE_FEE,
   Account,
-} from "@stellar/stellar-sdk";
-import { server, networkPassphrase } from "../stellar.js";
-import logger from "../logger.js";
-import { validateContractIdMiddleware } from "../validation.js";
+} = StellarSdk;
 
 export const collaboratorsRouter = Router();
 

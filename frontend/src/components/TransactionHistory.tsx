@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api, TransactionRecord, TransactionDetails } from "../api";
 import "./TransactionHistory.css";
 import { formatNumber } from "../utils/format";
+import { CopyButton } from "./CopyButton";
 
 interface TransactionHistoryProps {
   contractId: string;
@@ -17,7 +18,6 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<TransactionDetails | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
   const LIMIT = 10;
 
   const fetchHistory = async () => {
@@ -55,13 +55,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     }
   };
 
-  const closeModal = () => { setSelected(null); setCopied(false); };
-
-  const copyHash = async (hash: string) => {
-    await navigator.clipboard.writeText(hash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const closeModal = () => { setSelected(null); };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -122,7 +116,19 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                     <td><span className="tx-type">{tx.type}</span></td>
                     <td title={tx.initiatorAddress}>{truncateAddress(tx.initiatorAddress)}</td>
                     <td>{tx.requestedAmount ? formatNumber(tx.requestedAmount) : "—"}</td>
-                    <td className="tx-hash-cell">{truncateHash(tx.txHash)}</td>
+                    <td
+                      className="tx-hash-cell"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="tx-hash-text">{truncateHash(tx.txHash)}</span>
+                      {tx.txHash && (
+                        <CopyButton
+                          value={tx.txHash}
+                          label="transaction hash"
+                          size="sm"
+                        />
+                      )}
+                    </td>
                     <td>
                       <span
                         className="status-badge"
@@ -193,13 +199,11 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 <span className="tx-detail-hash">
                   <span className="tx-detail-mono">{selected.txHash ?? "Pending"}</span>
                   {selected.txHash && (
-                    <button
-                      className="tx-copy-btn"
-                      onClick={() => copyHash(selected.txHash!)}
-                      aria-label="Copy transaction hash"
-                    >
-                      {copied ? "✓ Copied" : "Copy"}
-                    </button>
+                    <CopyButton
+                      value={selected.txHash}
+                      label="transaction hash"
+                      size="sm"
+                    />
                   )}
                 </span>
               </div>

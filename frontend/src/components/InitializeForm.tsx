@@ -19,6 +19,76 @@ interface Props {
 
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const MAX_COLLABORATORS = 50;
+const PERCENTAGE_INPUT_RE = /^(\d+(\.\d*)?|\.\d+)?$/;
+const SIGNED_PERCENTAGE_INPUT_RE = /^-(\d+(\.\d*)?|\.\d+)$/;
+const PERCENTAGE_NAVIGATION_KEYS = [
+  "Backspace",
+  "Delete",
+  "Tab",
+  "Escape",
+  "Enter",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+];
+
+function getPercentageError(value: string) {
+  if (value === "") return "Percentage is required.";
+  if (SIGNED_PERCENTAGE_INPUT_RE.test(value)) {
+    return "Percentage must be between 0 and 100.";
+  }
+  if (!PERCENTAGE_INPUT_RE.test(value)) return "Percentage must be a number.";
+
+  const numericValue = Number(value);
+  if (Number.isNaN(numericValue)) return "Percentage must be a number.";
+  if (numericValue < 0 || numericValue > 100) {
+    return "Percentage must be between 0 and 100.";
+  }
+
+  return "";
+}
+
+function isAllowedPercentageInput(value: string) {
+  return PERCENTAGE_INPUT_RE.test(value);
+}
+
+function updatePercentageError(
+  setErrors: React.Dispatch<
+    React.SetStateAction<Record<number, { address?: string; basisPoints?: string }>>
+  >,
+  i: number,
+  error: string,
+) {
+  setErrors((prev) => ({
+    ...prev,
+    [i]: {
+      ...prev[i],
+      basisPoints: error,
+    },
+  }));
+}
+
+function handlePercentageKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+  if (
+    event.ctrlKey ||
+    event.metaKey ||
+    PERCENTAGE_NAVIGATION_KEYS.includes(event.key)
+  ) {
+    return;
+  }
+
+  if (!/^[0-9.]$/.test(event.key)) {
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key === "." && event.currentTarget.value.includes(".")) {
+    event.preventDefault();
+  }
+}
 
 export default function InitializeForm({
   contractId,
@@ -59,11 +129,11 @@ export default function InitializeForm({
       }
     }
     if (field === "basisPoints") {
-      const num = parseFloat(value);
-      if (value !== "" && (isNaN(num) || num < 0 || num > 100)) {
+      const percentageError = getPercentageError(value);
+      if (percentageError) {
         rowErrors[i] = {
           ...rowErrors[i],
-          basisPoints: "Percentage must be between 0 and 100",
+          basisPoints: percentageError,
         };
       } else {
         const { basisPoints: _, ...rest } = rowErrors[i] ?? {};
@@ -101,10 +171,35 @@ export default function InitializeForm({
 
   const hasErrors = Object.values(errors).some((e) => (e as { address?: string; basisPoints?: string })?.address || (e as { address?: string; basisPoints?: string })?.basisPoints);
   const hasEmptyFields = collaborators.some((c: Collaborator) => !c.address || !c.basisPoints);
+  const hasInvalidPercentages = collaborators.some((c: Collaborator) => getPercentageError(c.basisPoints));
 
   async function submit() {
     if (!contractId)
       return setStatus("error", "Enter a contract ID first.");
+    const nextErrors = collaborators.reduce<
+      Record<number, { address?: string; basisPoints?: string }>
+    >((acc, c, i) => {
+      if (!c.address || !STELLAR_ADDRESS_RE.test(c.address)) {
+        acc[i] = {
+          ...acc[i],
+          address: "Must be a valid Stellar address (G..., 56 chars)",
+        };
+      }
+
+      const percentageError = getPercentageError(c.basisPoints);
+      if (percentageError) {
+        acc[i] = {
+          ...acc[i],
+          basisPoints: percentageError,
+        };
+      }
+
+      return acc;
+    }, {});
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors((prev) => ({ ...prev, ...nextErrors }));
+      return setStatus("error", "Please fix all field errors before submitting.");
+    }
     if (Math.round(total * 100) !== 10_000)
       return setStatus("error", `Percentages must sum to 100% (currently ${total.toFixed(2)}%).`);
 
@@ -177,16 +272,25 @@ export default function InitializeForm({
                 max={100}
                 step="any"
                 value={c.basisPoints}
+                className={errors[i]?.basisPoints ? "input-error" : ""}
                 aria-label={`Royalty percentage for collaborator ${i + 1}`}
+                aria-invalid={Boolean(errors[i]?.basisPoints)}
+                aria-describedby={errors[i]?.basisPoints ? `collaborator-${i}-percentage-error` : undefined}
+                onKeyDown={handlePercentageKeyDown}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  update(i, "basisPoints", e.target.value);
-                  validateRow(i, "basisPoints", e.target.value);
+                  const { value } = e.target;
+                  if (!isAllowedPercentageInput(value)) {
+                    updatePercentageError(setErrors, i, getPercentageError(value));
+                    return;
+                  }
+                  update(i, "basisPoints", value);
+                  validateRow(i, "basisPoints", value);
                 }}
                 onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
                 style={{ marginBottom: errors[i]?.basisPoints ? "0.25rem" : undefined }}
               />
               {errors[i]?.basisPoints && (
-                <span className="field-error">{errors[i].basisPoints}</span>
+                <span id={`collaborator-${i}-percentage-error`} className="field-error">{errors[i].basisPoints}</span>
               )}
             </div>
             {collaborators.length > 1 && (
@@ -220,7 +324,7 @@ export default function InitializeForm({
         <button
           className="btn-primary"
           onClick={submit}
-          disabled={loading || hasErrors || hasEmptyFields}
+          disabled={loading || hasErrors || hasEmptyFields || hasInvalidPercentages}
         >
           {loading ? "Submitting…" : "Initialize contract"}
         </button>

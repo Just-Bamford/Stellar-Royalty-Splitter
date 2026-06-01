@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useSettings, SettingsType } from "../context/SettingsContext";
 
+import { CopyButton } from "./CopyButton";
 import "./Settings.css";
 
 interface SettingsProps {
@@ -61,8 +62,11 @@ export const Settings: React.FC<SettingsProps> = ({ contractId, onClearContract 
     <div className="settings">
       <div className="settings-header">
         <h1>⚙️ Settings</h1>
-        <p className="settings-subtitle">
-          Contract ID: {contractId || "Not connected"}
+        <p className="settings-subtitle settings-contract-id">
+          <span>Contract ID: {contractId || "Not connected"}</span>
+          {contractId && (
+            <CopyButton value={contractId} label="contract ID" size="sm" />
+          )}
         </p>
       </div>
 

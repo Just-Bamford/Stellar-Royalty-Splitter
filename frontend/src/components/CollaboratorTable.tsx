@@ -101,11 +101,11 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                   {c.address.slice(0, 8)}...{c.address.slice(-6)}
                 </span>
                 <button
-                  className="copy-btn-sm"
-                  onClick={() => navigator.clipboard.writeText(c.address)}
-                  title="Copy address"
+                  className={`copy-btn-sm${copied === c.address ? " copied" : ""}`}
+                  onClick={() => copyAddress(c.address)}
+                  title={copied === c.address ? "Address copied" : "Copy address"}
                 >
-                  ⧉
+                  {copied === c.address ? "✓" : "⧉"}
                 </button>
               </td>
               <td style={{ textAlign: "right" }}>

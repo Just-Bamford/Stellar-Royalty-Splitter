@@ -326,7 +326,9 @@ export function getAuditLog(contractId, limit = 100, offset = 0) {
     let details = null;
     try {
       details = JSON.parse(row.details || "{}");
-    } catch (_) {}
+    } catch (_) {
+      // Keep malformed legacy audit details readable as null.
+    }
     return { ...row, details };
   });
 }

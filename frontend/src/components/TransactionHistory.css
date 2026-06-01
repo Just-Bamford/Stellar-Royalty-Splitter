@@ -117,15 +117,15 @@
 }
 
 .tx-hash-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-family: "Monaco", "Courier New", monospace;
   font-size: 12px;
-  cursor: pointer;
-  color: #3b82f6;
-  text-decoration: underline;
 }
 
-.tx-hash-cell:hover {
-  color: #2563eb;
+.tx-hash-text {
+  color: #3b82f6;
 }
 
 .status-badge {

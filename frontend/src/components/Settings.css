@@ -21,6 +21,13 @@
   font-size: 0.95rem;
 }
 
+.settings-contract-id {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .save-status {
   background: #c6f6d5;
   border: 1px solid #9ae6b4;

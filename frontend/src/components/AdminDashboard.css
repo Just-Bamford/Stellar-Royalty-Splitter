@@ -360,6 +360,11 @@
   color: var(--error-dark);
 }
 
+.detail-row.tx-hash-row {
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .detail-row .tx-hash {
   cursor: pointer;
   color: var(--accent-primary);

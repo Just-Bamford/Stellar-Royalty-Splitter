@@ -11,8 +11,13 @@ interface Props {
 declare global {
   interface Window {
     freighter?: {
-      requestAccess: () => Promise<{ address: string }>;
-      getAddress: () => Promise<{ address: string }>;
+      requestAccess?: () => Promise<{ address: string }>;
+      getAddress?: () => Promise<{ address: string }>;
+      getPublicKey?: () => Promise<string>;
+      signTransaction?: (
+        xdr: string,
+        options?: { network?: string },
+      ) => Promise<string>;
       on?: (event: string, handler: (data: { address: string }) => void) => void;
     };
   }
@@ -20,8 +25,25 @@ declare global {
 
 export default function WalletConnect({ walletAddress, onConnect, onDisconnect }: Props) {
   const [error, setError] = useState("");
-  const [freighterMissing, setFreighterMissing] = useState(false);
+  const [freighterAvailable, setFreighterAvailable] = useState(
+    () => Boolean(window.freighter),
+  );
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    function checkFreighterAvailability() {
+      setFreighterAvailable(Boolean(window.freighter));
+    }
+
+    checkFreighterAvailability();
+    window.addEventListener("load", checkFreighterAvailability);
+    const timer = window.setTimeout(checkFreighterAvailability, 500);
+
+    return () => {
+      window.removeEventListener("load", checkFreighterAvailability);
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   // Listen for Freighter account changes
   useEffect(() => {
@@ -29,19 +51,30 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
     window.freighter.on("accountChanged", ({ address: newAddr }) => {
       onConnect(newAddr);
     });
-  }, [onConnect]);
+  }, [freighterAvailable, onConnect]);
 
   async function connect() {
     setError("");
-    setFreighterMissing(false);
 
     if (!window.freighter) {
-      setFreighterMissing(true);
+      setFreighterAvailable(false);
       return;
     }
 
     try {
-      const { address: addr } = await window.freighter.requestAccess();
+      let addr = "";
+      if (window.freighter.requestAccess) {
+        addr = (await window.freighter.requestAccess()).address;
+      } else if (window.freighter.getAddress) {
+        addr = (await window.freighter.getAddress()).address;
+      } else if (window.freighter.getPublicKey) {
+        addr = await window.freighter.getPublicKey();
+      }
+
+      if (!addr) {
+        throw new Error("No address returned from Freighter.");
+      }
+
       onConnect(addr);
     } catch {
       setError("Connection rejected. Please approve the request in Freighter.");
@@ -49,10 +82,10 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
   }
 
   function disconnect() {
-    setFreighterMissing(false);
     setError("");
     setCopied(false);
     localStorage.removeItem("lastWalletAddress");
+    localStorage.removeItem("freighter_connected");
     onDisconnect?.();
   }
 
@@ -82,14 +115,19 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
             </button>
           </>
         ) : (
-          <button className="btn-primary" onClick={connect}>
+          <button
+            className="btn-primary"
+            onClick={connect}
+            disabled={!freighterAvailable}
+            aria-describedby={!freighterAvailable ? "freighter-install-prompt" : undefined}
+          >
             Connect Freighter
           </button>
         )}
       </div>
 
-      {freighterMissing && (
-        <div className="status error">
+      {!freighterAvailable && !walletAddress && (
+        <div className="status error" id="freighter-install-prompt" role="status">
           Freighter wallet not found. Install it at{" "}
           <a
             href="https://freighter.app"

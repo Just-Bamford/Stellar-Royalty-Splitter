@@ -9,6 +9,23 @@ const mockSimulate = jest.fn();
 const mockIsSimError = jest.fn(() => false);
 
 await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
+  default: {
+    Address: { fromScVal: jest.fn((scv) => ({ toString: () => scv })) },
+    Contract: jest.fn().mockImplementation(() => ({
+      call: jest.fn((method) => ({ method })),
+    })),
+    SorobanRpc: {
+      Server: jest.fn().mockImplementation(() => ({ simulateTransaction: mockSimulate })),
+      Api: { isSimulationError: mockIsSimError },
+    },
+    TransactionBuilder: jest.fn().mockImplementation(() => ({
+      addOperation: jest.fn().mockReturnThis(),
+      setTimeout: jest.fn().mockReturnThis(),
+      build: jest.fn().mockReturnValue({}),
+    })),
+    BASE_FEE: "100",
+    Account: jest.fn(),
+  },
   Address: { fromScVal: jest.fn((scv) => ({ toString: () => scv })) },
   Contract: jest.fn().mockImplementation(() => ({
     call: jest.fn((method) => ({ method })),
@@ -36,7 +53,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   vecToScVal: jest.fn((v) => v),
 }));
 
-await jest.unstable_mockModule("../src/database.js", () => ({
+await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction: jest.fn(() => "tx-789"),
   addAuditLog: jest.fn(),
   initializeDatabase: jest.fn(),
@@ -54,18 +71,28 @@ describe("GET /api/v1/collaborators/:contractId", () => {
   });
 
   test("happy path — returns collaborators with basisPoints", async () => {
-    mockSimulate
-      .mockResolvedValueOnce({ result: { retval: { vec: () => [COLLAB1, COLLAB2] } } })
-      .mockResolvedValueOnce({ result: { retval: { bool: () => true } } })
-      .mockResolvedValueOnce({ result: { retval: { u32: () => 5000 } } })
-      .mockResolvedValueOnce({ result: { retval: { bool: () => true } } })
-      .mockResolvedValueOnce({ result: { retval: { u32: () => 5000 } } });
+    const makeEntry = (address, share) => ({
+      key: () => address,
+      val: () => ({ u32: () => share }),
+    });
+
+    mockSimulate.mockResolvedValueOnce({
+      result: {
+        retval: {
+          map: () => ({
+            entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)],
+          }),
+        },
+      },
+    });
 
     const res = await request(app).get(`/api/v1/collaborators/${CONTRACT}`);
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.length).toBe(2);
+    expect(res.body[0]).toMatchObject({ address: COLLAB1, basisPoints: 5000 });
+    expect(res.body[1]).toMatchObject({ address: COLLAB2, basisPoints: 5000 });
   });
 
   test("returns empty array when contract has no collaborators", async () => {

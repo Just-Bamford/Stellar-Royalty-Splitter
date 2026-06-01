@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, TransactionRecord } from "../api";
 import { QRCodeSVG } from "qrcode.react";
+import { CopyButton } from "./CopyButton";
 import "./AdminDashboard.css";
 
 interface AdminDashboardProps {
@@ -12,7 +13,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [initHistory, setInitHistory] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -56,12 +56,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setContractVersion("unknown");
       }
     }
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(contractId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const exportContractInfo = () => {
@@ -127,13 +121,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="contract-id-label">Contract ID</div>
           <div className="contract-id-value">
             <code>{contractId}</code>
-            <button
-              className={`copy-btn ${copied ? "copied" : ""}`}
-              onClick={copyToClipboard}
-              title="Copy to clipboard"
-            >
-              {copied ? "✓ Copied" : "📋 Copy"}
-            </button>
+            <CopyButton value={contractId} label="contract ID" />
           </div>
         </div>
 
@@ -209,11 +197,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                   </div>
                   {record.txHash && (
-                    <div className="detail-row">
+                    <div className="detail-row tx-hash-row">
                       <span className="label">TX Hash:</span>
                       <code className="value tx-hash">
                         {record.txHash.slice(0, 16)}...
                       </code>
+                      <CopyButton
+                        value={record.txHash}
+                        label="transaction hash"
+                        size="sm"
+                      />
                     </div>
                   )}
                 </div>
@@ -244,9 +237,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <h3>Contract ID</h3>
                 <div className="contract-info-block">
                   <code>{contractId}</code>
-                  <button onClick={copyToClipboard} className="copy-modal-btn">
-                    📋 Copy
-                  </button>
+                  <CopyButton value={contractId} label="contract ID" size="sm" />
                 </div>
               </div>
 
