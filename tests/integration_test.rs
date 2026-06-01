@@ -3097,3 +3097,407 @@ fn test_rate_history_in_persistent_storage() {
         assert!(!env.storage().instance().has(&DataKey::RoyaltyRateHistory));
     });
 }
+
+// ── Pause/Unpause Flow Tests ────────────────────────────────────────────────
+
+/// Test that pause() sets the paused state correctly.
+#[test]
+fn test_pause_sets_paused_state() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Initially not paused
+    assert!(!client.is_paused());
+
+    // Pause the contract
+    client.pause();
+
+    // Verify paused state
+    assert!(client.is_paused());
+}
+
+/// Test that unpause() clears the paused state correctly.
+#[test]
+fn test_unpause_clears_paused_state() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Pause first
+    client.pause();
+    assert!(client.is_paused());
+
+    // Unpause the contract
+    client.unpause();
+
+    // Verify unpaused state
+    assert!(!client.is_paused());
+}
+
+/// Test that distribute() fails with ContractPaused error when paused.
+#[test]
+fn test_distribute_fails_with_error_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    mint(&env, &token, &contract_id, 1000);
+
+    // Pause the contract
+    client.pause();
+
+    // Verify distribute fails with the correct error
+    let result = client.try_distribute(&token);
+    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+}
+
+/// Test that distribute() succeeds after unpause.
+#[test]
+fn test_distribute_succeeds_after_unpause_with_balances() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    mint(&env, &token, &contract_id, 1000);
+
+    // Pause and verify distribute fails
+    client.pause();
+    let result = client.try_distribute(&token);
+    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+
+    // Unpause
+    client.unpause();
+    assert!(!client.is_paused());
+
+    // Distribute should now succeed
+    client.distribute(&token);
+
+    // Verify balances were distributed correctly
+    assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
+    assert_eq!(TokenClient::new(&env, &token).balance(&b), 500);
+}
+
+/// Test that only admin can call pause().
+#[test]
+fn test_pause_requires_admin_authorization() {
+    let env = Env::default();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    // Initialize with mock_all_auths
+    env.mock_all_auths_allowing_non_root_auth();
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Clear auths and try to pause without authorization
+    env.mock_auths(&[]);
+
+    // Should panic due to missing authorization
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pause();
+    }));
+    assert!(result.is_err(), "pause() should panic without admin auth");
+}
+
+/// Test that only admin can call unpause().
+#[test]
+fn test_unpause_requires_admin_authorization() {
+    let env = Env::default();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    // Initialize and pause with mock_all_auths
+    env.mock_all_auths_allowing_non_root_auth();
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    client.pause();
+
+    // Clear auths and try to unpause without authorization
+    env.mock_auths(&[]);
+
+    // Should panic due to missing authorization
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.unpause();
+    }));
+    assert!(result.is_err(), "unpause() should panic without admin auth");
+}
+
+/// Test that pause() requires specific admin auth (not just any auth).
+#[test]
+fn test_pause_requires_specific_admin_auth() {
+    let env = Env::default();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    env.mock_all_auths_allowing_non_root_auth();
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Use specific mock auth for admin
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "pause",
+            args: ().into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    client.pause();
+    assert!(client.is_paused());
+}
+
+/// Test that unpause() requires specific admin auth (not just any auth).
+#[test]
+fn test_unpause_requires_specific_admin_auth() {
+    let env = Env::default();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    env.mock_all_auths_allowing_non_root_auth();
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    client.pause();
+
+    // Use specific mock auth for admin
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "unpause",
+            args: ().into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    client.unpause();
+    assert!(!client.is_paused());
+}
+
+/// Test that distribute_secondary_royalties() fails with ContractPaused error when paused.
+#[test]
+fn test_distribute_secondary_fails_with_error_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Record some secondary royalties
+    let pool_amount: i128 = 500;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+
+    // Pause the contract
+    client.pause();
+
+    // Verify distribute_secondary_royalties fails with the correct error
+    let result = client.try_distribute_secondary_royalties();
+    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+}
+
+/// Test that distribute_secondary_royalties() succeeds after unpause.
+#[test]
+fn test_distribute_secondary_succeeds_after_unpause() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Record some secondary royalties
+    let pool_amount: i128 = 500;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+
+    // Pause and verify distribute_secondary_royalties fails
+    client.pause();
+    let result = client.try_distribute_secondary_royalties();
+    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+
+    // Unpause
+    client.unpause();
+    assert!(!client.is_paused());
+
+    // Distribute secondary royalties should now succeed
+    client.distribute_secondary_royalties();
+
+    // Verify balances were distributed correctly
+    assert_eq!(TokenClient::new(&env, &token).balance(&admin), 250);
+    assert_eq!(TokenClient::new(&env, &token).balance(&b), 250);
+    assert_eq!(client.get_secondary_pool(), 0);
+}
+
+/// Test multiple pause/unpause cycles work correctly.
+#[test]
+fn test_multiple_pause_unpause_cycles() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Cycle 1: pause -> unpause
+    client.pause();
+    assert!(client.is_paused());
+    client.unpause();
+    assert!(!client.is_paused());
+
+    // Distribute should work
+    mint(&env, &token, &contract_id, 1000);
+    client.distribute(&token);
+    assert_eq!(TokenClient::new(&env, &token).balance(&admin), 500);
+
+    // Cycle 2: pause -> unpause
+    client.pause();
+    assert!(client.is_paused());
+    client.unpause();
+    assert!(!client.is_paused());
+
+    // Distribute should work again
+    mint(&env, &token, &contract_id, 2000);
+    client.distribute(&token);
+    assert_eq!(TokenClient::new(&env, &token).balance(&admin), 1500);
+}
+
+/// Test that paused state persists across multiple operations.
+#[test]
+fn test_paused_state_persists() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Pause the contract
+    client.pause();
+    assert!(client.is_paused());
+
+    // Perform other operations (that don't require unpaused state)
+    client.set_royalty_rate(&500_u32);
+    assert_eq!(client.get_royalty_rate(), 500);
+
+    // Paused state should still be true
+    assert!(client.is_paused());
+
+    // Distribute should still fail
+    mint(&env, &token, &contract_id, 1000);
+    let result = client.try_distribute(&token);
+    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+}
+
+/// Test that read-only operations work when paused.
+#[test]
+fn test_read_operations_work_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 6000_u32, 4000_u32],
+    );
+    client.set_royalty_rate(&250_u32);
+
+    // Pause the contract
+    client.pause();
+    assert!(client.is_paused());
+
+    // All read operations should still work
+    assert!(client.is_initialized());
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_royalty_rate(), 250);
+    assert_eq!(client.collaborator_count(), 2);
+    assert_eq!(client.get_share(&admin), 6000);
+    assert_eq!(client.get_share(&b), 4000);
+    assert!(client.is_collaborator(&admin));
+    assert_eq!(client.get_total_shares(), 10_000);
+
+    let recipients = client.get_recipients();
+    assert_eq!(recipients.len(), 2);
+}
