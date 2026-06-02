@@ -12,6 +12,7 @@
  */
 
 import logger from "./logger.js";
+import { sendError } from "./error-response.js";
 
 // In-memory cache: Map<idempotencyKey, { response, expiresAt }>
 const cache = new Map();
@@ -118,9 +119,12 @@ export function idempotencyMiddleware(req, res, next) {
 
   // Validate idempotency key format (alphanumeric, hyphens, underscores, 1-255 chars)
   if (!/^[a-zA-Z0-9_-]{1,255}$/.test(idempotencyKey)) {
-    return res.status(400).json({
-      error: "Invalid Idempotency-Key format. Must be 1-255 alphanumeric characters, hyphens, or underscores.",
-    });
+    return sendError(
+      res,
+      400,
+      "invalid_idempotency_key",
+      "Invalid Idempotency-Key format. Must be 1-255 alphanumeric characters, hyphens, or underscores."
+    );
   }
 
   // Check cache for existing response

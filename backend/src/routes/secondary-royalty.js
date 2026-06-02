@@ -28,6 +28,7 @@ import {
   validateContractIdMiddleware,
   parsePagination,
 } from "../validation.js";
+import { sendError } from "../error-response.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -79,17 +80,20 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
       !saleToken ||
       royaltyRate == null
     ) {
-      return res.status(400).json({ error: "Missing required fields." });
+      return sendError(res, 400, "bad_request", "Missing required fields.");
     }
 
     if (salePrice <= 0) {
-      return res.status(400).json({ error: "Sale price must be positive." });
+      return sendError(res, 400, "invalid_sale_price", "Sale price must be positive.");
     }
 
     if (royaltyRate < 0 || royaltyRate > 10000) {
-      return res
-        .status(400)
-        .json({ error: "Royalty rate must be between 0 and 10000 basis points." });
+      return sendError(
+        res,
+        400,
+        "invalid_royalty_rate",
+        "Royalty rate must be between 0 and 10000 basis points."
+      );
     }
 
     // Fetch on-chain royalty rate
@@ -99,7 +103,7 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
     const royaltyAmount = Math.floor((salePrice * onChainRate) / 10000);
 
     if (royaltyAmount <= 0) {
-      return res.status(400).json({ error: "Calculated royalty amount is zero." });
+      return sendError(res, 400, "bad_request", "Calculated royalty amount is zero.");
     }
 
     const transactionId = recordTransaction(contractId, "secondary_royalty", walletAddress, {
@@ -122,7 +126,7 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
       );
     } catch (err) {
       if (err.code === "SQLITE_CONSTRAINT_UNIQUE") {
-        return res.status(409).json({ error: "This sale has already been recorded." });
+        return sendError(res, 409, "conflict", "This sale has already been recorded.");
       }
       throw err;
     }
@@ -161,13 +165,16 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
     const { contractId, walletAddress, royaltyRate } = req.body;
 
     if (!contractId || !walletAddress || royaltyRate == null) {
-      return res.status(400).json({ error: "Missing required fields." });
+      return sendError(res, 400, "bad_request", "Missing required fields.");
     }
 
     if (!Number.isInteger(royaltyRate) || royaltyRate < 0 || royaltyRate > 10000) {
-      return res
-        .status(400)
-        .json({ error: "Royalty rate must be between 0 and 10000 basis points." });
+      return sendError(
+        res,
+        400,
+        "invalid_royalty_rate",
+        "Royalty rate must be between 0 and 10000 basis points."
+      );
     }
 
     // Record transaction
@@ -220,7 +227,7 @@ secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), 
     const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
 
     if (pendingSales.length === 0) {
-      return res.status(400).json({ error: "No pending secondary royalties to distribute." });
+      return sendError(res, 400, "bad_request", "No pending secondary royalties to distribute.");
     }
 
     // Calculate total royalties
@@ -306,13 +313,13 @@ secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
       const end = endDate ? new Date(endDate) : null;
 
       if (start && isNaN(start.getTime())) {
-        return res.status(400).json({ error: "Invalid startDate." });
+        return sendError(res, 400, "invalid_query_parameter", "Invalid startDate.");
       }
       if (end && isNaN(end.getTime())) {
-        return res.status(400).json({ error: "Invalid endDate." });
+        return sendError(res, 400, "invalid_query_parameter", "Invalid endDate.");
       }
       if (start && end && start > end) {
-        return res.status(400).json({ error: "startDate must be before or equal to endDate." });
+        return sendError(res, 400, "invalid_query_parameter", "startDate must be before or equal to endDate.");
       }
     }
 

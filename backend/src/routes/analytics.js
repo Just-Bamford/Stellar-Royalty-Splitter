@@ -2,6 +2,7 @@ import express from "express";
 import db from "../database/index.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
+import { sendError } from "../error-response.js";
 
 // Simple in-memory cache with TTL
 const cache = new Map();
@@ -20,13 +21,13 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
 
     // Validate parsed dates
     if (start && isNaN(startDate.getTime())) {
-      return res.status(400).json({ success: false, error: "Invalid start date. Use YYYY-MM-DD." });
+      return sendError(res, 400, "invalid_query_parameter", "Invalid start date. Use YYYY-MM-DD.");
     }
     if (end && isNaN(endDate.getTime())) {
-      return res.status(400).json({ success: false, error: "Invalid end date. Use YYYY-MM-DD." });
+      return sendError(res, 400, "invalid_query_parameter", "Invalid end date. Use YYYY-MM-DD.");
     }
     if (start && end && startDate > endDate) {
-      return res.status(400).json({ success: false, error: "start date must be before end date." });
+      return sendError(res, 400, "invalid_query_parameter", "start date must be before end date.");
     }
 
     // Create cache key
@@ -129,7 +130,7 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
     res.json(data);
   } catch (error) {
     logger.error("Analytics error:", error);
-    res.status(500).json({ success: false, message: "Failed to load analytics data" });
+    sendError(res, 500, "analytics_fetch_failed", "Failed to load analytics data");
   }
 });
 

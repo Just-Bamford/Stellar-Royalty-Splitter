@@ -19,6 +19,7 @@ pub mod msg {
     pub const DISTRIBUTE_ADMIN: &str = "distribute: admin authorization required";
     pub const DISTRIBUTE_OVERRIDE_ADMIN: &str =
         "distribute_with_override: admin authorization required";
+    pub const BATCH_DISTRIBUTE_ADMIN: &str = "batch_distribute: admin authorization required";
     pub const DISTRIBUTE_SECONDARY_ADMIN: &str =
         "distribute_secondary_royalties: admin authorization required";
     pub const UPDATE_SHARE_ADMIN: &str = "update_share: admin authorization required";

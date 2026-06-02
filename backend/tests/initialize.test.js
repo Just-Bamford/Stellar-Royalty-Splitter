@@ -62,12 +62,38 @@ describe("POST /api/v1/initialize", () => {
     expect(res.body.error).toMatch(/already initialized/i);
   });
 
-  test("400 when shares do not sum to 10000", async () => {
+  test("400 when shares do not sum to 10000 — error message shows actual and expected sums", async () => {
     const res = await request(app)
       .post("/api/v1/initialize")
       .send({ ...validBody, shares: [3000, 3000] });
 
     expect(res.status).toBe(400);
+    // Issue #356: error message must include the actual sum (6000) and expected (10000).
+    const details = JSON.stringify(res.body);
+    expect(details).toMatch(/6000/);
+    expect(details).toMatch(/10000/);
+  });
+
+  test("400 when shares sum to 9999 — error shows 9999 vs 10000", async () => {
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({ ...validBody, shares: [4999, 5000] });
+
+    expect(res.status).toBe(400);
+    const details = JSON.stringify(res.body);
+    expect(details).toMatch(/9999/);
+    expect(details).toMatch(/10000/);
+  });
+
+  test("400 when shares sum to 10001 — error shows 10001 vs 10000", async () => {
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({ ...validBody, shares: [5001, 5000] });
+
+    expect(res.status).toBe(400);
+    const details = JSON.stringify(res.body);
+    expect(details).toMatch(/10001/);
+    expect(details).toMatch(/10000/);
   });
 
   test("400 when collaborators and shares lengths differ", async () => {

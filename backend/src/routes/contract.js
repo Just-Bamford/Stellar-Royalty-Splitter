@@ -10,6 +10,7 @@ import {
   getNetworkLabel,
 } from "../stellar.js";
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
+import { sendError } from "../error-response.js";
 
 const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
 
@@ -72,17 +73,23 @@ contractRouter.get("/info", async (req, res, next) => {
     const tokenId = firstQueryValue(req.query.tokenId) ?? getConfiguredTokenId();
 
     if (!contractId) {
-      return res.status(400).json({
-        error: "contractId query param required when no default contract is configured",
-      });
+      return sendError(
+        res,
+        400,
+        "bad_request",
+        "contractId query param required when no default contract is configured"
+      );
     }
 
     if (!validateContractId(contractId, res)) return;
 
     if (!tokenId) {
-      return res.status(400).json({
-        error: "tokenId query param required when no default token is configured",
-      });
+      return sendError(
+        res,
+        400,
+        "bad_request",
+        "tokenId query param required when no default token is configured"
+      );
     }
 
     if (!validateContractId(tokenId, res)) return;
@@ -105,7 +112,7 @@ contractRouter.get("/info", async (req, res, next) => {
     });
   } catch (err) {
     if (err.status) {
-      return res.status(err.status).json({ error: err.message });
+      return sendError(res, err.status, undefined, err.message);
     }
     next(err);
   }
@@ -130,7 +137,7 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
   try {
     const { contractId } = req.params;
     const { tokenId } = req.query;
-    if (!tokenId) return res.status(400).json({ error: "tokenId query param required" });
+    if (!tokenId) return sendError(res, 400, "bad_request", "tokenId query param required");
     if (!validateContractId(tokenId, res)) return;
 
     const contract = new Contract(contractId);
@@ -148,7 +155,7 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
 
     const sim = await server.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      return res.status(400).json({ error: sim.error });
+      return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
     }
 
     const retval = sim.result?.retval;
@@ -186,7 +193,7 @@ contractRouter.get("/collaborator-count/:contractId", validateContractIdMiddlewa
 
     const sim = await server.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      return res.status(400).json({ error: sim.error });
+      return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
     }
 
     const count = sim.result?.retval?.u32() ?? 0;
@@ -223,7 +230,7 @@ contractRouter.get(
 
       const sim = await server.simulateTransaction(tx);
       if (SorobanRpc.Api.isSimulationError(sim)) {
-        return res.status(400).json({ error: sim.error });
+        return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
       }
 
       const resultVal = sim.result?.retval;
@@ -249,12 +256,12 @@ contractRouter.get(
       const { contractId } = req.params;
       const initialized = await isContractInitialized(contractId);
       if (!initialized) {
-        return res.status(404).json({ error: "contract not initialized" });
+        return sendError(res, 404, "not_found", "contract not initialized");
       }
 
       const version = await getContractVersionFromContract(contractId);
       if (!version) {
-        return res.status(404).json({ error: "contract version unavailable" });
+        return sendError(res, 404, "not_found", "contract version unavailable");
       }
 
       res.json({ contractId, version });

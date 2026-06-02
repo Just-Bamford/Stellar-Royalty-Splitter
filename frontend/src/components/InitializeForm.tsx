@@ -302,8 +302,19 @@ export default function InitializeForm({
         </div>
       ))}
 
-      <div className={`share-total ${Math.round(total * 100) === 10_000 ? "share-total--valid" : "share-total--invalid"}`}>
+      <div
+        className={`share-total ${Math.round(total * 100) === 10_000 ? "share-total--valid" : "share-total--invalid"}`}
+        role="status"
+        aria-live="polite"
+        aria-label={`Share total: ${total.toFixed(2)}% of 100% required`}
+        data-testid="share-total"
+      >
         Total: {total.toFixed(2)}% / 100%
+        {Math.round(total * 100) !== 10_000 && total > 0 && (
+          <span className="share-total__hint" aria-hidden="true">
+            {" "}({Math.round(total * 100) < 10_000 ? `${(100 - total).toFixed(2)}% remaining` : `${(total - 100).toFixed(2)}% over`})
+          </span>
+        )}
       </div>
 
       {collaborators.length >= MAX_COLLABORATORS - 5 && collaborators.length < MAX_COLLABORATORS && (

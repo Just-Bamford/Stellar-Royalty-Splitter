@@ -6,6 +6,7 @@ import {
   validate,
   webhookRegisterSchema,
 } from "../validation.js";
+import { sendError } from "../error-response.js";
 import logger from "../logger.js";
 
 const router = express.Router();
@@ -34,7 +35,7 @@ router.post(
       });
     } catch (error) {
       logger.error("Error registering webhook:", error);
-      res.status(500).json({ success: false, error: error.message });
+      sendError(res, 500, "internal_server_error", error.message ?? "Failed to register webhook");
     }
   },
 );
@@ -56,7 +57,7 @@ router.get("/webhooks/:contractId", validateContractIdMiddleware, (req, res) => 
     });
   } catch (error) {
     logger.error("Error listing webhooks:", error);
-    res.status(500).json({ success: false, error: error.message });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to list webhooks");
   }
 });
 
@@ -71,12 +72,12 @@ router.delete("/webhooks/:contractId/:webhookId", validateContractIdMiddleware, 
 
     const parsedId = parseInt(webhookId, 10);
     if (Number.isNaN(parsedId) || parsedId <= 0) {
-      return res.status(400).json({ success: false, error: "Invalid webhook ID" });
+      return sendError(res, 400, "invalid_webhook_id", "Invalid webhook ID");
     }
 
     const removed = deleteWebhook(contractId, parsedId);
     if (!removed) {
-      return res.status(404).json({ success: false, error: "Webhook not found" });
+      return sendError(res, 404, "not_found", "Webhook not found");
     }
 
     res.json({
@@ -85,7 +86,7 @@ router.delete("/webhooks/:contractId/:webhookId", validateContractIdMiddleware, 
     });
   } catch (error) {
     logger.error("Error deleting webhook:", error);
-    res.status(500).json({ success: false, error: error.message });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to delete webhook");
   }
 });
 

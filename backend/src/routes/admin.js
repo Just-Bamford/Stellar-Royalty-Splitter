@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import logger from "../logger.js";
 import { validate } from "../validation.js";
+import { sendError } from "../error-response.js";
 import {
   isAdminRotateTokenValid,
   reloadSigningKeyFromSecretsFile,
@@ -34,9 +35,7 @@ function requireAdminRotateToken(req, res, next) {
       event: "signing_key_rotate_denied",
       reason: "token_not_configured",
     });
-    return res.status(503).json({
-      error: "Key rotation is not configured on this server",
-    });
+    return sendError(res, 503, "service_unavailable", "Key rotation is not configured on this server");
   }
 
   const token = extractBearerToken(req);
@@ -45,7 +44,7 @@ function requireAdminRotateToken(req, res, next) {
       event: "signing_key_rotate_denied",
       reason: "invalid_token",
     });
-    return res.status(401).json({ error: "Unauthorized" });
+    return sendError(res, 401, "unauthorized", "Unauthorized");
   }
 
   next();

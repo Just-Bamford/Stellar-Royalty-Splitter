@@ -214,7 +214,7 @@ describe("POST /api/v1/distribute with idempotency", () => {
 
     // retryBuildTx might be called 1 or 2 times depending on timing
     // but should not be called more than 2 times
-    expect(retryBuildTx).toHaveBeenCalledTimes(expect.any(Number));
+    expect(retryBuildTx.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(retryBuildTx.mock.calls.length).toBeLessThanOrEqual(2);
   });
 

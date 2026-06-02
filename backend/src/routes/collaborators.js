@@ -3,6 +3,7 @@ import StellarSdk from "@stellar/stellar-sdk";
 import { server, networkPassphrase } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
+import { sendError } from "../error-response.js";
 
 const {
   Address,
@@ -43,7 +44,7 @@ collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req
 
     const sim = await server.simulateTransaction(tx);
     if (SorobanRpc.Api.isSimulationError(sim)) {
-      return res.status(400).json({ error: sim.error });
+      return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
     }
 
     const resultVal = sim.result?.retval;

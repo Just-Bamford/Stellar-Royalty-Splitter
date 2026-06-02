@@ -8,6 +8,7 @@ import {
   recordTransactionFailure,
   recordTransactionSuccess,
 } from "../metrics.js";
+import { sendError } from "../error-response.js";
 
 export const distributeRouter = Router();
 
@@ -45,7 +46,7 @@ distributeRouter.post(
     } catch (err) {
       recordTransactionFailure();
       if (err.status) {
-        return res.status(err.status).json({ error: err.message });
+        return sendError(res, err.status, undefined, err.message);
       }
       next(err);
     }

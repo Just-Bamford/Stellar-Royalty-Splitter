@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sendError, sendValidationError } from "./error-response.js";
 
 export const stellarAddress = z
   .string()
@@ -20,8 +21,15 @@ export const initializeSchema = z
   .refine((d) => d.collaborators.length === d.shares.length, {
     message: "collaborators and shares must be the same length",
   })
-  .refine((d) => d.shares.reduce((a, b) => a + b, 0) === 10000, {
-    message: "shares must sum to 10000 basis points",
+  .superRefine((d, ctx) => {
+    const actual = d.shares.reduce((a, b) => a + b, 0);
+    if (actual !== 10000) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["shares"],
+        message: `shares must sum to 10000 basis points (got ${actual}, expected 10000)`,
+      });
+    }
   });
 
 export const distributeSchema = z.object({
@@ -73,13 +81,10 @@ export function validate(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      return res.status(400).json({
-        error: "Validation failed",
-        details: result.error.issues.map((e) => ({
-          field: e.path.join("."),
-          message: e.message,
-        })),
-      });
+      return sendValidationError(res, result.error.issues.map((e) => ({
+        field: e.path.join("."),
+        message: e.message,
+      })));
     }
     req.body = result.data;
     next();
@@ -93,7 +98,7 @@ export function validate(schema) {
 export function validateContractIdMiddleware(req, res, next) {
   const contractId = req.params.contractId;
   if (!contractId || !/^C[A-Z2-7]{55}$/.test(contractId)) {
-    return res.status(400).json({ error: "Invalid contract ID format" });
+    return sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
   }
   next();
 }
@@ -104,7 +109,7 @@ export function validateContractIdMiddleware(req, res, next) {
  */
 export function validateContractId(contractId, res) {
   if (!/^C[A-Z2-7]{55}$/.test(contractId)) {
-    res.status(400).json({ success: false, error: "Invalid contract ID format" });
+    sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
     return false;
   }
   return true;
@@ -116,7 +121,7 @@ export function validateContractId(contractId, res) {
  */
 export function validateStellarAddress(address, res) {
   if (!address || !/^G[A-Z2-7]{55}$/.test(address)) {
-    res.status(400).json({ success: false, error: "Invalid Stellar address format" });
+    sendError(res, 400, "invalid_stellar_address", "Invalid Stellar address format");
     return false;
   }
   return true;
@@ -132,11 +137,11 @@ export function validateStellarAddress(address, res) {
  */
 export function parsePagination(query, res, defaultLimit = 50, maxLimit = 100) {
   if (query.limit !== undefined && isNaN(parseInt(query.limit))) {
-    res.status(400).json({ success: false, error: "limit must be a number" });
+    sendError(res, 400, "invalid_query_parameter", "limit must be a number");
     return null;
   }
   if (query.offset !== undefined && isNaN(parseInt(query.offset))) {
-    res.status(400).json({ success: false, error: "offset must be a number" });
+    sendError(res, 400, "invalid_query_parameter", "offset must be a number");
     return null;
   }
   const limit = Math.min(Math.max(parseInt(query.limit) || defaultLimit, 1), maxLimit);

@@ -795,6 +795,175 @@ impl RoyaltySplitter {
         Self::distribute_with_override(env.clone(), token, Vec::new(&env));
     }
 
+    /// Distribute royalties for multiple tokens in a single transaction.
+    ///
+    /// Executes multiple independent distributions atomically, reducing total
+    /// ledger fees for high-frequency royalty scenarios. Each token distribution
+    /// is processed independently using the same logic as `distribute()`.
+    ///
+    /// # Arguments
+    /// * `tokens` - List of token addresses to distribute (e.g., XLM, USDC, etc.)
+    ///
+    /// # Distribution Logic
+    /// For each token:
+    /// - Uses the default recipient list (or collaborators if no defaults set)
+    /// - Each recipient receives: (token_balance * their_share) / 10,000
+    /// - The last recipient receives any remaining dust from integer division
+    /// - Emits individual distribution events for each token
+    ///
+    /// # Authorization
+    /// Requires admin signature (checked once for the entire batch)
+    ///
+    /// # Panics
+    /// * `"contract not initialized"` — called before `initialize`
+    /// * `"contract is paused"` — contract is currently paused
+    /// * `"recipients list cannot be empty"` — no recipients are configured
+    /// * `"no balance to distribute"` — any token has zero balance
+    /// * `"amount too small"` — any token balance is less than recipient count
+    ///
+    /// # Gas Considerations
+    /// Processing N tokens in one call is more efficient than N separate calls,
+    /// but be mindful of transaction complexity limits. Each distribution performs
+    /// token transfers equal to the number of recipients.
+    pub fn batch_distribute(env: Env, tokens: Vec<Address>) {
+        storage::extend_instance_ttl(&env);
+
+        // Check admin auth once for the entire batch
+        Self::check_admin_auth(&env, auth::msg::BATCH_DISTRIBUTE_ADMIN);
+
+        // Check paused state once for the entire batch
+        if env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::Paused)
+            .unwrap_or(false)
+        {
+            Self::fail(&env, ContractError::ContractPaused);
+        }
+
+        // Get recipient list once (reused for all distributions)
+        let recipients_to_use: Vec<Recipient> = {
+            let defaults: Vec<Recipient> =
+                storage::persistent_get::<Vec<Recipient>>(&env, &StorageKey::DefaultRecipients)
+                    .unwrap_or(Vec::new(&env));
+
+            if !defaults.is_empty() {
+                defaults
+            } else {
+                // Fall back to original collaborator list (persistent storage)
+                let collaborators: Vec<Address> =
+                    storage::persistent_get::<Vec<Address>>(&env, &StorageKey::Collaborators)
+                        .expect("no collaborators");
+
+                let share_map: Map<Address, u32> =
+                    storage::persistent_get::<Map<Address, u32>>(&env, &StorageKey::ShareMap)
+                        .expect("no share map");
+
+                let mut recipients: Vec<Recipient> = Vec::new(&env);
+                for addr in collaborators.iter() {
+                    let share = share_map.get(addr.clone()).unwrap_or(0);
+                    recipients.push_back(Recipient {
+                        address: addr,
+                        share,
+                    });
+                }
+                recipients
+            }
+        };
+
+        if recipients_to_use.is_empty() {
+            Self::fail(&env, ContractError::EmptyRecipients);
+        }
+
+        // Validate shares sum to 10,000 (once for all distributions)
+        let mut total_shares: u32 = 0;
+        for i in 0..recipients_to_use.len() {
+            total_shares = Self::checked_add_share_total(
+                &env,
+                total_shares,
+                recipients_to_use.get(i).unwrap().share,
+            );
+        }
+        if total_shares != 10_000 {
+            Self::fail(&env, ContractError::InvalidShareTotal);
+        }
+
+        let n = recipients_to_use.len();
+
+        // Process each token distribution
+        for token in tokens.iter() {
+            let token_client = token::Client::new(&env, &token);
+            let amount = token_client.balance(&env.current_contract_address());
+
+            if amount == 0 {
+                Self::fail(&env, ContractError::NoBalance);
+            }
+
+            // Guard: each recipient must receive at least 1 stroop
+            if amount < n as i128 {
+                Self::fail(&env, ContractError::AmountTooSmall);
+            }
+
+            let mut payouts: Vec<(Address, i128)> = Vec::new(&env);
+            let mut total_calculated: i128 = 0;
+
+            // Calculate payouts for all recipients except the last one
+            for i in 0..(n - 1) {
+                let recipient = recipients_to_use.get(i).unwrap();
+                let payout = Self::checked_bps_amount(&env, amount, recipient.share);
+                payouts.push_back((recipient.address.clone(), payout));
+                total_calculated = total_calculated
+                    .checked_add(payout)
+                    .unwrap_or_else(|| Self::fail(&env, ContractError::ArithmeticOverflow));
+            }
+
+            // Last recipient receives the remainder to avoid dust loss
+            let last = recipients_to_use.get(n - 1).unwrap();
+            payouts.push_back((
+                last.address.clone(),
+                amount
+                    .checked_sub(total_calculated)
+                    .unwrap_or_else(|| Self::fail(&env, ContractError::ArithmeticOverflow)),
+            ));
+
+            // Execute transfers for this token
+            for (addr, payout) in payouts.iter() {
+                token_client.transfer(&env.current_contract_address(), &addr, &payout);
+                env.events()
+                    .publish((symbol_short!("dist"),), (addr, payout));
+            }
+
+            // Emit distribution event for this token
+            env.events().publish(
+                (symbol_short!("royalty"), symbol_short!("dist_all")),
+                (token.clone(), amount),
+            );
+        }
+
+        // Update distribution timestamp and counter once for the batch
+        storage::instance_set(
+            &env,
+            &StorageKey::LastDistribution,
+            &env.ledger().timestamp(),
+        );
+
+        let current_count: u64 = env
+            .storage()
+            .instance()
+            .get(&StorageKey::DistributeHistory)
+            .unwrap_or(0);
+
+        // Increment by the number of tokens distributed
+        let new_count = current_count.saturating_add(tokens.len() as u64);
+        storage::instance_set(&env, &StorageKey::DistributeHistory, &new_count);
+
+        // Emit batch completion event
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("batch")),
+            tokens.len(),
+        );
+    }
+
     /// Record a secondary royalty payment transferred from a resale.
     ///
     /// Pulls `royalty_amount` of `token` from `from` into the contract's

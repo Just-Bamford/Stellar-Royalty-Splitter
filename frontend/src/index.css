@@ -183,6 +183,10 @@ td:last-child {
 .share-total--invalid {
   color: var(--error-color);
 }
+.share-total__hint {
+  opacity: 0.8;
+  font-size: 0.75rem;
+}
 
 .field-error {
   display: block;
