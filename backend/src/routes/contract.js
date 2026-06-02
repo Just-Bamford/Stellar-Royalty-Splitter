@@ -15,6 +15,9 @@ const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarS
 
 export const contractRouter = Router();
 
+const CONTRACT_STATE_CACHE_TTL_MS = 30_000;
+const contractStateCache = new Map();
+
 function getConfiguredTokenId() {
   return (
     process.env.ROYALTY_TOKEN_ID ??
@@ -66,43 +69,94 @@ async function simulateContractRead(contractId, method, args = []) {
   return sim.result?.retval ?? null;
 }
 
+async function readContractState(contractId, tokenId) {
+  const [adminVal, royaltyRateVal, recipientsVal, balanceVal] = await Promise.all([
+    simulateContractRead(contractId, "get_admin"),
+    simulateContractRead(contractId, "get_royalty_rate"),
+    simulateContractRead(contractId, "get_all_shares"),
+    simulateContractRead(contractId, "get_balance", [addressToScVal(tokenId)]),
+  ]);
+
+  return {
+    contractId,
+    adminAddress: adminVal ? StellarSdk.Address.fromScVal(adminVal).toString() : null,
+    royaltyRate: royaltyRateVal?.u32?.() ?? 0,
+    recipients: decodeShareMap(recipientsVal),
+    balance: i128ScValToString(balanceVal),
+    tokenId,
+    network: getNetworkLabel(),
+    networkPassphrase,
+  };
+}
+
+function getContractStateCacheKey(contractId, tokenId) {
+  return `${getNetworkLabel()}:${networkPassphrase}:${contractId}:${tokenId}`;
+}
+
+function resolveStateRequest(req, res) {
+  const contractId = firstQueryValue(req.query.contractId) ?? getConfiguredContractId();
+  const tokenId = firstQueryValue(req.query.tokenId) ?? getConfiguredTokenId();
+
+  if (!contractId) {
+    res.status(400).json({
+      error: "contractId query param required when no default contract is configured",
+    });
+    return null;
+  }
+
+  if (!validateContractId(contractId, res)) return null;
+
+  if (!tokenId) {
+    res.status(400).json({
+      error: "tokenId query param required when no default token is configured",
+    });
+    return null;
+  }
+
+  if (!validateContractId(tokenId, res)) return null;
+
+  return { contractId, tokenId };
+}
+
+export function _resetContractStateCache() {
+  contractStateCache.clear();
+}
+
+contractRouter.get("/state", async (req, res, next) => {
+  try {
+    const stateRequest = resolveStateRequest(req, res);
+    if (!stateRequest) return;
+
+    const { contractId, tokenId } = stateRequest;
+    const cacheKey = getContractStateCacheKey(contractId, tokenId);
+    const cached = contractStateCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && now - cached.fetchedAt < CONTRACT_STATE_CACHE_TTL_MS) {
+      return res.json(cached.state);
+    }
+
+    const state = await readContractState(contractId, tokenId);
+    contractStateCache.set(cacheKey, { state, fetchedAt: now });
+    res.json(state);
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
 contractRouter.get("/info", async (req, res, next) => {
   try {
-    const contractId = firstQueryValue(req.query.contractId) ?? getConfiguredContractId();
-    const tokenId = firstQueryValue(req.query.tokenId) ?? getConfiguredTokenId();
+    const stateRequest = resolveStateRequest(req, res);
+    if (!stateRequest) return;
 
-    if (!contractId) {
-      return res.status(400).json({
-        error: "contractId query param required when no default contract is configured",
-      });
-    }
-
-    if (!validateContractId(contractId, res)) return;
-
-    if (!tokenId) {
-      return res.status(400).json({
-        error: "tokenId query param required when no default token is configured",
-      });
-    }
-
-    if (!validateContractId(tokenId, res)) return;
-
-    const [adminVal, royaltyRateVal, recipientsVal, balanceVal] = await Promise.all([
-      simulateContractRead(contractId, "get_admin"),
-      simulateContractRead(contractId, "get_royalty_rate"),
-      simulateContractRead(contractId, "get_all_shares"),
-      simulateContractRead(contractId, "get_balance", [addressToScVal(tokenId)]),
-    ]);
-
-    res.json({
-      contractId,
-      adminAddress: adminVal ? StellarSdk.Address.fromScVal(adminVal).toString() : null,
-      royaltyRate: royaltyRateVal?.u32?.() ?? 0,
-      recipients: decodeShareMap(recipientsVal),
-      balance: i128ScValToString(balanceVal),
-      tokenId,
-      network: getNetworkLabel(),
-    });
+    const { contractId, tokenId } = stateRequest;
+    const state = await readContractState(contractId, tokenId);
+    const info = { ...state };
+    delete info.networkPassphrase;
+    res.json(info);
   } catch (err) {
     if (err.status) {
       return res.status(err.status).json({ error: err.message });

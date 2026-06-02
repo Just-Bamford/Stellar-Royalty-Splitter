@@ -1,4 +1,4 @@
-import { jest, describe, test, expect, beforeEach } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import request from "supertest";
 import express from "express";
 
@@ -75,7 +75,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   getContractVersionFromContract: jest.fn(),
 }));
 
-const { contractRouter } = await import("../src/routes/contract.js");
+const { contractRouter, _resetContractStateCache } = await import("../src/routes/contract.js");
 
 const app = express();
 app.use("/api/v1/contract", contractRouter);
@@ -90,9 +90,10 @@ function shareEntry(address, basisPoints) {
   };
 }
 
-describe("GET /api/v1/contract/info", () => {
+describe("contract state routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    _resetContractStateCache();
     getConfiguredContractId.mockReturnValue(CONTRACT);
     process.env.ROYALTY_TOKEN_ID = TOKEN;
     simulateTransaction.mockImplementation(({ operation }) => {
@@ -120,7 +121,11 @@ describe("GET /api/v1/contract/info", () => {
     });
   });
 
-  test("returns configured contract state", async () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("returns configured contract info", async () => {
     const res = await request(app).get("/api/v1/contract/info");
 
     expect(res.status).toBe(200);
@@ -136,6 +141,43 @@ describe("GET /api/v1/contract/info", () => {
         { address: COLLAB2, basisPoints: 4000 },
       ],
     });
+  });
+
+  test("returns current contract state with network information", async () => {
+    const res = await request(app).get("/api/v1/contract/state");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      contractId: CONTRACT,
+      adminAddress: ADMIN,
+      royaltyRate: 750,
+      balance: "12345",
+      tokenId: TOKEN,
+      network: "Testnet",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      recipients: [
+        { address: COLLAB1, basisPoints: 6000 },
+        { address: COLLAB2, basisPoints: 4000 },
+      ],
+    });
+  });
+
+  test("caches contract state for 30 seconds", async () => {
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(1_000);
+
+    const first = await request(app).get("/api/v1/contract/state");
+    expect(first.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(4);
+
+    nowSpy.mockReturnValue(30_999);
+    const cached = await request(app).get("/api/v1/contract/state");
+    expect(cached.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(4);
+
+    nowSpy.mockReturnValue(31_001);
+    const refreshed = await request(app).get("/api/v1/contract/state");
+    expect(refreshed.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(8);
   });
 
   test("400 when no contract ID is configured or provided", async () => {
