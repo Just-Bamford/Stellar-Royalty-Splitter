@@ -78,6 +78,30 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[repr(u32)]
 pub enum ContractError {
     Underfunded = 1,
+    NotInitialized,
+    NoCollaborators,
+    NoShareMap,
+    ArithmeticOverflow,
+    AlreadyInitialized,
+    EmptyCollaborators,
+    TooManyRecipients,
+    LengthMismatch,
+    InvalidShareTotal,
+    ZeroShare,
+    DuplicateRecipient,
+    RoyaltyRateZero,
+    RoyaltyRateTooHigh,
+    AmountNotPositive,
+    InsufficientBalance,
+    ContractPaused,
+    EmptyRecipients,
+    AmountTooSmall,
+    NoSecondaryRoyalties,
+    NoSecondaryToken,
+    PoolExceedsBalance,
+    SalePriceNotPositive,
+    CollaboratorNotFound,
+    InvalidUpdatedShareTotal,
 }
 
 #[contract]

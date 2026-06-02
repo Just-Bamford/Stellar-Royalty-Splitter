@@ -1420,10 +1420,9 @@ fn test_set_default_recipients_zero_share_panics() {
     client.set_default_recipients(&recipients);
 }
 
-/// Test that set_default_recipients rejects duplicate addresses
+/// Test that set_default_recipients rejects duplicate addresses with a typed error
 #[test]
-#[should_panic]
-fn test_set_default_recipients_duplicate_address_panics() {
+fn test_set_default_recipients_duplicate_address_returns_typed_error() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
     let (_, client) = setup(&env);
@@ -1445,7 +1444,11 @@ fn test_set_default_recipients_duplicate_address_panics() {
     };
     let recipients = vec![&env, recipient1, recipient2];
 
-    client.set_default_recipients(&recipients);
+    let result = client.try_set_default_recipients(&recipients);
+    assert_eq!(result, Err(Ok(ContractError::DuplicateRecipient)));
+
+    let defaults = client.get_default_recipients();
+    assert_eq!(defaults.len(), 0);
 }
 
 /// Test that set_default_recipients emits an event
