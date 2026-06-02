@@ -78,10 +78,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[repr(u32)]
 pub enum ContractError {
     Underfunded = 1,
-    NotInitialized,
-    NoCollaborators,
-    NoShareMap,
-    ArithmeticOverflow,
     AlreadyInitialized,
     EmptyCollaborators,
     TooManyRecipients,
@@ -89,19 +85,24 @@ pub enum ContractError {
     InvalidShareTotal,
     ZeroShare,
     DuplicateRecipient,
+    InvalidBasisPoints,
+    NotInitialized,
+    NoCollaborators,
+    NoShareMap,
+    ArithmeticOverflow,
     RoyaltyRateZero,
     RoyaltyRateTooHigh,
+    ContractPaused,
     AmountNotPositive,
     InsufficientBalance,
-    ContractPaused,
     EmptyRecipients,
     AmountTooSmall,
+    PoolExceedsBalance,
     NoSecondaryRoyalties,
     NoSecondaryToken,
-    PoolExceedsBalance,
-    SalePriceNotPositive,
     CollaboratorNotFound,
     InvalidUpdatedShareTotal,
+    SalePriceNotPositive,
 }
 
 #[contract]
@@ -523,6 +524,7 @@ impl RoyaltySplitter {
         storage::extend_instance_ttl(&env);
 
         Self::check_admin_auth(&env, auth::msg::SET_DEFAULT_RECIPIENTS_ADMIN);
+        Self::validate_default_recipient_basis_points(&env, &recipients);
         Self::validate_recipient_list(&env, &recipients);
 
         // DefaultRecipients uses persistent storage (#322)
@@ -1430,6 +1432,15 @@ impl RoyaltySplitter {
 
         if total_shares != 10_000 {
             Self::fail(env, ContractError::InvalidShareTotal);
+        }
+    }
+
+    fn validate_default_recipient_basis_points(env: &Env, recipients: &Vec<Recipient>) {
+        for i in 0..recipients.len() {
+            let recipient = recipients.get(i).unwrap();
+            if recipient.share > 10_000 {
+                Self::fail(env, ContractError::InvalidBasisPoints);
+            }
         }
     }
 

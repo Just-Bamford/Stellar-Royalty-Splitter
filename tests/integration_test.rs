@@ -1420,7 +1420,27 @@ fn test_set_default_recipients_zero_share_panics() {
     client.set_default_recipients(&recipients);
 }
 
-/// Test that set_default_recipients rejects duplicate addresses with a typed error
+/// Test that set_default_recipients rejects invalid basis-point values
+#[test]
+fn test_set_default_recipients_invalid_basis_points_rejected() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10000_u32]);
+
+    let recipient = Recipient {
+        address: admin,
+        share: 10_001_u32,
+    };
+    let recipients = vec![&env, recipient];
+
+    let result = client.try_set_default_recipients(&recipients);
+    assert_eq!(result, Err(Ok(ContractError::InvalidBasisPoints)));
+}
+
+/// Test that set_default_recipients rejects duplicate addresses
 #[test]
 fn test_set_default_recipients_duplicate_address_returns_typed_error() {
     let env = Env::default();
