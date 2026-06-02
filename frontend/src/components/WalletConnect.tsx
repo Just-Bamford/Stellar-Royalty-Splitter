@@ -85,6 +85,7 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
     setError("");
     setCopied(false);
     localStorage.removeItem("lastWalletAddress");
+    localStorage.removeItem("freighter_connected");
     onDisconnect?.();
   }
 

@@ -263,6 +263,12 @@ The backend builds unsigned transaction XDR and returns it to the frontend. **Fr
 
 ---
 
+### Backend shutdown
+
+The backend handles `SIGTERM` and `SIGINT` gracefully. On shutdown it stops accepting new HTTP connections, lets in-flight API requests finish through Node's `server.close()` drain behavior, checkpoints and closes the SQLite database, logs each shutdown step, and then exits. No additional shutdown timeout is configured, so container or process managers should provide any external termination deadline they require.
+
+---
+
 ## Environment Variables
 
 Copy `backend/.env.example` to `backend/.env`:

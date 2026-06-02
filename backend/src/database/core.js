@@ -17,14 +17,30 @@ db.pragma("temp_store = MEMORY"); // temp tables in memory
 let _writeCount = 0;
 export function countWrite() {
   if (++_writeCount % 100 === 0) {
-    db.pragma("wal_checkpoint(TRUNCATE)");
+    checkpointDatabase();
   }
 }
 
+export function checkpointDatabase() {
+  if (!db.open) return;
+
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  } catch (err) {
+    logger.error("Error while checkpointing database WAL", err);
+  }
+}
+
+export function closeDatabase() {
+  if (!db.open) return;
+
+  checkpointDatabase();
+  db.close();
+}
+
 // Final checkpoint on clean shutdown.
-process.on("exit", () => db.pragma("wal_checkpoint(TRUNCATE)"));
-process.on("SIGINT", () => process.exit(0));
-// SIGTERM is handled in index.js for graceful HTTP + DB shutdown.
+process.on("exit", checkpointDatabase);
+// SIGTERM and SIGINT are handled in index.js for graceful HTTP + DB shutdown.
 
 // Initialize database schema
 export function initializeDatabase() {

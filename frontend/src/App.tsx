@@ -16,6 +16,8 @@ import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalt
 import ResaleHistory from "./components/ResaleHistory";
 import { Skeleton } from "./components/Skeleton";
 import { CopyButton } from "./components/CopyButton";
+import { api, SESSION_EXPIRED_EVENT } from "./api";
+import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { api } from "./api";
 
 
@@ -42,6 +44,15 @@ export default function App() {
     () => localStorage.getItem("srs_currentPage") ?? "dashboard"
   );
   const [initialLoading, setInitialLoading] = useState(true);
+  const [sessionToast, setSessionToast] = useState<string | null>(null);
+
+  function handleWalletConnect(address: string) {
+    setWalletAddress(address);
+    if (currentPage === "connect-wallet") {
+      localStorage.setItem("srs_currentPage", "dashboard");
+      setCurrentPage("dashboard");
+    }
+  }
 
   function handlePageChange(page: string) {
     localStorage.setItem("srs_currentPage", page);
@@ -54,6 +65,37 @@ export default function App() {
     setContractId("");
     setCurrentPage("dashboard");
   }
+
+  useEffect(() => {
+    function handleSessionExpired(event: Event) {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+
+      localStorage.removeItem("lastContractId");
+      localStorage.removeItem("lastWalletAddress");
+      localStorage.removeItem("srs_currentPage");
+      sessionStorage.clear();
+      setWalletAddress(null);
+      setContractId("");
+      setContractIdError(null);
+      setContractInitialized(null);
+      setRoyaltyRate(500);
+      setCurrentPage("connect-wallet");
+      setSessionToast(
+        detail?.message ??
+          "Your session expired. Connect your wallet again to continue.",
+      );
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () =>
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionToast) return;
+    const timer = window.setTimeout(() => setSessionToast(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [sessionToast]);
 
   // Silently reconnect Freighter if it was previously authorized
   useEffect(() => {
@@ -142,7 +184,10 @@ export default function App() {
   }, [toggleTheme]);
 
   function handleDisconnect() {
+    // Clear all wallet state and any cached wallet data from localStorage
     setWalletAddress(null);
+    localStorage.removeItem("lastWalletAddress");
+    localStorage.removeItem("freighter_connected");
   }
 
   const renderPage = () => {
@@ -155,6 +200,20 @@ export default function App() {
             <div className="empty-content">
               <h2>Welcome to Stellar Royalty Splitter</h2>
               <p>Select or initialize a contract to get started</p>
+            </div>
+          </div>
+        );
+      case "connect-wallet":
+        return (
+          <div className="page-empty">
+            <div className="empty-content connect-wallet-panel">
+              <h2>Session expired</h2>
+              <p>Connect your wallet again to continue.</p>
+              <WalletConnect
+                walletAddress={walletAddress}
+                onConnect={handleWalletConnect}
+                onDisconnect={handleDisconnect}
+              />
             </div>
           </div>
         );
@@ -260,6 +319,19 @@ export default function App() {
   return (
     <div className="app-wrapper">
       {showHelp && <HelpModal onClose={closeHelp} />}
+      {sessionToast && (
+        <div className="session-toast" role="alert" aria-live="assertive">
+          <span>{sessionToast}</span>
+          <button
+            type="button"
+            className="session-toast-close"
+            aria-label="Dismiss session expiry message"
+            onClick={() => setSessionToast(null)}
+          >
+            x
+          </button>
+        </div>
+      )}
       <Navigation
         currentPage={currentPage}
         onPageChange={handlePageChange}
@@ -273,7 +345,7 @@ export default function App() {
             <h3>🔗 Wallet Connection</h3>
             <WalletConnect
               walletAddress={walletAddress}
-              onConnect={setWalletAddress}
+              onConnect={handleWalletConnect}
               onDisconnect={handleDisconnect}
             />
           </div>
@@ -358,6 +430,7 @@ export default function App() {
         <div className="app-main">{renderPage()}</div>
       </div>
 
+      <OnboardingWalkthrough />
     </div>
   );
 }

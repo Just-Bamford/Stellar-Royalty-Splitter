@@ -1,11 +1,115 @@
 import { Router } from "express";
 import StellarSdk from "@stellar/stellar-sdk";
-import { isContractInitialized, server, networkPassphrase, addressToScVal, getContractVersionFromContract } from "../stellar.js";
+import {
+  isContractInitialized,
+  server,
+  networkPassphrase,
+  addressToScVal,
+  getConfiguredContractId,
+  getContractVersionFromContract,
+  getNetworkLabel,
+} from "../stellar.js";
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
 
 const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
 
 export const contractRouter = Router();
+
+function getConfiguredTokenId() {
+  return (
+    process.env.ROYALTY_TOKEN_ID ??
+    process.env.TOKEN_CONTRACT_ID ??
+    process.env.TOKEN_ID ??
+    null
+  );
+}
+
+function firstQueryValue(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function i128ScValToString(scVal) {
+  const i128 = scVal?.i128?.();
+  if (!i128) return "0";
+  return ((BigInt(i128.hi()) << 64n) | BigInt(i128.lo())).toString();
+}
+
+function decodeShareMap(scVal) {
+  const mapEntries = scVal?.map?.()?.entries ?? [];
+  return mapEntries.map((entry) => ({
+    address: StellarSdk.Address.fromScVal(entry.key()).toString(),
+    basisPoints: entry.val().u32(),
+  }));
+}
+
+async function simulateContractRead(contractId, method, args = []) {
+  const contract = new Contract(contractId);
+  const dummyAccount = new Account(
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+    "0",
+  );
+  const tx = new TransactionBuilder(dummyAccount, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(contract.call(method, ...args))
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) {
+    const error = new Error(sim.error ?? `${method} simulation failed`);
+    error.status = 400;
+    throw error;
+  }
+
+  return sim.result?.retval ?? null;
+}
+
+contractRouter.get("/info", async (req, res, next) => {
+  try {
+    const contractId = firstQueryValue(req.query.contractId) ?? getConfiguredContractId();
+    const tokenId = firstQueryValue(req.query.tokenId) ?? getConfiguredTokenId();
+
+    if (!contractId) {
+      return res.status(400).json({
+        error: "contractId query param required when no default contract is configured",
+      });
+    }
+
+    if (!validateContractId(contractId, res)) return;
+
+    if (!tokenId) {
+      return res.status(400).json({
+        error: "tokenId query param required when no default token is configured",
+      });
+    }
+
+    if (!validateContractId(tokenId, res)) return;
+
+    const [adminVal, royaltyRateVal, recipientsVal, balanceVal] = await Promise.all([
+      simulateContractRead(contractId, "get_admin"),
+      simulateContractRead(contractId, "get_royalty_rate"),
+      simulateContractRead(contractId, "get_all_shares"),
+      simulateContractRead(contractId, "get_balance", [addressToScVal(tokenId)]),
+    ]);
+
+    res.json({
+      contractId,
+      adminAddress: adminVal ? StellarSdk.Address.fromScVal(adminVal).toString() : null,
+      royaltyRate: royaltyRateVal?.u32?.() ?? 0,
+      recipients: decodeShareMap(recipientsVal),
+      balance: i128ScValToString(balanceVal),
+      tokenId,
+      network: getNetworkLabel(),
+    });
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
 
 contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {

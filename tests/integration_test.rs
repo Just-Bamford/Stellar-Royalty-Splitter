@@ -6,8 +6,7 @@ use soroban_sdk::{
     vec, Address, BytesN, Env, IntoVal, Map, String, TryFromVal, Val, Vec as SorobanVec,
 };
 use stellar_royalty_splitter::{
-    auth, ContractError, DataKey, Recipient, RoyaltyRateChange, RoyaltySplitterClient, StorageKey,
-    MIN_TTL, RATE_HISTORY_CAP, VERSION,
+    auth, ContractError, DataKey, Recipient, RoyaltySplitterClient, StorageKey, MIN_TTL, VERSION,
 };
 
 fn setup(env: &Env) -> (Address, RoyaltySplitterClient) {
@@ -76,7 +75,7 @@ fn test_distribute_rejects_invalid_share_total() {
 }
 
 #[test]
-fn test_distribute_zero_balance_returns_typed_error() {
+fn test_distribute_zero_balance_returns_underfunded_error() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
     let (_, client) = setup(&env);
@@ -85,9 +84,9 @@ fn test_distribute_zero_balance_returns_typed_error() {
     let token_admin = Address::generate(&env);
     let token = make_token(&env, &token_admin);
     client.initialize(&vec![&env, a, b], &vec![&env, 5000_u32, 5000_u32]);
-    // Contract balance is 0, so distribute returns a typed contract error.
+    // contract balance is 0 - must return the typed underfunded error
     let result = client.try_distribute(&token);
-    assert_eq!(result, Err(Ok(ContractError::NoBalance)));
+    assert_eq!(result, Err(Ok(ContractError::Underfunded)));
 }
 
 #[test]
@@ -2520,8 +2519,8 @@ fn test_withdraw_unauthorized_caller() {
 
 // ── Issue #223: zero-balance distribute returns clean error ──────────────────
 
-/// Issue #223 - distribute called with zero contract balance must return a typed
-/// error before mutating distribution state.
+/// Issue #223 - distribute called with zero contract balance must return a
+/// typed error before mutating distribution state.
 #[test]
 fn test_distribute_zero_balance() {
     let env = Env::default();
@@ -2548,7 +2547,7 @@ fn test_distribute_zero_balance() {
     assert_eq!(TokenClient::new(&env, &token).balance(&b), 0);
 
     let result = client.try_distribute(&token);
-    assert_eq!(result, Err(Ok(ContractError::NoBalance)));
+    assert_eq!(result, Err(Ok(ContractError::Underfunded)));
 
     assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
     assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
