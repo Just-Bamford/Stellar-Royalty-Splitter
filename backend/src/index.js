@@ -21,16 +21,63 @@ import { closeDatabase, initializeDatabase } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
-import { initializeDatabase } from "./database/index.js";
-import db from "./database/index.js";
 import { initializeSigningKey } from "./signing-key.js";
 import { sendError, normalizeErrorCode } from "./error-response.js";
+
+// #399: Cache invalidation imports
+import { ContractStateCache } from "./cache/contractStateCache.js";
+import { AdminTransferEventListener } from "./events/adminTransferListener.js";
+import { SorobanRpc, Contract } from "@stellar/stellar-sdk";
 
 // Initialize database on startup
 initializeDatabase();
 initializeSigningKey();
 
 const app = express();
+
+// #399: Initialize contract state cache (30s TTL preserved)
+const cacheManager = new ContractStateCache(30);
+
+// #399: Initialize Soroban RPC server for event listening
+const sorobanServer = new SorobanRpc.Server(process.env.SOROBAN_RPC_URL);
+
+// #399: Initialize admin transfer event listener
+let adminListener = null;
+
+async function startAdminListener() {
+  const CONTRACT_ID = process.env.CONTRACT_ID;
+  if (!CONTRACT_ID) {
+    logger.warn("[AdminListener] CONTRACT_ID not set, skipping event listener");
+    return;
+  }
+
+  adminListener = new AdminTransferEventListener(
+    sorobanServer,
+    CONTRACT_ID,
+    cacheManager,
+    logger
+  );
+
+  adminListener.on("adminTransferred", (event) => {
+    logger.info("[Event] Admin transferred", {
+      oldAdmin: event.oldAdmin,
+      newAdmin: event.newAdmin,
+      ledger: event.ledger,
+      txHash: event.txHash,
+      invalidateDurationMs: event.invalidateDuration,
+    });
+  });
+
+  try {
+    await adminListener.start();
+    logger.info("[AdminListener] Started successfully");
+  } catch (err) {
+    logger.error("[AdminListener] Failed to start:", err.message);
+  }
+}
+
+// Start listener after server is up
+setImmediate(startAdminListener);
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -124,7 +171,14 @@ app.use("/api/v1", historyRouter);
 app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
-app.use("/api/v1/health", healthRouter);
+
+// #399: Mount health router with cache manager and soroban server
+app.use("/api/v1/health", (req, res, next) => {
+  req.cacheManager = cacheManager;
+  req.sorobanServer = sorobanServer;
+  next();
+}, healthRouter);
+
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 
@@ -172,10 +226,17 @@ const server = app.listen(PORT, () => logger.info(`API listening on http://local
 server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS ?? "35000");
 server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS ?? "40000");
 
+// #399: Enhanced shutdown handler with listener cleanup
 const handleShutdown = createGracefulShutdownHandler({
   server,
   closeDatabase,
   logger,
+  onShutdown: async () => {
+    if (adminListener) {
+      logger.info("[AdminListener] Stopping on shutdown...");
+      adminListener.stop();
+    }
+  },
 });
 
 process.once("SIGTERM", () => handleShutdown("SIGTERM"));
