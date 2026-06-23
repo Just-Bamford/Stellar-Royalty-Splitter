@@ -16,13 +16,17 @@ import historyRouter from "./routes/history.js";
 import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
-import { healthRouter } from "./routes/health.js";
+import { healthRouter, contractStateCache } from "./routes/health.js"; // #399: import shared cache
 import { closeDatabase, initializeDatabase } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { initializeSigningKey } from "./signing-key.js";
-import { sendError, normalizeErrorCode } from "./error-response.js";
+import { sendError } from "./error-response.js";
+
+// #399: Event listener imports
+import { AdminTransferEventListener } from "./events/adminTransferListener.js";
+import { SorobanRpc } from "@stellar/stellar-sdk";
 
 // #399: Cache invalidation imports
 import { ContractStateCache } from "./cache/contractStateCache.js";
@@ -32,6 +36,45 @@ import { SorobanRpc, Contract } from "@stellar/stellar-sdk";
 // Initialize database on startup
 initializeDatabase();
 initializeSigningKey();
+
+//Initialize Soroban server and start event listener
+const sorobanServer = new SorobanRpc.Server(process.env.SOROBAN_RPC_URL);
+let adminListener = null;
+
+async function startAdminListener() {
+  const CONTRACT_ID = process.env.CONTRACT_ID;
+  if (!CONTRACT_ID) {
+    logger.warn("[AdminListener] CONTRACT_ID not set, skipping");
+    return;
+  }
+
+  adminListener = new AdminTransferEventListener(
+    sorobanServer,
+    CONTRACT_ID,
+    contractStateCache, // shared cache instance
+    logger
+  );
+
+  adminListener.on("adminTransferred", (event) => {
+    logger.info("[Event] Admin transferred", {
+      oldAdmin: event.oldAdmin,
+      newAdmin: event.newAdmin,
+      ledger: event.ledger,
+      txHash: event.txHash,
+      invalidateDurationMs: event.invalidateDuration,
+    });
+  });
+
+  try {
+    await adminListener.start();
+    logger.info("[AdminListener] Started");
+  } catch (err) {
+    logger.error("[AdminListener] Failed:", err.message);
+  }
+}
+
+// Start listener after server boots
+setImmediate(startAdminListener);
 
 const app = express();
 
@@ -226,14 +269,14 @@ const server = app.listen(PORT, () => logger.info(`API listening on http://local
 server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS ?? "35000");
 server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS ?? "40000");
 
-// #399: Enhanced shutdown handler with listener cleanup
+// Shutdown handler with listener cleanup
 const handleShutdown = createGracefulShutdownHandler({
   server,
   closeDatabase,
   logger,
   onShutdown: async () => {
     if (adminListener) {
-      logger.info("[AdminListener] Stopping on shutdown...");
+      logger.info("[AdminListener] Stopping...");
       adminListener.stop();
     }
   },

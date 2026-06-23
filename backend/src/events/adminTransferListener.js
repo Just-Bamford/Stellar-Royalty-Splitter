@@ -1,7 +1,7 @@
-const { Contract, SorobanRpc } = require('@stellar/stellar-sdk');
-const EventEmitter = require('events');
+import EventEmitter from "events";
+import { xdr } from "@stellar/stellar-sdk";
 
-class AdminTransferEventListener extends EventEmitter {
+export class AdminTransferEventListener extends EventEmitter {
   constructor(server, contractId, cacheManager, logger = console) {
     super();
     this.server = server;
@@ -17,14 +17,14 @@ class AdminTransferEventListener extends EventEmitter {
   async start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    
+
     try {
       const latestLedger = await this.server.getLatestLedger();
       this.lastLedger = latestLedger.sequence;
-      this.logger.info(`[AdminListener] Started. Ledger cursor: ${this.lastLedger}`);
+      this.logger.info(`[AdminListener] Started at ledger ${this.lastLedger}`);
       this._schedulePoll();
     } catch (err) {
-      this.logger.error('[AdminListener] Failed to start:', err.message);
+      this.logger.error("[AdminListener] Start failed:", err.message);
       this.isRunning = false;
       throw err;
     }
@@ -36,7 +36,7 @@ class AdminTransferEventListener extends EventEmitter {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.logger.info('[AdminListener] Stopped.');
+    this.logger.info("[AdminListener] Stopped");
   }
 
   _schedulePoll() {
@@ -49,30 +49,26 @@ class AdminTransferEventListener extends EventEmitter {
 
     try {
       const startTime = performance.now();
-      
+
       const eventsResponse = await this.server.getEvents({
         startLedger: this.lastLedger,
         filters: [
           {
-            type: 'contract',
+            type: "contract",
             contractIds: [this.contractId],
-            topics: [
-              ['*', this._topicHash('admin_transfer')]
-            ]
-          }
+            topics: [["*", this._topicHash("admin_transfer")]],
+          },
         ],
-        limit: 100
+        limit: 100,
       });
 
-      if (eventsResponse.events && eventsResponse.events.length > 0) {
+      if (eventsResponse.events?.length > 0) {
         for (const event of eventsResponse.events) {
           await this._handleEvent(event);
         }
-        
-        const lastEvent = eventsResponse.events[eventsResponse.events.length - 1];
-        this.lastLedger = lastEvent.ledgerSequence;
+        const last = eventsResponse.events[eventsResponse.events.length - 1];
+        this.lastLedger = last.ledgerSequence;
       } else {
-        // No events, advance cursor slightly to avoid re-querying same ledger
         const latest = await this.server.getLatestLedger();
         this.lastLedger = Math.max(this.lastLedger, latest.sequence - 1);
       }
@@ -81,10 +77,8 @@ class AdminTransferEventListener extends EventEmitter {
       if (duration > 100) {
         this.logger.warn(`[AdminListener] Slow poll: ${duration.toFixed(2)}ms`);
       }
-
     } catch (err) {
-      this.logger.error('[AdminListener] Poll error:', err.message);
-      // Don't advance cursor on error, retry same ledger
+      this.logger.error("[AdminListener] Poll error:", err.message);
     }
 
     this._schedulePoll();
@@ -94,54 +88,39 @@ class AdminTransferEventListener extends EventEmitter {
     try {
       const oldAdmin = this._parseAddress(event.topic[2]);
       const newAdmin = this._parseAddress(event.topic[3]);
-      
-      const invalidateStart = performance.now();
-      
-      // Immediately invalidate admin cache
+
+      const invStart = performance.now();
       await this.cache.invalidateAdmin();
-      
-      // Also invalidate full contract state to be safe
       await this.cache.invalidateAll();
-      
-      const invalidateDuration = performance.now() - invalidateStart;
-      
+      const invDuration = performance.now() - invStart;
+
       this.logger.info(
-        `[AdminListener] Admin transfer detected. ` +
-        `Old: ${oldAdmin} → New: ${newAdmin}. ` +
-        `Cache invalidated in ${invalidateDuration.toFixed(2)}ms`
+        `[AdminListener] Transfer: ${oldAdmin} → ${newAdmin} ` +
+        `(invalidated in ${invDuration.toFixed(2)}ms)`
       );
 
-      this.emit('adminTransferred', {
+      this.emit("adminTransferred", {
         oldAdmin,
         newAdmin,
         ledger: event.ledgerSequence,
         txHash: event.txHash,
-        invalidateDuration
+        invalidateDuration: invDuration,
       });
-
     } catch (err) {
-      this.logger.error('[AdminListener] Failed to handle event:', err.message);
-      // Still invalidate cache even if parsing fails
+      this.logger.error("[AdminListener] Handle error:", err.message);
       await this.cache.invalidateAll();
     }
   }
 
-  _topicHash(topicName) {
-    // Soroban event topics are hashed xdr.ScVal symbols
-    const { xdr } = require('@stellar/stellar-sdk');
-    const sym = xdr.ScVal.scvSymbol(topicName);
-    return sym.toXDR('hex');
+  _topicHash(name) {
+    return xdr.ScVal.scvSymbol(name).toXDR("hex");
   }
 
-  _parseAddress(topicBytes) {
+  _parseAddress(bytes) {
     try {
-      const { xdr } = require('@stellar/stellar-sdk');
-      const scVal = xdr.ScVal.fromXDR(Buffer.from(topicBytes, 'hex'));
-      return scVal.address().toString();
+      return xdr.ScVal.fromXDR(Buffer.from(bytes, "hex")).address().toString();
     } catch {
-      return 'unknown';
+      return "unknown";
     }
   }
 }
-
-module.exports = { AdminTransferEventListener };

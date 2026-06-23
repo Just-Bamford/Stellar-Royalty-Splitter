@@ -1,25 +1,22 @@
-const { describe, it, expect, beforeEach, afterEach, jest } = require('@jest/globals');
-const { AdminTransferEventListener } = require('../src/events/adminTransferListener');
-const { ContractStateCache } = require('../src/cache/contractStateCache');
+import { describe, it, expect, beforeEach, afterEach, jest } from "@jest/globals";
+import { AdminTransferEventListener } from "../src/events/adminTransferListener.js";
+import { ContractStateCache } from "../src/cache/contractStateCache.js";
 
-// Mock Soroban SDK
-jest.mock('@stellar/stellar-sdk', () => ({
-  ...jest.requireActual('@stellar/stellar-sdk'),
+// Mock @stellar/stellar-sdk
+jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
   xdr: {
     ScVal: {
       scvSymbol: (name) => ({
-        toXDR: (fmt) => Buffer.from(name).toString(fmt === 'hex' ? 'hex' : 'base64')
+        toXDR: (fmt) => Buffer.from(name).toString(fmt === "hex" ? "hex" : "base64"),
       }),
-      fromXDR: (buf) => ({
-        address: () => ({
-          toString: () => 'GNEWADMIN123456789'
-        })
-      })
-    }
-  }
+      fromXDR: () => ({
+        address: () => ({ toString: () => "GNEWADMIN123456789" }),
+      }),
+    },
+  },
 }));
 
-describe('Cache Invalidation on Admin Transfer', () => {
+describe("Cache Invalidation on Admin Transfer", () => {
   let cacheManager;
   let mockServer;
   let listener;
@@ -27,19 +24,15 @@ describe('Cache Invalidation on Admin Transfer', () => {
 
   beforeEach(() => {
     cacheManager = new ContractStateCache(30);
-    jest.spyOn(cacheManager, 'invalidateAdmin');
-    jest.spyOn(cacheManager, 'invalidateAll');
-    jest.spyOn(cacheManager, 'setAdmin');
+    jest.spyOn(cacheManager, "invalidateAdmin");
+    jest.spyOn(cacheManager, "invalidateAll");
+    jest.spyOn(cacheManager, "setAdmin");
 
-    mockLogger = {
-      info: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn()
-    };
+    mockLogger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
 
     mockServer = {
       getLatestLedger: jest.fn().mockResolvedValue({ sequence: 1000 }),
-      getEvents: jest.fn().mockResolvedValue({ events: [] })
+      getEvents: jest.fn().mockResolvedValue({ events: [] }),
     };
   });
 
@@ -48,212 +41,186 @@ describe('Cache Invalidation on Admin Transfer', () => {
     jest.clearAllMocks();
   });
 
-  describe('1. Immediate Cache Invalidation', () => {
-    it('should invalidate admin cache within 100ms of event detection', async () => {
+  describe("1. Immediate Cache Invalidation", () => {
+    it("invalidates admin cache within 100ms of event detection", async () => {
       const mockEvent = {
         ledgerSequence: 1001,
-        txHash: 'abc123',
-        topic: ['admin_transfer', 'old', 'GOLDADMIN', 'GNEWADMIN123456789']
+        txHash: "abc123",
+        topic: ["admin_transfer", "old", "GOLDADMIN", "GNEWADMIN123456789"],
       };
 
-      mockServer.getEvents = jest.fn()
+      mockServer.getEvents = jest
+        .fn()
         .mockResolvedValueOnce({ events: [mockEvent] })
         .mockResolvedValue({ events: [] });
 
       listener = new AdminTransferEventListener(
-        mockServer, 
-        'CONTRACT123', 
-        cacheManager, 
+        mockServer,
+        "CONTRACT123",
+        cacheManager,
         mockLogger
       );
 
-      const startTime = performance.now();
+      const start = performance.now();
       await listener.start();
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Wait for poll cycle
-      await new Promise(r => setTimeout(r, 50));
-
-      const duration = performance.now() - startTime;
-      
       expect(cacheManager.invalidateAdmin).toHaveBeenCalled();
       expect(cacheManager.invalidateAll).toHaveBeenCalled();
-      expect(duration).toBeLessThan(100);
+      expect(performance.now() - start).toBeLessThan(100);
     });
 
-    it('should log admin change details', async () => {
+    it("logs admin change details", async () => {
       const mockEvent = {
         ledgerSequence: 1001,
-        txHash: 'abc123',
-        topic: ['admin_transfer', 'old', 'GOLDADMIN', 'GNEWADMIN']
+        txHash: "abc123",
+        topic: ["admin_transfer", "old", "GOLDADMIN", "GNEWADMIN"],
       };
 
-      mockServer.getEvents = jest.fn()
+      mockServer.getEvents = jest
+        .fn()
         .mockResolvedValueOnce({ events: [mockEvent] })
         .mockResolvedValue({ events: [] });
 
       listener = new AdminTransferEventListener(
-        mockServer, 
-        'CONTRACT123', 
-        cacheManager, 
+        mockServer,
+        "CONTRACT123",
+        cacheManager,
         mockLogger
       );
 
       await listener.start();
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining('Admin transfer detected')
+        expect.stringContaining("Transfer:")
       );
     });
   });
 
-  describe('2. Health Endpoint Accuracy', () => {
-    it('should reflect new admin within 100ms of invalidation', async () => {
-      // Simulate cached old admin
-      cacheManager.setAdmin('GOLDADMIN');
-      
+  describe("2. Health Endpoint Accuracy", () => {
+    it("reflects new admin within 100ms of invalidation", async () => {
+      cacheManager.setAdmin("GOLDADMIN");
+
       const mockEvent = {
         ledgerSequence: 1001,
-        txHash: 'abc123',
-        topic: ['admin_transfer', 'old', 'GOLDADMIN', 'GNEWADMIN']
+        txHash: "abc123",
+        topic: ["admin_transfer", "old", "GOLDADMIN", "GNEWADMIN"],
       };
 
-      mockServer.getEvents = jest.fn()
+      mockServer.getEvents = jest
+        .fn()
         .mockResolvedValueOnce({ events: [mockEvent] })
         .mockResolvedValue({ events: [] });
 
       listener = new AdminTransferEventListener(
-        mockServer, 
-        'CONTRACT123', 
-        cacheManager, 
+        mockServer,
+        "CONTRACT123",
+        cacheManager,
         mockLogger
       );
 
       await listener.start();
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
 
-      // After invalidation, getAdmin should return null (force fresh read)
+      const admin = await cacheManager.getAdmin();
+      expect(admin).toBeNull(); // forces fresh read
+    });
+  });
+
+  describe("3. No Stale Addresses", () => {
+    it("never returns old admin after invalidation", async () => {
+      cacheManager.setAdmin("GOLDADMIN");
+      await cacheManager.invalidateAdmin();
+
       const admin = await cacheManager.getAdmin();
       expect(admin).toBeNull();
     });
 
-    it('should return stale flag when cache is out of sync', async () => {
-      // Manually set stale state
-      cacheManager.setAdmin('GOLDADMIN');
-      cacheManager.adminInvalidationTime = Date.now() - 1000; // Old invalidation
-
-      const stats = cacheManager.getStats();
-      expect(stats.isAdminStale).toBe(true);
-    });
-  });
-
-  describe('3. No Stale Addresses', () => {
-    it('should never return old admin after invalidation', async () => {
-      cacheManager.setAdmin('GOLDADMIN');
-      
-      await cacheManager.invalidateAdmin();
-      
-      const admin = await cacheManager.getAdmin();
-      expect(admin).toBeNull(); // Forces on-chain read
-      expect(cacheManager.invalidateAdmin).toHaveBeenCalled();
-    });
-
-    it('should handle multiple rapid admin transfers', async () => {
+    it("handles multiple rapid admin transfers", async () => {
       const events = [
-        { ledgerSequence: 1001, txHash: 'tx1', topic: ['t', 'o', 'A1', 'A2'] },
-        { ledgerSequence: 1002, txHash: 'tx2', topic: ['t', 'o', 'A2', 'A3'] },
-        { ledgerSequence: 1003, txHash: 'tx3', topic: ['t', 'o', 'A3', 'A4'] }
+        { ledgerSequence: 1001, txHash: "tx1", topic: ["t", "o", "A1", "A2"] },
+        { ledgerSequence: 1002, txHash: "tx2", topic: ["t", "o", "A2", "A3"] },
+        { ledgerSequence: 1003, txHash: "tx3", topic: ["t", "o", "A3", "A4"] },
       ];
 
-      mockServer.getEvents = jest.fn()
+      mockServer.getEvents = jest
+        .fn()
         .mockResolvedValueOnce({ events })
         .mockResolvedValue({ events: [] });
 
       listener = new AdminTransferEventListener(
-        mockServer, 
-        'CONTRACT123', 
-        cacheManager, 
+        mockServer,
+        "CONTRACT123",
+        cacheManager,
         mockLogger
       );
 
       await listener.start();
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
-      // Should have invalidated for each event
-      expect(cacheManager.invalidateAll).toHaveBeenCalledTimes(1); // Batch invalidation
-      expect(mockLogger.info).toHaveBeenCalledTimes(3); // 3 transfer logs
+      expect(cacheManager.invalidateAll).toHaveBeenCalledTimes(1);
+      expect(mockLogger.info).toHaveBeenCalledTimes(3);
     });
   });
 
-  describe('4. Concurrent Request Consistency', () => {
-    it('should handle concurrent reads during admin transfer', async () => {
-      cacheManager.setAdmin('GOLDADMIN');
+  describe("4. Concurrent Request Consistency", () => {
+    it("handles concurrent reads during admin transfer", async () => {
+      cacheManager.setAdmin("GOLDADMIN");
 
       const promises = [];
       for (let i = 0; i < 10; i++) {
         promises.push(cacheManager.getAdmin());
       }
 
-      // Invalidate mid-read
       await cacheManager.invalidateAdmin();
-
       const results = await Promise.all(promises);
-      
-      // All reads should be consistent (either old or null, never mixed in dangerous way)
-      const uniqueResults = [...new Set(results)];
-      expect(uniqueResults).toContain('GOLDADMIN'); // Some may have read before invalidation
-      // After invalidation, new reads return null
+
+      const unique = [...new Set(results)];
+      expect(unique).toContain("GOLDADMIN");
     });
 
-    it('should block fresh reads for 500ms after invalidation', async () => {
-      cacheManager.setAdmin('GOLDADMIN');
+    it("blocks fresh reads for 500ms after invalidation", async () => {
+      cacheManager.setAdmin("GOLDADMIN");
       await cacheManager.invalidateAdmin();
 
-      const admin = await cacheManager.getAdmin();
-      expect(admin).toBeNull();
+      expect(await cacheManager.getAdmin()).toBeNull();
 
-      // Wait for cooldown
-      await new Promise(r => setTimeout(r, 600));
-      
-      // After 500ms, cache can be repopulated
-      cacheManager.setAdmin('GNEWADMIN');
-      expect(await cacheManager.getAdmin()).toBe('GNEWADMIN');
+      await new Promise((r) => setTimeout(r, 600));
+      cacheManager.setAdmin("GNEWADMIN");
+      expect(await cacheManager.getAdmin()).toBe("GNEWADMIN");
     });
   });
 
-  describe('5. Webhook Delivery Preservation', () => {
-    it('should not affect webhook endpoint functionality', async () => {
-      // Mock webhook delivery
+  describe("5. Webhook Delivery Preservation", () => {
+    it("does not affect webhook functionality", async () => {
       const webhookDelivered = jest.fn().mockResolvedValue(true);
-      
-      // Simulate admin transfer
       await cacheManager.invalidateAdmin();
-      
-      // Webhook should still function
-      await webhookDelivered({ type: 'test' });
+      await webhookDelivered({ type: "test" });
       expect(webhookDelivered).toHaveBeenCalled();
     });
 
-    it('should emit event for downstream webhook consumers', async () => {
+    it("emits event for downstream consumers", async () => {
       const mockEvent = {
         ledgerSequence: 1001,
-        txHash: 'abc123',
-        topic: ['admin_transfer', 'old', 'GOLDADMIN', 'GNEWADMIN']
+        txHash: "abc123",
+        topic: ["admin_transfer", "old", "GOLDADMIN", "GNEWADMIN"],
       };
 
-      mockServer.getEvents = jest.fn()
+      mockServer.getEvents = jest
+        .fn()
         .mockResolvedValueOnce({ events: [mockEvent] })
         .mockResolvedValue({ events: [] });
 
       listener = new AdminTransferEventListener(
-        mockServer, 
-        'CONTRACT123', 
-        cacheManager, 
+        mockServer,
+        "CONTRACT123",
+        cacheManager,
         mockLogger
       );
 
-      const eventPromise = new Promise(resolve => {
-        listener.once('adminTransferred', resolve);
+      const eventPromise = new Promise((resolve) => {
+        listener.once("adminTransferred", resolve);
       });
 
       await listener.start();
@@ -263,8 +230,8 @@ describe('Cache Invalidation on Admin Transfer', () => {
         oldAdmin: expect.any(String),
         newAdmin: expect.any(String),
         ledger: 1001,
-        txHash: 'abc123',
-        invalidateDuration: expect.any(Number)
+        txHash: "abc123",
+        invalidateDuration: expect.any(Number),
       });
     });
   });

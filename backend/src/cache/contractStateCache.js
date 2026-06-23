@@ -1,38 +1,33 @@
-const NodeCache = require('node-cache');
+import NodeCache from "node-cache";
 
-class ContractStateCache {
+export class ContractStateCache {
   constructor(ttlSeconds = 30) {
     this.cache = new NodeCache({ stdTTL: ttlSeconds, checkperiod: 5 });
     this.ttl = ttlSeconds;
     this.adminInvalidationTime = null;
-    this.logger = console;
   }
 
   async getAdmin() {
-    // If recently invalidated, force fresh read for 500ms
-    if (this.adminInvalidationTime && 
-        (Date.now() - this.adminInvalidationTime) < 500) {
-      return null; // Signal cache miss to force on-chain read
+    // Force fresh read for 500ms after invalidation
+    if (this.adminInvalidationTime && Date.now() - this.adminInvalidationTime < 500) {
+      return null;
     }
-    return this.cache.get('admin');
+    return this.cache.get("admin");
   }
 
   setAdmin(adminAddress) {
-    this.cache.set('admin', adminAddress);
-    this.logger.info(`[Cache] Admin cached: ${adminAddress}`);
+    this.cache.set("admin", adminAddress);
   }
 
   async invalidateAdmin() {
-    this.cache.del('admin');
+    this.cache.del("admin");
     this.adminInvalidationTime = Date.now();
-    this.logger.info('[Cache] Admin cache invalidated');
   }
 
   async invalidateAll() {
     const keys = this.cache.keys();
     this.cache.del(keys);
     this.adminInvalidationTime = Date.now();
-    this.logger.info(`[Cache] Full cache invalidated. Keys removed: ${keys.length}`);
   }
 
   getStats() {
@@ -40,10 +35,9 @@ class ContractStateCache {
       keys: this.cache.keys().length,
       ttl: this.ttl,
       adminInvalidationTime: this.adminInvalidationTime,
-      isAdminStale: this.adminInvalidationTime ? 
-        (Date.now() - this.adminInvalidationTime) > 500 : false
+      isAdminStale: this.adminInvalidationTime
+        ? Date.now() - this.adminInvalidationTime > 500
+        : false,
     };
   }
 }
-
-module.exports = { ContractStateCache };

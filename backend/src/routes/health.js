@@ -6,8 +6,6 @@ import {
   checkHorizonConnectivity,
   checkContractDeploymentStatus,
 } from "../stellar.js";
-
-// #399: Import cache manager for admin verification
 import { ContractStateCache } from "../cache/contractStateCache.js";
 import { SorobanRpc, Contract, TransactionBuilder, Networks, BASE_FEE } from "@stellar/stellar-sdk";
 
@@ -17,14 +15,9 @@ const CACHE_TTL_MS = parseInt(process.env.HEALTH_CACHE_TTL_MS ?? "30000", 10);
 let cachedHealth = null;
 let cacheExpiresAt = 0;
 
-// #399: Contract state cache instance (shared with index.js)
-const contractStateCache = new ContractStateCache(30);
+// #399: Shared contract state cache
+export const contractStateCache = new ContractStateCache(30);
 
-/**
- * GET /api/v1/health
- * Operator health: DB migration version, network, Horizon, contract status,
- * and admin cache consistency (#399).
- */
 healthRouter.get("/", async (_req, res, next) => {
   try {
     const now = Date.now();
@@ -57,15 +50,9 @@ healthRouter.get("/", async (_req, res, next) => {
       let cacheStale = false;
       let verifiedAt = null;
 
-      // Verify admin against chain if cache is stale or missing
       if (!cachedAdmin || cacheStats.isAdminStale) {
         try {
-          const sorobanServer = new SorobanRpc.Server(
-            process.env.SOROBAN_RPC_URL
-          );
-
-          // Build simulation to get current admin from contract
-          // Adjust "get_admin" to match your contract's actual function name
+          const sorobanServer = new SorobanRpc.Server(process.env.SOROBAN_RPC_URL);
           const contractObj = new Contract(contractId);
           const sourceKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
           const sourceAccount = await sorobanServer.getAccount(sourceKey);
@@ -73,9 +60,7 @@ healthRouter.get("/", async (_req, res, next) => {
           const tx = new TransactionBuilder(sourceAccount, {
             fee: BASE_FEE,
             networkPassphrase:
-              process.env.STELLAR_NETWORK === "mainnet"
-                ? Networks.PUBLIC
-                : Networks.TESTNET,
+              process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET,
           })
             .addOperation(contractObj.call("get_admin"))
             .setTimeout(30)
@@ -88,14 +73,11 @@ healthRouter.get("/", async (_req, res, next) => {
           if (cachedAdmin && liveAdmin && cachedAdmin !== liveAdmin) {
             cacheStale = true;
             adminStatus = "stale";
-            // Auto-invalidate and update
             await contractStateCache.invalidateAdmin();
             if (liveAdmin) contractStateCache.setAdmin(liveAdmin);
           } else {
             adminStatus = "verified";
-            if (liveAdmin && !cachedAdmin) {
-              contractStateCache.setAdmin(liveAdmin);
-            }
+            if (liveAdmin && !cachedAdmin) contractStateCache.setAdmin(liveAdmin);
           }
         } catch (chainErr) {
           adminStatus = "chain_error";
@@ -124,7 +106,6 @@ healthRouter.get("/", async (_req, res, next) => {
       network: getNetworkLabel(),
       horizon,
       contract,
-      // #399: Admin cache consistency info
       admin: adminCheck,
       responseTimeMs: Date.now() - checkStart,
     };
@@ -137,11 +118,7 @@ healthRouter.get("/", async (_req, res, next) => {
   }
 });
 
-/** Reset cached health (for tests). */
 export function clearHealthCache() {
   cachedHealth = null;
   cacheExpiresAt = 0;
 }
-
-// #399: Expose cache instance for event listener and tests
-export { contractStateCache };
