@@ -5,6 +5,10 @@ import {
   getNetworkLabel,
   checkHorizonConnectivity,
   checkContractDeploymentStatus,
+  checkAllHorizonEndpoints,
+  checkAllRpcEndpoints,
+  getCurrentHorizonUrl,
+  getCurrentRpcUrl,
 } from "../stellar.js";
 
 export const healthRouter = Router();
@@ -16,6 +20,7 @@ let cacheExpiresAt = 0;
 /**
  * GET /api/v1/health
  * Operator health: DB migration version, network, Horizon, and optional contract status.
+ * Issue #393: Includes RPC endpoint health status.
  */
 healthRouter.get("/", async (_req, res, next) => {
   try {
@@ -25,9 +30,11 @@ healthRouter.get("/", async (_req, res, next) => {
     }
 
     const contractId = getConfiguredContractId();
-    const [horizon, contract] = await Promise.all([
+    const [horizon, contract, allHorizons, allRpcs] = await Promise.all([
       checkHorizonConnectivity(),
       checkContractDeploymentStatus(contractId),
+      checkAllHorizonEndpoints(),
+      checkAllRpcEndpoints(),
     ]);
 
     const contractHealthy =
@@ -39,6 +46,14 @@ healthRouter.get("/", async (_req, res, next) => {
       network: getNetworkLabel(),
       horizon,
       contract,
+      // Issue #393: RPC endpoint health reporting
+      rpc: {
+        current: getCurrentRpcUrl(),
+        endpoints: allRpcs,
+      },
+      // Issue #393: All Horizon endpoints health
+      horizons: allHorizons,
+      currentHorizon: getCurrentHorizonUrl(),
     };
 
     cachedHealth = body;

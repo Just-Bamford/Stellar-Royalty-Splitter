@@ -31,10 +31,19 @@ const {
   xdr,
 } = StellarSdk;
 
-const RPC_URL =
-  process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const HORIZON_URL =
-  process.env.HORIZON_URL ?? "https://horizon-testnet.stellar.org";
+// Issue #393: Multiple RPC endpoint configuration with failover
+const RPC_URLS = (process.env.SOROBAN_RPC_URLS ?? "https://soroban-testnet.stellar.org")
+  .split(",")
+  .map((url) => url.trim())
+  .filter((url) => url.length > 0);
+const HORIZON_URLS = (process.env.HORIZON_URLS ?? "https://horizon-testnet.stellar.org")
+  .split(",")
+  .map((url) => url.trim())
+  .filter((url) => url.length > 0);
+
+// Fallback to single URL env vars for backwards compatibility
+const RPC_URL = process.env.SOROBAN_RPC_URL ?? RPC_URLS[0];
+const HORIZON_URL = process.env.HORIZON_URL ?? HORIZON_URLS[0];
 const NETWORK = process.env.STELLAR_NETWORK ?? "testnet";
 
 function parsePositiveInt(value, fallback) {
@@ -63,12 +72,39 @@ const TRANSACTION_POLL_INTERVAL_MS = parsePositiveInt(
   2_000,
 );
 
+// Issue #393: RPC endpoint health tracking
+let currentRpcIndex = 0;
+let currentHorizonIndex = 0;
+const rpcEndpointHealth = new Map(); // url -> { healthy: bool, lastCheck: timestamp, failCount: number }
+const horizonEndpointHealth = new Map();
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const CIRCUIT_BREAKER_THRESHOLD = 3;
+const CIRCUIT_BREAKER_RESET_MS = 60_000;
+
+// Initialize health tracking for all endpoints
+RPC_URLS.forEach((url) => {
+  rpcEndpointHealth.set(url, { healthy: true, lastCheck: 0, failCount: 0 });
+});
+HORIZON_URLS.forEach((url) => {
+  horizonEndpointHealth.set(url, { healthy: true, lastCheck: 0, failCount: 0 });
+});
+
 export const server = new SorobanRpc.Server(RPC_URL, { allowHttp: false });
 export const networkPassphrase =
   NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
 export function getNetworkLabel() {
   return NETWORK === "mainnet" ? "Mainnet" : "Testnet";
+}
+
+// Issue #393: Get current RPC endpoint URL
+export function getCurrentRpcUrl() {
+  return RPC_URLS[currentRpcIndex] ?? RPC_URL;
+}
+
+// Issue #393: Get current Horizon endpoint URL
+export function getCurrentHorizonUrl() {
+  return HORIZON_URLS[currentHorizonIndex] ?? HORIZON_URL;
 }
 
 export function getConfiguredContractId() {
@@ -125,10 +161,10 @@ export function withTimeout(promise, ms, label, correlationId) {
 }
 
 /**
- * Probe Horizon with a lightweight ledgers request.
+ * Issue #393: Probe a single Horizon endpoint with a lightweight ledgers request.
  */
-export async function checkHorizonConnectivity() {
-  const url = `${HORIZON_URL.replace(/\/$/, "")}/ledgers?order=desc&limit=1`;
+async function checkSingleHorizonEndpoint(url) {
+  const endpointUrl = `${url.replace(/\/$/, "")}/ledgers?order=desc&limit=1`;
   const timeoutMs = parsePositiveInt(
     process.env.HEALTH_CHECK_TIMEOUT_MS,
     5_000,
@@ -138,23 +174,79 @@ export async function checkHorizonConnectivity() {
 
   try {
     const requestStart = Date.now();
-    const response = await fetch(url, {
+    const response = await fetch(endpointUrl, {
       signal: controller.signal,
       headers: { Accept: "application/json" },
     });
     recordHorizonResponseTime(Date.now() - requestStart);
     return {
       connected: response.ok,
-      url: HORIZON_URL,
+      url,
+      responseTimeMs: Date.now() - requestStart,
     };
   } catch {
     return {
       connected: false,
-      url: HORIZON_URL,
+      url,
+      responseTimeMs: timeoutMs,
     };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Issue #393: Probe all Horizon endpoints and return health status.
+ */
+export async function checkAllHorizonEndpoints() {
+  const results = await Promise.all(
+    HORIZON_URLS.map((url) => checkSingleHorizonEndpoint(url))
+  );
+  return results;
+}
+
+/**
+ * Probe Horizon with a lightweight ledgers request (legacy single endpoint).
+ */
+export async function checkHorizonConnectivity() {
+  const url = getCurrentHorizonUrl();
+  return checkSingleHorizonEndpoint(url);
+}
+
+/**
+ * Issue #393: Check RPC endpoint health with lightweight getLatestLedger call.
+ */
+async function checkRpcEndpoint(url) {
+  try {
+    const testServer = new SorobanRpc.Server(url, { allowHttp: false });
+    const start = Date.now();
+    await withTimeout(
+      testServer.getLatestLedger(),
+      SOROBAN_RPC_TIMEOUT_MS,
+      "Soroban getLatestLedger",
+    );
+    return {
+      url,
+      healthy: true,
+      responseTimeMs: Date.now() - start,
+    };
+  } catch {
+    return {
+      url,
+      healthy: false,
+      responseTimeMs: SOROBAN_RPC_TIMEOUT_MS,
+    };
+  }
+}
+
+/**
+ * Issue #393: Check all RPC endpoints and return health status.
+ */
+export async function checkAllRpcEndpoints() {
+  const results = await Promise.all(
+    RPC_URLS.map((url) => checkRpcEndpoint(url))
+  );
+  return results;
 }
 
 /**
@@ -224,23 +316,79 @@ function sleep(ms) {
 }
 
 /**
+ * Issue #393: Get next healthy Horizon endpoint with circuit breaker.
+ */
+function getNextHealthyHorizonEndpoint() {
+  const now = Date.now();
+  for (let i = 0; i < HORIZON_URLS.length; i++) {
+    const index = (currentHorizonIndex + i) % HORIZON_URLS.length;
+    const url = HORIZON_URLS[index];
+    const health = horizonEndpointHealth.get(url);
+    
+    // Reset circuit breaker if enough time has passed
+    if (health && now - health.lastCheck > CIRCUIT_BREAKER_RESET_MS) {
+      health.failCount = 0;
+      health.healthy = true;
+    }
+    
+    if (health && health.healthy && health.failCount < CIRCUIT_BREAKER_THRESHOLD) {
+      currentHorizonIndex = index;
+      return url;
+    }
+  }
+  // Fallback to first endpoint if all are unhealthy
+  return HORIZON_URLS[0];
+}
+
+/**
+ * Issue #393: Mark Horizon endpoint as failed.
+ */
+function markHorizonEndpointFailed(url) {
+  const health = horizonEndpointHealth.get(url);
+  if (health) {
+    health.failCount++;
+    health.lastCheck = Date.now();
+    if (health.failCount >= CIRCUIT_BREAKER_THRESHOLD) {
+      health.healthy = false;
+      logger.error("Horizon endpoint circuit breaker opened", { url, failCount: health.failCount });
+    }
+  }
+}
+
+/**
+ * Issue #393: Mark Horizon endpoint as healthy.
+ */
+function markHorizonEndpointHealthy(url) {
+  const health = horizonEndpointHealth.get(url);
+  if (health) {
+    health.failCount = 0;
+    health.healthy = true;
+    health.lastCheck = Date.now();
+  }
+}
+
+/**
  * Poll Horizon until a transaction is confirmed in a ledger (#297).
+ * Issue #393: With failover to healthy endpoints.
  * Returns { status, ledger, createdAt } when the transaction is found.
  * Throws { status: 504, message } on timeout.
  */
 export async function pollHorizonTransaction(txHash) {
-  const url = `${HORIZON_URL.replace(/\/$/, "")}/transactions/${txHash}`;
   const start = Date.now();
 
   while (Date.now() - start < TRANSACTION_POLL_TIMEOUT_MS) {
+    const url = getNextHealthyHorizonEndpoint();
+    const endpointUrl = `${url.replace(/\/$/, "")}/transactions/${txHash}`;
+    
     try {
       const requestStart = Date.now();
       const response = await withTimeout(
-        fetch(url, { headers: { Accept: "application/json" } }),
+        fetch(endpointUrl, { headers: { Accept: "application/json" } }),
         HORIZON_TIMEOUT_MS,
         "Horizon getTransaction",
       );
       recordHorizonResponseTime(Date.now() - requestStart);
+      markHorizonEndpointHealthy(url);
 
       if (response.status === 404) {
         await sleep(TRANSACTION_POLL_INTERVAL_MS);
@@ -248,6 +396,7 @@ export async function pollHorizonTransaction(txHash) {
       }
 
       if (!response.ok) {
+        markHorizonEndpointFailed(url);
         throw new Error(`Horizon returned HTTP ${response.status}`);
       }
 
@@ -259,10 +408,13 @@ export async function pollHorizonTransaction(txHash) {
       };
     } catch (error) {
       if (error?.status === 504) {
+        markHorizonEndpointFailed(url);
         throw error;
       }
-      logger.warn?.("Horizon transaction poll attempt failed", {
+      markHorizonEndpointFailed(url);
+      logger.warn?.("Horizon transaction poll attempt failed, trying next endpoint", {
         txHash: txHash.substring(0, 8),
+        url,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -288,10 +440,51 @@ export function _resetFeeCache() {
 }
 
 /**
+ * Issue #393: Fetch fee stats from Horizon with failover.
+ */
+async function fetchFeeStatsWithFailover() {
+  for (let i = 0; i < HORIZON_URLS.length; i++) {
+    const url = HORIZON_URLS[i];
+    const endpointUrl = `${url.replace(/\/$/, "")}/fee_stats`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HORIZON_TIMEOUT_MS);
+
+    try {
+      const requestStart = Date.now();
+      const response = await fetch(endpointUrl, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      recordHorizonResponseTime(Date.now() - requestStart);
+      markHorizonEndpointHealthy(url);
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      
+      const candidate =
+        data?.fee_charged?.p50 ??
+        data?.last_ledger_base_fee ??
+        BASE_FEE;
+      return String(candidate);
+    } catch (error) {
+      markHorizonEndpointFailed(url);
+      logger.warn?.("Horizon fee fetch failed, trying next endpoint", {
+        url,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return BASE_FEE;
+}
+
+/**
  * Fetch the recommended transaction fee from Horizon's `/fee_stats` endpoint,
  * cached for HORIZON_FEE_CACHE_MS (default 30s). Falls back to `BASE_FEE` on
  * any error so transaction submission keeps working even when fee stats are
  * unavailable.
+ * Issue #393: With failover to healthy endpoints.
  */
 export async function getRecommendedFee() {
   const now = Date.now();
@@ -299,36 +492,9 @@ export async function getRecommendedFee() {
     return feeCache.fee;
   }
 
-  const url = `${HORIZON_URL.replace(/\/$/, "")}/fee_stats`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), HORIZON_TIMEOUT_MS);
-
-  try {
-    const requestStart = Date.now();
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    recordHorizonResponseTime(Date.now() - requestStart);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    // Prefer `p50_accepted_fee` (median accepted), fall back to
-    // `last_ledger_base_fee`, then BASE_FEE.
-    const candidate =
-      data?.fee_charged?.p50 ??
-      data?.last_ledger_base_fee ??
-      BASE_FEE;
-    const fee = String(candidate);
-    feeCache = { fee, fetchedAt: now };
-    return fee;
-  } catch (error) {
-    logger.warn?.("Horizon fee fetch failed; falling back to BASE_FEE", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return BASE_FEE;
-  } finally {
-    clearTimeout(timer);
-  }
+  const fee = await fetchFeeStatsWithFailover();
+  feeCache = { fee, fetchedAt: now };
+  return fee;
 }
 
 // ── Per-address build lock (#294) ──────────────────────────────────────────
@@ -720,6 +886,42 @@ export const _config = {
   HORIZON_TIMEOUT_MS,
   HORIZON_FEE_CACHE_MS,
   HORIZON_URL,
+  HORIZON_URLS,
+  RPC_URL,
+  RPC_URLS,
   TRANSACTION_POLL_TIMEOUT_MS,
   TRANSACTION_POLL_INTERVAL_MS,
+  HEALTH_CHECK_INTERVAL_MS,
+  CIRCUIT_BREAKER_THRESHOLD,
+  CIRCUIT_BREAKER_RESET_MS,
 };
+
+// Issue #393: Test exports for endpoint health tracking
+export function _resetRpcEndpointHealth() {
+  currentRpcIndex = 0;
+  currentHorizonIndex = 0;
+  rpcEndpointHealth.clear();
+  horizonEndpointHealth.clear();
+  RPC_URLS.forEach((url) => {
+    rpcEndpointHealth.set(url, { healthy: true, lastCheck: 0, failCount: 0 });
+  });
+  HORIZON_URLS.forEach((url) => {
+    horizonEndpointHealth.set(url, { healthy: true, lastCheck: 0, failCount: 0 });
+  });
+}
+
+export function _getRpcEndpointHealth() {
+  return new Map(rpcEndpointHealth);
+}
+
+export function _getHorizonEndpointHealth() {
+  return new Map(horizonEndpointHealth);
+}
+
+export function _setCurrentRpcIndex(index) {
+  currentRpcIndex = index;
+}
+
+export function _setCurrentHorizonIndex(index) {
+  currentHorizonIndex = index;
+}

@@ -44,6 +44,7 @@ pub enum StorageKey {
     Paused,
     DistributeHistory,
     PendingAdmin,
+    PendingAdminTimestamp,
     AdminList,
     AdminThreshold,
     InitCH,
@@ -67,6 +68,10 @@ pub const RATE_HISTORY_CAP: u32 = 20;
 /// Emergency pause duration in seconds (24 hours).
 /// Collaborator-initiated pauses auto-expire after this duration.
 pub const EMERGENCY_PAUSE_DURATION: u64 = 24 * 60 * 60;
+
+/// Issue #402: Admin transfer time-lock duration in seconds (48 hours).
+/// Proposed admin transfers must wait this duration before acceptance.
+pub const ADMIN_TRANSFER_TIMELOCK_DURATION: u64 = 48 * 60 * 60;
 
 /// Backward-compatible alias for integration tests and external references.
 pub type DataKey = StorageKey;
@@ -120,6 +125,7 @@ pub enum ContractError {
     InvalidReveal = 28,
     RevealTooEarly = 29,
     CommitmentExists = 30,
+    AdminTransferTimelockNotExpired = 31,
 }
 
 #[contract]
@@ -524,8 +530,9 @@ impl RoyaltySplitter {
 
     /// Propose a new admin — first step of the two-step admin transfer (#320).
     ///
-    /// Stores `new_admin` as pending; the transfer is not complete until
-    /// `accept_admin` is called by `new_admin`.
+    /// Issue #402: Stores `new_admin` as pending with a 48-hour time-lock.
+    /// The transfer is not complete until `accept_admin` is called by `new_admin`
+    /// after the time-lock expires.
     ///
     /// # Authorization
     /// Requires current admin (or multi-sig threshold) signature.
@@ -533,16 +540,20 @@ impl RoyaltySplitter {
         storage::extend_instance_ttl(&env);
 
         Self::check_admin_auth(&env, auth::msg::PROPOSE_ADMIN_ADMIN);
+        
+        let timestamp = env.ledger().timestamp();
         storage::instance_set(&env, &StorageKey::PendingAdmin, &new_admin);
+        storage::instance_set(&env, &StorageKey::PendingAdminTimestamp, &timestamp);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("adm_prop")),
-            new_admin,
+            (new_admin, timestamp),
         );
     }
 
     /// Accept a pending admin transfer — second step of the two-step flow (#320).
     ///
+    /// Issue #402: Verifies 48-hour time-lock has expired before completing transfer.
     /// Completes the transfer initiated by `propose_admin_transfer`. Only the
     /// address nominated in `propose_admin_transfer` can call this.
     ///
@@ -551,6 +562,7 @@ impl RoyaltySplitter {
     ///
     /// # Panics
     /// * `"no pending admin transfer"` — called without a prior `propose_admin_transfer`
+    /// * `"admin transfer time-lock not expired"` — called before 48 hours have passed
     pub fn accept_admin(env: Env) {
         storage::extend_instance_ttl(&env);
 
@@ -559,6 +571,20 @@ impl RoyaltySplitter {
             .instance()
             .get(&StorageKey::PendingAdmin)
             .expect("no pending admin transfer");
+
+        let proposal_timestamp: u64 = env
+            .storage()
+            .instance()
+            .get(&StorageKey::PendingAdminTimestamp)
+            .expect("no pending admin timestamp");
+
+        let current_time = env.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(proposal_timestamp);
+
+        // Issue #402: Enforce 48-hour time-lock
+        if elapsed < ADMIN_TRANSFER_TIMELOCK_DURATION {
+            Self::fail(&env, ContractError::AdminTransferTimelockNotExpired);
+        }
 
         // Only the pending (new) admin signs acceptance — not the current admin(s).
         let context = String::from_str(&env, auth::msg::ACCEPT_ADMIN_PENDING);
@@ -573,10 +599,42 @@ impl RoyaltySplitter {
 
         storage::instance_set(&env, &StorageKey::Admin, &pending);
         env.storage().instance().remove(&StorageKey::PendingAdmin);
+        env.storage().instance().remove(&StorageKey::PendingAdminTimestamp);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("adm_acc")),
             (previous_admin, pending),
+        );
+    }
+
+    /// Cancel a pending admin transfer.
+    ///
+    /// Issue #402: Allows current admin to cancel a pending transfer before acceptance.
+    /// Useful if the proposed admin is no longer suitable or if the transfer was
+    /// initiated in error.
+    ///
+    /// # Authorization
+    /// Requires current admin (or multi-sig threshold) signature.
+    ///
+    /// # Panics
+    /// * `"no pending admin transfer"` — called without a prior `propose_admin_transfer`
+    pub fn cancel_admin_proposal(env: Env) {
+        storage::extend_instance_ttl(&env);
+
+        Self::check_admin_auth(&env, auth::msg::PROPOSE_ADMIN_ADMIN);
+
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::PendingAdmin)
+            .expect("no pending admin transfer");
+
+        env.storage().instance().remove(&StorageKey::PendingAdmin);
+        env.storage().instance().remove(&StorageKey::PendingAdminTimestamp);
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("adm_cancel")),
+            pending,
         );
     }
 
@@ -697,6 +755,34 @@ impl RoyaltySplitter {
         let remaining = EMERGENCY_PAUSE_DURATION.saturating_sub(elapsed);
         
         (timestamp, source, remaining)
+    }
+
+    /// Issue #402: Returns pending admin transfer information for frontend display.
+    ///
+    /// Returns a tuple of (pending_admin, proposal_timestamp, remaining_seconds).
+    /// If no pending transfer, returns (zero_address, 0, 0).
+    /// remaining_seconds is the time until the time-lock expires (0 if already expired).
+    pub fn get_pending_admin_transfer(env: Env) -> (Address, u64, u64) {
+        storage::extend_instance_ttl(&env);
+        
+        let pending: Option<Address> = env.storage().instance().get(&StorageKey::PendingAdmin);
+        
+        if pending.is_none() {
+            let zero_addr = Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap();
+            return (zero_addr, 0, 0);
+        }
+        
+        let pending = pending.unwrap();
+        let timestamp = env.storage()
+            .instance()
+            .get(&StorageKey::PendingAdminTimestamp)
+            .unwrap_or(0);
+        
+        let current_time = env.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(timestamp);
+        let remaining = ADMIN_TRANSFER_TIMELOCK_DURATION.saturating_sub(elapsed);
+        
+        (pending, timestamp, remaining)
     }
 
     /// Returns `true` if `initialize` has been called, `false` otherwise.

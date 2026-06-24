@@ -4830,3 +4830,133 @@ fn test_batch_distribute_large_batch() {
     assert_eq!(TokenClient::new(&env, &token9).balance(&admin), 5000);
     assert_eq!(TokenClient::new(&env, &token9).balance(&b), 5000);
 }
+
+
+// ── Issue #402: Admin Transfer Time-Lock Tests ───────────────────────────
+
+/// Test that propose_admin_transfer stores timestamp with pending admin.
+#[test]
+fn test_propose_admin_transfer_stores_timestamp() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+    client.propose_admin_transfer(&new_admin);
+
+    let (pending, timestamp, remaining) = client.get_pending_admin_transfer();
+    assert_eq!(pending, new_admin);
+    assert!(timestamp > 0);
+    assert!(remaining > 0);
+}
+
+/// Test that accept_admin fails before time-lock expires.
+#[test]
+fn test_accept_admin_fails_before_timelock() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+    client.propose_admin_transfer(&new_admin);
+
+    // Try to accept immediately - should fail
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.accept_admin();
+    }));
+    assert!(result.is_err());
+}
+
+/// Test that accept_admin succeeds after time-lock expires.
+#[test]
+fn test_accept_admin_succeeds_after_timelock() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+    client.propose_admin_transfer(&new_admin);
+
+    // Fast-forward past 48-hour time-lock
+    env.ledger().set(stellar_royalty_splitter::ADMIN_TRANSFER_TIMELOCK_DURATION + 1);
+
+    client.accept_admin();
+
+    // Verify admin changed
+    assert_eq!(client.get_admin(), new_admin);
+
+    // Verify pending admin cleared
+    let (pending, timestamp, remaining) = client.get_pending_admin_transfer();
+    assert_eq!(pending, Address::generate(&env)); // Should be zero address
+    assert_eq!(timestamp, 0);
+}
+
+/// Test that cancel_admin_proposal removes pending transfer.
+#[test]
+fn test_cancel_admin_proposal() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+    client.propose_admin_transfer(&new_admin);
+
+    client.cancel_admin_proposal();
+
+    // Verify pending admin cleared
+    let (pending, timestamp, remaining) = client.get_pending_admin_transfer();
+    assert_eq!(pending, Address::generate(&env)); // Should be zero address
+    assert_eq!(timestamp, 0);
+}
+
+/// Test that get_pending_admin_transfer returns zero when no pending transfer.
+#[test]
+fn test_get_pending_admin_transfer_when_none() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+    let (pending, timestamp, remaining) = client.get_pending_admin_transfer();
+    assert_eq!(pending, Address::generate(&env)); // Should be zero address
+    assert_eq!(timestamp, 0);
+    assert_eq!(remaining, 0);
+}
+
+/// Test that cancel_admin_proposal fails when no pending transfer.
+#[test]
+fn test_cancel_admin_proposal_fails_when_none() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+    // Try to cancel without pending transfer - should fail
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.cancel_admin_proposal();
+    }));
+    assert!(result.is_err());
+}
+
