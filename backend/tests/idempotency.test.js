@@ -5,6 +5,7 @@ import {
   clearCache,
   getCacheStats,
   idempotencyMiddleware,
+  buildIdempotencyKey,
 } from "../src/idempotency.js";
 
 describe("Idempotency cache", () => {
@@ -90,6 +91,94 @@ describe("Idempotency cache", () => {
     expect(stats.size).toBeLessThanOrEqual(10000); // Using default since we can't reload
 
     process.env.IDEMPOTENCY_MAX_ENTRIES = originalEnv;
+  });
+});
+
+describe("buildIdempotencyKey", () => {
+  test("a) same contractId + walletAddress but different request bodies produce different keys", () => {
+    const req1 = {
+      body: {
+        contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      },
+    };
+    const req2 = {
+      body: {
+        contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        tokenId: "CDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+      },
+    };
+
+    const key1 = buildIdempotencyKey(req1);
+    const key2 = buildIdempotencyKey(req2);
+
+    expect(key1).not.toBe(key2);
+    // Both should start with the same walletAddress prefix
+    expect(key1).toMatch(/^GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:/);
+    expect(key2).toMatch(/^GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:/);
+  });
+
+  test("b) identical request bodies from different users produce different keys", () => {
+    const req1 = {
+      body: {
+        contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      },
+    };
+    const req2 = {
+      body: {
+        contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        walletAddress: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      },
+    };
+
+    const key1 = buildIdempotencyKey(req1);
+    const key2 = buildIdempotencyKey(req2);
+
+    expect(key1).not.toBe(key2);
+    expect(key1).toMatch(/^GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:/);
+    expect(key2).toMatch(/^GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB:/);
+  });
+
+  test("falls back to 'unknown' when walletAddress is missing", () => {
+    const req = { body: { contractId: "CAAAA..." } };
+    const key = buildIdempotencyKey(req);
+    expect(key).toMatch(/^unknown:/);
+  });
+
+  test("produces the same key for the same input", () => {
+    const body = {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    };
+    const req1 = { body };
+    const req2 = { body };
+
+    expect(buildIdempotencyKey(req1)).toBe(buildIdempotencyKey(req2));
+  });
+
+  test("produces the same key regardless of key order in the body", () => {
+    const req1 = {
+      body: {
+        contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      },
+    };
+    const req2 = {
+      body: {
+        tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      },
+    };
+
+    expect(buildIdempotencyKey(req1)).toBe(buildIdempotencyKey(req2));
   });
 });
 
@@ -249,18 +338,27 @@ describe("Idempotency middleware", () => {
     expect(next2).toHaveBeenCalled();
   });
 
-  test("different idempotency keys are cached independently", () => {
-    const key1 = "key-1";
-    const key2 = "key-2";
+  test("different request bodies are cached independently", () => {
+    const body1 = {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    };
+    const body2 = {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      tokenId: "CDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    };
 
-    // First request with key1
-    req.headers["idempotency-key"] = key1;
+    // First request with body1
+    req.headers["idempotency-key"] = "key-1";
+    req.body = body1;
     idempotencyMiddleware(req, res, next);
     res.status(200);
     res.json({ xdr: "xdr-1", transactionId: "tx-1" });
 
-    // Second request with key2
-    const req2 = { headers: { "idempotency-key": key2 }, body: {} };
+    // Second request with body2
+    const req2 = { headers: { "idempotency-key": "key-2" }, body: body2 };
     const res2 = {
       _status: 200,
       status: jest.fn(function (code) {
@@ -279,12 +377,99 @@ describe("Idempotency middleware", () => {
     res2.status(200);
     res2.json({ xdr: "xdr-2", transactionId: "tx-2" });
 
-    // Verify both are cached independently
-    const cached1 = getCachedResponse(key1);
-    const cached2 = getCachedResponse(key2);
+    // Verify both are cached independently under their composite keys
+    const cacheKey1 = buildIdempotencyKey(req);
+    const cacheKey2 = buildIdempotencyKey(req2);
+    const cached1 = getCachedResponse(cacheKey1);
+    const cached2 = getCachedResponse(cacheKey2);
 
     expect(cached1.body.transactionId).toBe("tx-1");
     expect(cached2.body.transactionId).toBe("tx-2");
+  });
+
+  test("c) identical request body, same user, resubmitted within TTL returns cached response", () => {
+    const body = {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    };
+
+    req.headers["idempotency-key"] = "content-dedup-key";
+    req.body = body;
+
+    // First request
+    idempotencyMiddleware(req, res, next);
+    expect(next).toHaveBeenCalled();
+    res.status(200);
+    res.json({ xdr: "test-xdr", transactionId: "tx-123" });
+
+    // Second request with same body + same user
+    const req2 = {
+      headers: { "idempotency-key": "content-dedup-key" },
+      body,
+    };
+    const res2 = {
+      _status: 200,
+      status: jest.fn(function (code) {
+        this._status = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    const next2 = jest.fn();
+
+    idempotencyMiddleware(req2, res2, next2);
+
+    // Should return cached response without calling next
+    expect(next2).not.toHaveBeenCalled();
+    expect(res2.status).toHaveBeenCalledWith(200);
+    expect(res2.json).toHaveBeenCalledWith({ xdr: "test-xdr", transactionId: "tx-123" });
+  });
+
+  test("d) identical request body, same user, resubmitted after TTL expiry is treated as new", () => {
+    const originalNow = Date.now;
+    const startTime = 1000000000000;
+    Date.now = jest.fn(() => startTime);
+
+    const body = {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    };
+
+    req.headers["idempotency-key"] = "ttl-expiry-key";
+    req.body = body;
+
+    // First request
+    idempotencyMiddleware(req, res, next);
+    expect(next).toHaveBeenCalled();
+    res.status(200);
+    res.json({ xdr: "test-xdr", transactionId: "tx-123" });
+
+    // Advance time past the 24h TTL
+    Date.now = jest.fn(() => startTime + 86400001);
+
+    // Second request with same body + same user after TTL expiry
+    const req2 = {
+      headers: { "idempotency-key": "ttl-expiry-key" },
+      body,
+    };
+    const res2 = {
+      _status: 200,
+      status: jest.fn(function (code) {
+        this._status = code;
+        return this;
+      }),
+      json: jest.fn(),
+    };
+    const next2 = jest.fn();
+
+    idempotencyMiddleware(req2, res2, next2);
+
+    // Cache expired, should treat as new request and call next
+    expect(next2).toHaveBeenCalled();
+
+    Date.now = originalNow;
   });
 });
 

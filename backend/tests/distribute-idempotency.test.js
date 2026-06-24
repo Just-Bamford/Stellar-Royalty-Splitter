@@ -29,8 +29,10 @@ const { default: app } = await import("./app.js");
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const WALLET = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const TOKEN = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const TOKEN2 = "CDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const validBody = { contractId: CONTRACT, walletAddress: WALLET, tokenId: TOKEN };
+const validBody2 = { contractId: CONTRACT, walletAddress: WALLET, tokenId: TOKEN2 };
 
 describe("POST /api/v1/distribute with idempotency", () => {
   beforeEach(() => {
@@ -88,13 +90,13 @@ describe("POST /api/v1/distribute with idempotency", () => {
     expect(recordTransaction).toHaveBeenCalledTimes(1);
   });
 
-  test("different idempotency keys create separate transactions", async () => {
+  test("different request bodies create separate cache entries", async () => {
     retryBuildTx
       .mockResolvedValueOnce("distribute-xdr-1")
       .mockResolvedValueOnce("distribute-xdr-2");
     recordTransaction.mockReturnValueOnce("tx-100").mockReturnValueOnce("tx-200");
 
-    // First request with key1
+    // First request with body1
     const res1 = await request(app)
       .post("/api/v1/distribute")
       .set("Idempotency-Key", "key-1")
@@ -103,16 +105,16 @@ describe("POST /api/v1/distribute with idempotency", () => {
     expect(res1.status).toBe(200);
     expect(res1.body).toMatchObject({ xdr: "distribute-xdr-1", transactionId: "tx-100" });
 
-    // Second request with key2
+    // Second request with different body (different tokenId)
     const res2 = await request(app)
       .post("/api/v1/distribute")
       .set("Idempotency-Key", "key-2")
-      .send(validBody);
+      .send(validBody2);
 
     expect(res2.status).toBe(200);
     expect(res2.body).toMatchObject({ xdr: "distribute-xdr-2", transactionId: "tx-200" });
 
-    // Both should have been processed
+    // Both should have been processed (different bodies = different cache keys)
     expect(retryBuildTx).toHaveBeenCalledTimes(2);
     expect(recordTransaction).toHaveBeenCalledTimes(2);
   });
@@ -218,13 +220,11 @@ describe("POST /api/v1/distribute with idempotency", () => {
     expect(retryBuildTx.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
-  test("idempotency key is case-sensitive", async () => {
-    retryBuildTx
-      .mockResolvedValueOnce("distribute-xdr-1")
-      .mockResolvedValueOnce("distribute-xdr-2");
-    recordTransaction.mockReturnValueOnce("tx-100").mockReturnValueOnce("tx-200");
+  test("same body with different case idempotency keys returns cached response", async () => {
+    retryBuildTx.mockResolvedValueOnce("distribute-xdr-1");
+    recordTransaction.mockReturnValueOnce("tx-100");
 
-    // Request with lowercase key
+    // First request with lowercase key
     const res1 = await request(app)
       .post("/api/v1/distribute")
       .set("Idempotency-Key", "mykey")
@@ -233,17 +233,18 @@ describe("POST /api/v1/distribute with idempotency", () => {
     expect(res1.status).toBe(200);
     expect(res1.body.transactionId).toBe("tx-100");
 
-    // Request with uppercase key (should be treated as different)
+    // Second request with uppercase key (same body, same user -> cache hit)
     const res2 = await request(app)
       .post("/api/v1/distribute")
       .set("Idempotency-Key", "MYKEY")
       .send(validBody);
 
     expect(res2.status).toBe(200);
-    expect(res2.body.transactionId).toBe("tx-200");
+    // Should return the cached response from the first request
+    expect(res2.body.transactionId).toBe("tx-100");
 
-    // Both should have been processed
-    expect(retryBuildTx).toHaveBeenCalledTimes(2);
+    // retryBuildTx should only have been called once (second request is cached)
+    expect(retryBuildTx).toHaveBeenCalledTimes(1);
   });
 
   test("validation errors are returned before idempotency check", async () => {

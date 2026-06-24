@@ -301,7 +301,7 @@ secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
 
-    const pagination = parsePagination(req.query, res, 50, 100);
+    const pagination = parsePagination(req.query, res);
     if (!pagination) return;
     const { limit, offset } = pagination;
 
@@ -343,15 +343,17 @@ secondaryRoyaltyRouter.get(
   (req, res, next) => {
     try {
       const { contractId } = req.params;
-      const { limit = 50, offset = 0 } = req.query;
+      const pagination = parsePagination(req.query, res);
+      if (!pagination) return;
+      const { limit, offset } = pagination;
 
       const distributions = getSecondaryRoyaltyDistributions(
         contractId,
-        parseInt(limit),
-        parseInt(offset)
+        limit,
+        offset
       );
 
-      res.json({ distributions });
+      res.json({ distributions, pagination });
     } catch (err) {
       next(err);
     }

@@ -1,10 +1,32 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
 import FormStatus from "./FormStatus";
 import { useFormStatus } from "../hooks/useFormStatus";
+import {
+  bytesToHex,
+  generateInitNonce,
+  generateInitSalt,
+  hashCollaborators,
+  hashShares,
+  INIT_COMMIT_STORAGE_KEY,
+  type InitCommitState,
+} from "../lib/init-commitment";
 
+
+type InitPhase = "form" | "committed";
+
+function loadCommitState(contractId: string): InitCommitState | null {
+  try {
+    const raw = localStorage.getItem(INIT_COMMIT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as InitCommitState;
+    return parsed.contractId === contractId ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 interface Collaborator {
   address: string;
@@ -104,6 +126,16 @@ export default function InitializeForm({
   >({});
   const { status, setStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<InitPhase>("form");
+  const [pendingCommit, setPendingCommit] = useState<InitCommitState | null>(null);
+
+  useEffect(() => {
+    const saved = loadCommitState(contractId);
+    if (saved) {
+      setPendingCommit(saved);
+      setPhase("committed");
+    }
+  }, [contractId]);
 
   function update(i: number, field: keyof Collaborator, value: string) {
     setCollaborators((prev: Collaborator[]) =>
@@ -174,8 +206,11 @@ export default function InitializeForm({
   const hasInvalidPercentages = collaborators.some((c: Collaborator) => getPercentageError(c.basisPoints));
 
   async function submit() {
-    if (!contractId)
-      return setStatus("error", "Enter a contract ID first.");
+    if (phase === "committed") {
+      return reveal();
+    }
+
+    if (!contractId) return setStatus("error", "Enter a contract ID first.");
     const nextErrors = collaborators.reduce<
       Record<number, { address?: string; basisPoints?: string }>
     >((acc, c, i) => {
@@ -185,61 +220,109 @@ export default function InitializeForm({
           address: "Must be a valid Stellar address (G..., 56 chars)",
         };
       }
-
       const percentageError = getPercentageError(c.basisPoints);
       if (percentageError) {
-        acc[i] = {
-          ...acc[i],
-          basisPoints: percentageError,
-        };
+        acc[i] = { ...acc[i], basisPoints: percentageError };
       }
-
       return acc;
     }, {});
     if (Object.keys(nextErrors).length > 0) {
       setErrors((prev) => ({ ...prev, ...nextErrors }));
       return setStatus("error", "Please fix all field errors before submitting.");
     }
-    if (Math.round(total * 100) !== 10_000)
+    if (Math.round(total * 100) !== 10_000) {
       return setStatus("error", `Percentages must sum to 100% (currently ${total.toFixed(2)}%).`);
-
+    }
     const addresses = collaborators.map((c: Collaborator) => c.address);
-    const hasDuplicates = new Set(addresses).size !== addresses.length;
-    if (hasDuplicates) {
+    if (new Set(addresses).size !== addresses.length) {
       return setStatus("error", "Duplicate addresses are not allowed.");
     }
 
     setLoading(true);
-    setStatus("info", "Building transaction…");
+    setStatus("info", "Step 1/2: Committing initialization hashes…");
+    try {
+      const shares = collaborators.map((c: Collaborator) =>
+        Math.round(parseFloat(c.basisPoints) * 100),
+      );
+      const salt = generateInitSalt();
+      const nonce = generateInitNonce();
+      const collaboratorsHash = await hashCollaborators(addresses, salt);
+      const sharesHash = await hashShares(shares, salt);
+      const res = await api.commitInitialize({
+        contractId,
+        walletAddress,
+        collaboratorsHash: bytesToHex(collaboratorsHash),
+        sharesHash: bytesToHex(sharesHash),
+        nonce: bytesToHex(nonce),
+      });
+      setStatus("info", "Signing commit transaction with Freighter...");
+      const commitHash = await signAndSubmitTransaction(res.xdr, network);
+      await api.confirmTransaction(
+        commitHash,
+        { status: "confirmed", blockTime: new Date().toISOString() },
+        walletAddress,
+      );
+      const commitState: InitCommitState = {
+        contractId,
+        saltHex: bytesToHex(salt),
+        nonceHex: bytesToHex(nonce),
+        collaboratorsHashHex: bytesToHex(collaboratorsHash),
+        sharesHashHex: bytesToHex(sharesHash),
+        committedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(INIT_COMMIT_STORAGE_KEY, JSON.stringify(commitState));
+      setPendingCommit(commitState);
+      setPhase("committed");
+      setStatus(
+        "ok",
+        `Commit confirmed (${commitHash.slice(0, 8)}…). Wait at least 1 ledger, then reveal.`,
+      );
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : "Unknown error";
+      setStatus("error", errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function reveal() {
+    if (!pendingCommit) {
+      return setStatus("error", "No pending commit found. Commit first.");
+    }
+
+    setLoading(true);
+    setStatus("info", "Step 2/2: Revealing collaborators and initializing…");
 
     try {
-      const res = await api.initialize({
+      const addresses = collaborators.map((c: Collaborator) => c.address);
+      const shares = collaborators.map((c: Collaborator) =>
+        Math.round(parseFloat(c.basisPoints) * 100),
+      );
+
+      const res = await api.revealInitialize({
         contractId,
         walletAddress,
         collaborators: addresses,
-        shares: collaborators.map((c: Collaborator) => Math.round(parseFloat(c.basisPoints) * 100)),
+        shares,
+        salt: pendingCommit.saltHex,
       });
 
-      setStatus("info", "Signing transaction with Freighter...");
+      setStatus("info", "Signing reveal transaction with Freighter...");
       const hash = await signAndSubmitTransaction(res.xdr, network);
+      await api.confirmTransaction(
+        hash,
+        { status: "confirmed", blockTime: new Date().toISOString() },
+        walletAddress,
+      );
 
-      setStatus("info", "Waiting for confirmation...");
-      await api.confirmTransaction(hash, {
-        status: "confirmed",
-        blockTime: new Date().toISOString(),
-      });
-
+      localStorage.removeItem(INIT_COMMIT_STORAGE_KEY);
+      setPendingCommit(null);
+      setPhase("form");
       setStatus("ok", `Initialized. Tx: ${hash}`);
       onSuccess();
-
     } catch (e: unknown) {
-      // Handle 409 Conflict error specifically
       const errorMessage = e instanceof Error ? e.message : "Unknown error";
-      if (errorMessage.includes('409') || errorMessage.includes('already initialized')) {
-        setStatus("error", "⚠️ This contract is already initialized. You cannot re-initialize an existing contract.");
-      } else {
-        setStatus("error", errorMessage);
-      }
+      setStatus("error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -248,6 +331,13 @@ export default function InitializeForm({
   return (
     <div className="card">
       <span className="badge">Initialize</span>
+
+      {phase === "committed" && (
+        <div className="status info" role="status">
+          Commit pending — wait at least 1 ledger (~5s), then reveal with the same
+          collaborator data.
+        </div>
+      )}
 
       {collaborators.map((c: Collaborator, i: number) => (
         <div key={i}>
@@ -337,7 +427,11 @@ export default function InitializeForm({
           onClick={submit}
           disabled={loading || hasErrors || hasEmptyFields || hasInvalidPercentages}
         >
-          {loading ? "Submitting…" : "Initialize contract"}
+          {loading
+            ? "Submitting…"
+            : phase === "committed"
+              ? "Reveal & initialize"
+              : "Commit initialization"}
         </button>
       </div>
 

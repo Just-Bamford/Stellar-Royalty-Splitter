@@ -32,6 +32,22 @@ export const initializeSchema = z
     }
   });
 
+const bytes32Hex = z
+  .string()
+  .regex(/^[0-9a-fA-F]{64}$/, "must be a 32-byte hex string (64 hex chars)");
+
+export const commitInitializeSchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  collaboratorsHash: bytes32Hex,
+  sharesHash: bytes32Hex,
+  nonce: bytes32Hex,
+});
+
+export const revealInitializeSchema = initializeSchema.extend({
+  salt: bytes32Hex,
+});
+
 export const INITIALIZE_PAYLOAD_LIMIT_BYTES = 10 * 1024;
 export const INITIALIZE_COLLABORATORS_PAYLOAD_LIMIT_BYTES = 8 * 1024;
 
@@ -78,6 +94,43 @@ export const transactionConfirmSchema = z.object({
   blockTime: z.string().optional(),
   errorMessage: z.string().optional(),
   status: z.enum(["pending", "confirmed", "failed"]).optional(),
+});
+
+/** Pagination constraints (issue #394): limit 1–100 (default 10), offset >= 0 */
+export const PAGINATION_DEFAULT_LIMIT = 10;
+export const PAGINATION_MAX_LIMIT = 100;
+export const PAGINATION_MAX_OFFSET = 1_000_000;
+
+const paginationLimitSchema = z.coerce
+  .number()
+  .int("limit must be an integer")
+  .min(1, "limit must be at least 1")
+  .max(PAGINATION_MAX_LIMIT, `limit must not exceed ${PAGINATION_MAX_LIMIT}`)
+  .default(PAGINATION_DEFAULT_LIMIT);
+
+const paginationOffsetSchema = z.coerce
+  .number()
+  .int("offset must be an integer")
+  .min(0, "offset must be >= 0")
+  .max(PAGINATION_MAX_OFFSET, `offset must not exceed ${PAGINATION_MAX_OFFSET}`)
+  .default(0);
+
+export const paginationQuerySchema = z.object({
+  limit: paginationLimitSchema,
+  offset: paginationOffsetSchema,
+});
+
+/** Analytics query bounds (issue #394) */
+export const analyticsQuerySchema = z.object({
+  start: z.string().optional(),
+  end: z.string().optional(),
+  collaboratorLimit: z.coerce
+    .number()
+    .int("collaboratorLimit must be an integer")
+    .min(1, "collaboratorLimit must be at least 1")
+    .max(PAGINATION_MAX_LIMIT, `collaboratorLimit must not exceed ${PAGINATION_MAX_LIMIT}`)
+    .default(PAGINATION_DEFAULT_LIMIT)
+    .optional(),
 });
 
 export function validate(schema) {
@@ -156,23 +209,41 @@ export function validateStellarAddress(address, res) {
 }
 
 /**
+ * Express middleware that validates query-string pagination params via Zod.
+ */
+export function validatePaginationQuery(req, res, next) {
+  const result = paginationQuerySchema.safeParse(req.query);
+  if (!result.success) {
+    return sendValidationError(
+      res,
+      result.error.issues.map((e) => ({
+        field: e.path.join(".") || "query",
+        message: e.message,
+      }))
+    );
+  }
+  req.pagination = result.data;
+  next();
+}
+
+/**
  * Parse and validate limit/offset query params.
  * Returns { limit, offset } on success, or sends a 400 and returns null.
+ * Rejects out-of-range values with 400 (issue #394).
  * @param {object} query - req.query
  * @param {object} res   - express response
- * @param {number} defaultLimit
- * @param {number} maxLimit
  */
-export function parsePagination(query, res, defaultLimit = 50, maxLimit = 100) {
-  if (query.limit !== undefined && isNaN(parseInt(query.limit))) {
-    sendError(res, 400, "invalid_query_parameter", "limit must be a number");
+export function parsePagination(query, res) {
+  const result = paginationQuerySchema.safeParse(query);
+  if (!result.success) {
+    sendValidationError(
+      res,
+      result.error.issues.map((e) => ({
+        field: e.path.join(".") || "query",
+        message: e.message,
+      }))
+    );
     return null;
   }
-  if (query.offset !== undefined && isNaN(parseInt(query.offset))) {
-    sendError(res, 400, "invalid_query_parameter", "offset must be a number");
-    return null;
-  }
-  const limit = Math.min(Math.max(parseInt(query.limit) || defaultLimit, 1), maxLimit);
-  const offset = Math.max(parseInt(query.offset) || 0, 0);
-  return { limit, offset };
+  return result.data;
 }

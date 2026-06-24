@@ -45,6 +45,29 @@ Configure the default contract with `ROYALTY_CONTRACT_ID` or `CONTRACT_ID`. Resp
 
 Legacy `/api/*` paths redirect to `/api/v1/*`.
 
+## Request signing (#392)
+
+Write operations (`POST`, `PUT`, `DELETE`) may require Ed25519 request signatures when `REQUEST_SIGNING_REQUIRED=true`.
+
+**Headers:**
+
+| Header | Description |
+| ------ | ----------- |
+| `X-Wallet-Address` | Stellar `G...` address of the signer |
+| `X-Timestamp` | Unix epoch seconds (max age 5 minutes) |
+| `X-Nonce` | Unique UUID per request (replay protection) |
+| `X-Signature` | Base64 Ed25519 signature |
+
+**Canonical message:**
+
+```
+METHOD\nPATH\nTIMESTAMP\nNONCE\nSHA256_HEX(body)
+```
+
+Example path: `/api/v1/initialize`. Unsigned requests are allowed when signing is not required (default in development).
+
+Invalid or missing signatures return `401`.
+
 ## Initialize
 
 ### `POST /api/v1/initialize`
@@ -73,6 +96,22 @@ Collaborator-specific payload limit responses use:
 }
 ```
 
+### `POST /api/v1/initialize/commit` (#403)
+
+Commit-reveal phase 1 — stores hashed collaborator/share data on-chain.
+
+**Body:** `{ contractId, walletAddress, collaboratorsHash, sharesHash, nonce }` (64-char hex strings)
+
+**Response:** `{ xdr, transactionId, phase: "commit" }`
+
+### `POST /api/v1/initialize/reveal` (#403)
+
+Commit-reveal phase 2 — reveals collaborators and initializes after ≥1 ledger delay.
+
+**Body:** `{ contractId, walletAddress, collaborators, shares, salt }`
+
+**Response:** `{ xdr, transactionId, phase: "reveal" }`
+
 ## Distribute
 
 ### `POST /api/v1/distribute`
@@ -94,6 +133,22 @@ The distribute endpoint supports idempotency to prevent duplicate transaction su
 2. Subsequent requests with the same key within 24 hours return the cached response
 3. Cached responses are automatically expired after 24 hours
 4. Only successful responses (2xx status codes) are cached
+
+**Cache key format:**
+
+The cache key is a composite of the user's wallet address and a SHA-256 hash of the full request body, not the raw `Idempotency-Key` header value. This prevents collisions between different legitimate requests whose clients happen to derive their keys from overlapping fields (e.g. just `contractId` + `amount`).
+
+```
+{walletAddress}:{sha256-hex-of-stable-json-body}
+```
+
+Components:
+- **walletAddress** — Per-user scope extracted from `req.body.walletAddress`. Falls back to `"unknown"` when not present.
+- **sha256** — SHA-256 hex digest of the full request body serialized with stable (sorted-key) JSON. Object keys are sorted lexicographically so the same logical object always produces the same hash.
+
+**Prevents these collision scenarios:**
+- Two requests with the same `contractId` + `amount` but different `tokenId` or other body fields produce different cache keys (body hash differs).
+- Two identical requests from different wallet addresses produce different cache keys (wallet prefix differs).
 
 **Example:**
 
@@ -254,8 +309,52 @@ See route module `src/routes/secondary-royalty.js` for pool, sales, and distribu
 
 ## History & analytics
 
-- `GET /api/v1/history/:contractId`
-- `GET /api/v1/analytics/:contractId`
+### `GET /api/v1/history/:contractId`
+
+Paginated transaction history for a contract.
+
+**Query parameters:**
+
+| Param | Type | Default | Constraints |
+| ----- | ---- | ------- | ----------- |
+| `limit` | integer | `10` | `1`–`100` |
+| `offset` | integer | `0` | `0`–`1000000` |
+
+Invalid pagination returns `400` with validation details.
+
+**Example:**
+
+```bash
+curl "http://localhost:3001/api/v1/history/C...?limit=10&offset=0"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [],
+  "pagination": { "limit": 10, "offset": 0, "total": 0 }
+}
+```
+
+### `GET /api/v1/audit/:contractId`
+
+Paginated audit log. Same `limit` / `offset` constraints as history.
+
+### `GET /api/v1/analytics/:contractId`
+
+Aggregated analytics for a contract.
+
+**Query parameters:**
+
+| Param | Type | Default | Constraints |
+| ----- | ---- | ------- | ----------- |
+| `start` | ISO date | 90 days ago | Valid date string |
+| `end` | ISO date | now | Valid date string |
+| `collaboratorLimit` | integer | `10` | `1`–`100` — caps `collaboratorStats` rows |
+
+**Rate limiting:** History, audit, and analytics endpoints share a dedicated limiter (default 30 req/min per IP) in addition to the general API limiter.
 
 ## Transaction confirmation
 

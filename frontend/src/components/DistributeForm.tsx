@@ -3,7 +3,9 @@ import { api } from "../api";
 import { getContractAddressError, isValidContractAddress } from "../lib/stellar-address";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
+import { useTransaction, useIsTransactionInFlight } from "../context/TransactionContext";
 import FormStatus from "./FormStatus";
+import TransactionStatusBadge from "./TransactionStatusBadge";
 import { useFormStatus } from "../hooks/useFormStatus";
 
 interface Props {
@@ -56,6 +58,9 @@ export default function DistributeForm({
   onSuccess,
 }: Props) {
   const { network } = useNetwork();
+  const { current: txEntry, beginTransaction, updatePhase, reset: resetTx } = useTransaction();
+  const isInFlight = useIsTransactionInFlight();
+
   const [tokenId, setTokenId] = useState("");
   const [amount, setAmount] = useState("");
   const [contractBalance, setContractBalance] = useState<string | null>(null);
@@ -65,8 +70,10 @@ export default function DistributeForm({
   const [draftPrompt, setDraftPrompt] = useState<DistributionDraft | null>(null);
   const [draftDecisionMade, setDraftDecisionMade] = useState(false);
   const { status, setStatus, clearStatus } = useFormStatus();
-  const [loading, setLoading] = useState(false);
-  const [successTxHash, setSuccessTxHash] = useState<string | null>(null);
+
+  // Use TransactionContext's in-flight flag as the primary loading gate (#391)
+  const loading = isInFlight;
+
   const draftKey = useMemo(
     () => `${DRAFT_KEY_PREFIX}:${walletAddress}:${contractId || "no-contract"}`,
     [contractId, walletAddress],
@@ -138,6 +145,7 @@ export default function DistributeForm({
   const parsedBalance = contractBalance !== null ? parseFloat(contractBalance) : null;
   const exceedsBalance =
     parsedBalance !== null && !isNaN(parsedAmount) && parsedAmount > parsedBalance;
+
   // Live token-address validation. The error is null for empty input so an
   // untouched field is not flagged as malformed (emptiness is reported as a
   // "required" error on submit instead, matching existing behaviour).
@@ -163,12 +171,16 @@ export default function DistributeForm({
       };
     });
   }, [collaborators, parsedAmount]);
+
   const totalBasisPoints = collaborators.reduce(
     (total, collaborator) => total + collaborator.basisPoints,
     0,
   );
 
   async function submit() {
+    // #391: Don't resubmit if already in-flight
+    if (isInFlight) return;
+
     if (!contractId)
       return setStatus("error", "Enter a contract ID first.");
     if (!tokenId)
@@ -180,8 +192,8 @@ export default function DistributeForm({
     if (exceedsBalance)
       return setStatus("error", "Amount exceeds contract balance.");
 
-    setLoading(true);
-    setStatus("info", "Building transaction…");
+    // #391: Begin optimistic transaction state
+    beginTransaction();
 
     try {
       const res = await api.distribute({
@@ -191,26 +203,37 @@ export default function DistributeForm({
         amount: parsedAmount,
       });
 
-      setStatus("info", "Signing transaction with Freighter...");
+      // #391: Phase 2 — signing
+      updatePhase("signing", { transactionId: res.transactionId });
+
       const hash = await signAndSubmitTransaction(res.xdr, network);
 
-      setStatus("info", "Waiting for confirmation...");
+      // #391: Phase 3 — confirming, with countdown
+      updatePhase("confirming", { txHash: hash });
+
       await api.confirmTransaction(hash, {
         status: "confirmed",
         blockTime: new Date().toISOString(),
         transactionId: res.transactionId,
       });
 
-      setSuccessTxHash(hash);
+      // #391: Phase 4 — confirmed
+      updatePhase("confirmed");
+
       setStatus("ok", "Distributed successfully.");
       localStorage.removeItem(draftKey);
       setTokenId("");
       setAmount("");
       onSuccess();
     } catch (e: unknown) {
-      setStatus("error", e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      const isTimeout =
+        msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("timed out");
+
+      // #391: Handle timeout scenario gracefully
+      updatePhase(isTimeout ? "timeout" : "failed", { error: msg });
+      setStatus("error", msg);
     }
   }
 
@@ -235,9 +258,9 @@ export default function DistributeForm({
     setContractBalance(null);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
-    setSuccessTxHash(null);
     localStorage.removeItem(draftKey);
     clearStatus();
+    resetTx();
   }
 
   return (
@@ -267,6 +290,15 @@ export default function DistributeForm({
         </div>
       )}
 
+      {/* #391: Transaction status badge — shows optimistic state with phase progress */}
+      {txEntry && txEntry.phase !== "idle" && (
+        <TransactionStatusBadge
+          entry={txEntry}
+          network={network}
+          onDismiss={resetTx}
+        />
+      )}
+
       <label htmlFor="distribute-token-id">Token contract address</label>
       <input
         id="distribute-token-id"
@@ -293,6 +325,7 @@ export default function DistributeForm({
             : "Could not fetch balance."}
         </p>
       )}
+
       <label htmlFor="distribute-amount">Amount</label>
       <input
         id="distribute-amount"
@@ -338,13 +371,16 @@ export default function DistributeForm({
           )}
         </div>
       )}
+
       <p className="description">Distributes the specified amount to all collaborators.</p>
+
       <div className="form-actions">
         <button
           type="submit"
           className="btn-primary btn-with-spinner"
           disabled={loading || exceedsBalance || !amount || !tokenIdValid}
           aria-busy={loading}
+          data-testid="distribute-submit"
         >
           {loading && <span className="btn-spinner" aria-hidden="true" />}
           {loading ? "Submitting…" : "Distribute funds"}
@@ -354,15 +390,17 @@ export default function DistributeForm({
           className="btn-secondary"
           onClick={clearForm}
           disabled={loading || (!tokenId && !amount && !draftPrompt)}
+          data-testid="distribute-clear"
         >
           Clear
         </button>
       </div>
+
       {status && (
         <FormStatus
           type={status.type}
           message={status.message}
-          txHash={successTxHash ?? undefined}
+          txHash={txEntry?.txHash ?? undefined}
           network={network}
           distributionData={
             status.type === "ok"

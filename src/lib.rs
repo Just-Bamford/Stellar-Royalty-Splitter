@@ -3,8 +3,8 @@ pub mod auth;
 mod storage;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
-    Map, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Bytes, BytesN,
+    Env, Map, String, Vec,
 };
 
 #[contracttype]
@@ -56,6 +56,11 @@ pub enum StorageKey {
     PendingAdmin,
     AdminList,
     AdminThreshold,
+    InitCH,
+    InitSH,
+    InitCS,
+    InitCM,
+    InitNC,
     // Persistent storage
     Collaborators,
     ShareMap,
@@ -77,6 +82,8 @@ pub const MAX_DUST: i128 = 100; // 100 stroops = 1 basis point of 10,000
 pub type DataKey = StorageKey;
 
 pub use storage::MIN_TTL;
+
+pub const REVEAL_DELAY_LEDGERS: u32 = 1;
 
 /// On-chain contract version in [semantic versioning](https://semver.org/) format
 /// (`MAJOR.MINOR.PATCH`, e.g. `"0.1.0"`).
@@ -120,6 +127,10 @@ pub enum ContractError {
     InvalidUpdatedShareTotal = 25,
     SalePriceNotPositive = 26,
     DustExceedsLimit = 27,
+    NoPendingCommit = 27,
+    InvalidReveal = 28,
+    RevealTooEarly = 29,
+    CommitmentExists = 30,
 }
 
 #[contract]
@@ -355,67 +366,148 @@ impl RoyaltySplitter {
     /// On invalid collaborators/shares, duplicate addresses, or re-initialization.
     pub fn initialize(env: Env, collaborators: Vec<Address>, shares: Vec<u32>) {
         storage::extend_instance_ttl(&env);
+        Self::apply_initialize(&env, collaborators, shares, auth::msg::INITIALIZE_ADMIN);
+    }
 
+    pub fn commit_initialize(
+        env: Env,
+        committer: Address,
+        collaborators_hash: BytesN<32>,
+        shares_hash: BytesN<32>,
+        nonce: BytesN<32>,
+    ) {
+        storage::extend_instance_ttl(&env);
         if env.storage().instance().has(&StorageKey::Admin) {
             Self::fail(&env, ContractError::AlreadyInitialized);
         }
+        if env.storage().instance().has(&StorageKey::InitCH) {
+            Self::fail(&env, ContractError::CommitmentExists);
+        }
+        auth::require_admin(&env, &committer, auth::msg::COMMIT_INITIALIZE_ADMIN);
+        let ledger = env.ledger().sequence();
+        storage::instance_set(&env, &StorageKey::InitCH, &collaborators_hash);
+        storage::instance_set(&env, &StorageKey::InitSH, &shares_hash);
+        storage::instance_set(&env, &StorageKey::InitCS, &ledger);
+        storage::instance_set(&env, &StorageKey::InitCM, &committer);
+        storage::instance_set(&env, &StorageKey::InitNC, &nonce);
+        env.events().publish((symbol_short!("royalty"), symbol_short!("commt")), committer);
+    }
 
+    pub fn reveal_initialize(
+        env: Env,
+        collaborators: Vec<Address>,
+        shares: Vec<u32>,
+        salt: BytesN<32>,
+    ) {
+        storage::extend_instance_ttl(&env);
+        if env.storage().instance().has(&StorageKey::Admin) {
+            Self::fail(&env, ContractError::AlreadyInitialized);
+        }
+        let stored_collab_hash: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&StorageKey::InitCH)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::NoPendingCommit));
+        let stored_shares_hash: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&StorageKey::InitSH)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::NoPendingCommit));
+        let commit_ledger: u32 = env
+            .storage()
+            .instance()
+            .get(&StorageKey::InitCS)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::NoPendingCommit));
+        let committer: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::InitCM)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::NoPendingCommit));
+        if env.ledger().sequence() < commit_ledger + REVEAL_DELAY_LEDGERS {
+            Self::fail(&env, ContractError::RevealTooEarly);
+        }
+        if Self::hash_collaborators(&env, &collaborators, &salt) != stored_collab_hash
+            || Self::hash_shares(&env, &shares, &salt) != stored_shares_hash
+        {
+            Self::clear_init_commit(&env);
+            Self::fail(&env, ContractError::InvalidReveal);
+        }
+        auth::require_admin(&env, &committer, auth::msg::REVEAL_INITIALIZE_ADMIN);
+        if collaborators.get(0).unwrap() != committer {
+            Self::clear_init_commit(&env);
+            Self::fail(&env, ContractError::InvalidReveal);
+        }
+        Self::clear_init_commit(&env);
+        Self::apply_initialize(&env, collaborators, shares, auth::msg::REVEAL_INITIALIZE_ADMIN);
+    }
+
+    fn clear_init_commit(env: &Env) {
+        env.storage().instance().remove(&StorageKey::InitCH);
+        env.storage().instance().remove(&StorageKey::InitSH);
+        env.storage().instance().remove(&StorageKey::InitCS);
+        env.storage().instance().remove(&StorageKey::InitCM);
+        env.storage().instance().remove(&StorageKey::InitNC);
+    }
+
+    fn hash_collaborators(env: &Env, collaborators: &Vec<Address>, salt: &BytesN<32>) -> BytesN<32> {
+        let mut bytes = Bytes::new(env);
+        bytes.extend_from_slice(salt.as_ref());
+        for i in 0..collaborators.len() {
+            let addr = collaborators.get(i).unwrap();
+            bytes.append(&String::from_str(env, &addr.to_string()).to_bytes());
+        }
+        env.crypto().sha256(&bytes)
+    }
+
+    fn hash_shares(env: &Env, shares: &Vec<u32>, salt: &BytesN<32>) -> BytesN<32> {
+        let mut bytes = Bytes::new(env);
+        bytes.extend_from_slice(salt.as_ref());
+        for i in 0..shares.len() {
+            let share = shares.get(i).unwrap();
+            bytes.append(&Bytes::from_slice(env, &share.to_be_bytes()));
+        }
+        env.crypto().sha256(&bytes)
+    }
+
+    fn apply_initialize(env: &Env, collaborators: Vec<Address>, shares: Vec<u32>, auth_msg: &str) {
+        if env.storage().instance().has(&StorageKey::Admin) {
+            Self::fail(env, ContractError::AlreadyInitialized);
+        }
         if collaborators.is_empty() {
-            Self::fail(&env, ContractError::EmptyCollaborators);
+            Self::fail(env, ContractError::EmptyCollaborators);
         }
-
         if collaborators.len() > 10 {
-            Self::fail(&env, ContractError::TooManyRecipients);
+            Self::fail(env, ContractError::TooManyRecipients);
         }
-
-        // The first collaborator is the admin and must sign the init tx,
-        // preventing any third party from front-running initialization.
-        auth::require_admin(
-            &env,
-            &collaborators.get(0).unwrap(),
-            auth::msg::INITIALIZE_ADMIN,
-        );
-
+        auth::require_admin(env, &collaborators.get(0).unwrap(), auth_msg);
         if collaborators.len() != shares.len() {
-            Self::fail(&env, ContractError::LengthMismatch);
+            Self::fail(env, ContractError::LengthMismatch);
         }
-
         let mut total: u32 = 0;
         for share in shares.iter() {
-            total = Self::checked_add_share_total(&env, total, share);
+            total = Self::checked_add_share_total(env, total, share);
         }
-
         if total != 10_000 {
-            Self::fail(&env, ContractError::InvalidShareTotal);
+            Self::fail(env, ContractError::InvalidShareTotal);
         }
-
-        let mut share_map: Map<Address, u32> = Map::new(&env);
-
+        let mut share_map: Map<Address, u32> = Map::new(env);
         for i in 0..collaborators.len() {
             let addr = collaborators.get(i).unwrap();
             let share = shares.get(i).unwrap();
-
             if share == 0 {
-                Self::fail(&env, ContractError::ZeroShare);
+                Self::fail(env, ContractError::ZeroShare);
             }
-
             if share_map.contains_key(addr.clone()) {
-                Self::fail(&env, ContractError::DuplicateRecipient);
+                Self::fail(env, ContractError::DuplicateRecipient);
             }
-
             share_map.set(addr, share);
         }
-
         let admin = collaborators.get(0).unwrap();
-
-        storage::instance_set(&env, &StorageKey::Admin, &admin);
-        // Collaborators and ShareMap go to persistent storage (#322)
-        storage::persistent_set(&env, &StorageKey::Collaborators, &collaborators);
-        storage::persistent_set(&env, &StorageKey::ShareMap, &share_map);
-
-        let version = String::from_str(&env, VERSION);
-        storage::instance_set(&env, &StorageKey::ContractVersion, &version);
-
+        storage::instance_set(env, &StorageKey::Admin, &admin);
+        storage::persistent_set(env, &StorageKey::Collaborators, &collaborators);
+        storage::persistent_set(env, &StorageKey::ShareMap, &share_map);
+        let version = String::from_str(env, VERSION);
+        storage::instance_set(env, &StorageKey::ContractVersion, &version);
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("init")),
             (collaborators, shares),

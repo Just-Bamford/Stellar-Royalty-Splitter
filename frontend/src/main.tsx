@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { NetworkProvider } from "./context/NetworkContext";
+import { TransactionProvider } from "./context/TransactionContext";
 import "./modern-styles.css";
 import "./index.css";
 
@@ -14,7 +15,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <ThemeProvider>
         <NetworkProvider>
           <SettingsProvider>
-            <App />
+            <TransactionProvider>
+              <App />
+            </TransactionProvider>
           </SettingsProvider>
         </NetworkProvider>
       </ThemeProvider>

@@ -1,8 +1,9 @@
 // Thin client that talks to the Express backend
 
 import { extractContractError } from "./lib/contract-errors";
+import { signWriteRequest } from "./lib/request-signing";
 
-const BASE = "/api";
+const BASE = "/api/v1";
 export const SESSION_EXPIRED_EVENT = "srs:session-expired";
 const SESSION_EXPIRED_MESSAGE =
   "Your session has expired. Please connect your wallet again.";
@@ -94,10 +95,30 @@ function readErrorBody(status: number, data: unknown): BackendApiError {
   );
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(
+  path: string,
+  body: unknown,
+  walletAddress?: string,
+): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (walletAddress && typeof body === "object" && body !== null) {
+    try {
+      const signingHeaders = await signWriteRequest({
+        method: "POST",
+        path: `${BASE}${path}`,
+        body,
+        walletAddress,
+      });
+      Object.assign(headers, signingHeaders);
+    } catch {
+      // Signing is optional when REQUEST_SIGNING_REQUIRED=false on the server.
+    }
+  }
+
   return request<T>(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -166,13 +187,49 @@ export const api = {
     walletAddress: string;
     collaborators: string[];
     shares: number[];
-  }) => post<{ xdr: string; transactionId: number }>("/initialize", body),
+  }) =>
+    post<{ xdr: string; transactionId: number }>(
+      "/initialize",
+      body,
+      body.walletAddress,
+    ),
+
+  commitInitialize: (body: {
+    contractId: string;
+    walletAddress: string;
+    collaboratorsHash: string;
+    sharesHash: string;
+    nonce: string;
+  }) =>
+    post<{ xdr: string; transactionId: number; phase: string }>(
+      "/initialize/commit",
+      body,
+      body.walletAddress,
+    ),
+
+  revealInitialize: (body: {
+    contractId: string;
+    walletAddress: string;
+    collaborators: string[];
+    shares: number[];
+    salt: string;
+  }) =>
+    post<{ xdr: string; transactionId: number; phase: string }>(
+      "/initialize/reveal",
+      body,
+      body.walletAddress,
+    ),
 
   distribute: (body: {
     contractId: string;
     walletAddress: string;
     tokenId: string;
-  }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
+  }) =>
+    post<{ xdr: string; transactionId: number }>(
+      "/distribute",
+      body,
+      body.walletAddress,
+    ),
 
   getContractBalance: (contractId: string, tokenId: string) =>
     get<{ balance: string }>(
@@ -205,10 +262,12 @@ export const api = {
       errorMessage?: string;
       transactionId?: number;
     },
+    walletAddress?: string,
   ) =>
     post<{ success: boolean; message: string }>(
       `/transaction/confirm/${txHash}`,
       body,
+      walletAddress,
     ),
 
   getAuditLog: (contractId: string, limit = 100, offset = 0) =>
@@ -224,7 +283,11 @@ export const api = {
       details?: Record<string, unknown>;
     },
   ) =>
-    post<{ success: boolean; message: string }>(`/audit/${contractId}`, body),
+    post<{ success: boolean; message: string }>(
+      `/audit/${contractId}`,
+      body,
+      body.user,
+    ),
 
   // Secondary Royalty APIs
   recordSecondarySale: (body: {
@@ -240,6 +303,7 @@ export const api = {
     post<{ xdr: string; transactionId: number; royaltyAmount: number }>(
       "/secondary-royalty",
       body,
+      body.walletAddress,
     ),
 
   setRoyaltyRate: (body: {
@@ -250,6 +314,7 @@ export const api = {
     post<{ xdr: string; transactionId: number }>(
       "/secondary-royalty/set-rate",
       body,
+      body.walletAddress,
     ),
 
   distributeSecondaryRoyalties: (body: {
@@ -262,7 +327,7 @@ export const api = {
       transactionId: number;
       numberOfSales: number;
       totalRoyalties: string;
-    }>("/secondary-royalty/distribute", body),
+    }>("/secondary-royalty/distribute", body, body.walletAddress),
 
   getRoyaltyStats: (contractId: string) =>
     get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
@@ -305,11 +370,6 @@ export const api = {
   // NEW: Fetch contract status
   getContractStatus: (contractId: string) =>
     get<{ initialized: boolean }>(`/contract/status/${contractId}`),
-
-  getContractBalance: (contractId: string, tokenId: string) =>
-    get<{ balance: string }>(
-      `/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`,
-    ),
 
   getContractVersion: (contractId: string) =>
     get<{ contractId: string; version: string }>(

@@ -374,7 +374,32 @@
   letter-spacing: 0.5px;
 }
 
+[data-theme="dark"] .transaction-history {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .history-header h2,
+[data-theme="dark"] .tx-table th,
+[data-theme="dark"] .tx-payouts-table th {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .tx-table td,
+[data-theme="dark"] .tx-payouts-table td,
+[data-theme="dark"] .tx-meta {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .tx-table tr:hover {
+  background: var(--bg-tertiary);
+}
+
 .tx-payouts-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+}
   padding: 8px 12px;
   border-top: 1px solid #e5e7eb;
   color: #4b5563;

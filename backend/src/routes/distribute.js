@@ -3,6 +3,7 @@ import { addressToScVal } from "../stellar.js";
 import { validate, distributeSchema } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
 import { idempotencyMiddleware } from "../idempotency.js";
+import { createRequestLogger } from "../logger.js";
 import {
   recordDistributeCall,
   recordTransactionFailure,
@@ -27,8 +28,11 @@ distributeRouter.post(
   idempotencyMiddleware,
   validate(distributeSchema),
   async (req, res, next) => {
+    const log = createRequestLogger(req);
     try {
       const { contractId, walletAddress, tokenId } = req.body;
+
+      log.info("distribute requested", { contractId, walletAddress, tokenId });
 
       // Use shared handler to record transaction, build XDR, and log audit
       const { xdr, transactionId } = await buildAndRecordTransaction({
@@ -39,11 +43,17 @@ distributeRouter.post(
         auditAction: "distribution_initiated",
         auditMetadata: { tokenId },
         transactionMetadata: { tokenId },
+        correlationId: req.correlationId,
       });
 
+      log.info("distribute transaction built", { contractId, transactionId });
       recordTransactionSuccess();
       res.json({ xdr, transactionId });
     } catch (err) {
+      log.error("distribute failed", {
+        error: err.message ?? String(err),
+        status: err.status,
+      });
       recordTransactionFailure();
       if (err.status) {
         return sendError(res, err.status, undefined, err.message);

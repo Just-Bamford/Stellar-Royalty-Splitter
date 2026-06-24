@@ -31,7 +31,7 @@ router.get("/history/:contractId", validateContractIdMiddleware, (req, res) => {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
 
-    const pagination = parsePagination(req.query, res, 50, 100);
+    const pagination = parsePagination(req.query, res);
     if (!pagination) return;
     const { limit, offset } = pagination;
 
@@ -170,7 +170,7 @@ router.get("/audit/:contractId", validateContractIdMiddleware, (req, res) => {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
 
-    const pagination = parsePagination(req.query, res, 100, 200);
+    const pagination = parsePagination(req.query, res);
     if (!pagination) return;
     const { limit, offset } = pagination;
 

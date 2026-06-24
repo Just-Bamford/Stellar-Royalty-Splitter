@@ -17,7 +17,7 @@
  */
 import StellarSdk from "@stellar/stellar-sdk";
 import logger from "./logger.js";
-import { recordHorizonResponseTime } from "./metrics.js";
+import { recordHorizonResponseTime, recordStellarRpcCall } from "./metrics.js";
 
 const {
   Contract,
@@ -80,8 +80,12 @@ export function getConfiguredContractId() {
 /**
  * Reject `promise` after `ms` milliseconds with a `{ status: 504, message }`
  * shape so the route layer can pass the error straight through.
+ *
+ * #396: When `correlationId` is provided, records the RPC call duration and
+ * outcome via `recordStellarRpcCall` so it shows up in Prometheus metrics.
  */
-export function withTimeout(promise, ms, label) {
+export function withTimeout(promise, ms, label, correlationId) {
+  const start = Date.now();
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
@@ -91,9 +95,33 @@ export function withTimeout(promise, ms, label) {
       });
     }, ms);
   });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
+  return Promise.race([promise, timeout])
+    .then((result) => {
+      recordStellarRpcCall(label, Date.now() - start, true);
+      if (correlationId) {
+        logger.debug("Stellar RPC call succeeded", {
+          correlationId,
+          operation: label,
+          durationMs: Date.now() - start,
+        });
+      }
+      return result;
+    })
+    .catch((err) => {
+      recordStellarRpcCall(label, Date.now() - start, false);
+      if (correlationId) {
+        logger.warn("Stellar RPC call failed", {
+          correlationId,
+          operation: label,
+          durationMs: Date.now() - start,
+          error: err instanceof Error ? err.message : String(err?.message ?? err),
+        });
+      }
+      throw err;
+    })
+    .finally(() => {
+      if (timer) clearTimeout(timer);
+    });
 }
 
 /**
@@ -346,12 +374,15 @@ export function _resetAccountBuildLocks() {
  * Fetch a fresh account record (including the current sequence number) for
  * `callerAddress`. Each `retryBuildTx` attempt funnels through here, which
  * is what guarantees retries don't reuse a stale sequence (#275).
+ *
+ * #396: Optional `correlationId` is forwarded to `withTimeout` for tracing.
  */
-export async function getFreshAccount(callerAddress) {
+export async function getFreshAccount(callerAddress, correlationId) {
   return withTimeout(
     server.getAccount(callerAddress),
     SOROBAN_RPC_TIMEOUT_MS,
     "Soroban getAccount",
+    correlationId,
   );
 }
 
@@ -418,10 +449,14 @@ export function parseSorobanError(error) {
 /**
  * Build an unsigned Soroban transaction XDR for a contract invocation.
  * The frontend signs and submits it.
+ *
+ * #396: Accepts an optional `correlationId` that is threaded through all
+ * RPC calls so every Stellar operation for a single HTTP request shares
+ * the same tracing context in logs and metrics.
  */
-export async function buildTx(callerAddress, contractId, method, args = []) {
+export async function buildTx(callerAddress, contractId, method, args = [], correlationId) {
   return withAccountBuildLock(callerAddress, async () => {
-    const account = await getFreshAccount(callerAddress);
+    const account = await getFreshAccount(callerAddress, correlationId);
     const fee = await getRecommendedFee();
     const contract = new Contract(contractId);
 
@@ -437,6 +472,7 @@ export async function buildTx(callerAddress, contractId, method, args = []) {
       server.prepareTransaction(tx),
       SOROBAN_RPC_TIMEOUT_MS,
       "Soroban prepareTransaction",
+      correlationId,
     );
     return prepared.toXDR();
   });
@@ -467,14 +503,17 @@ function isTimeoutError(error) {
  * network errors up to `maxRetries`.
  *
  * Handles HTTP 429 rate-limit responses from Horizon explicitly.
+ *
+ * #396: Optional `correlationId` is threaded through every `buildTx` call so
+ * all Stellar RPC operations for a single HTTP request share the same trace ID.
  */
-export async function retryBuildTx(callerAddress, contractId, method, args = []) {
+export async function retryBuildTx(callerAddress, contractId, method, args = [], correlationId) {
   const maxRetries = 3;
   const baseBackoffMs = 1000;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await buildTx(callerAddress, contractId, method, args);
+      return await buildTx(callerAddress, contractId, method, args, correlationId);
     } catch (error) {
       const isLastAttempt = attempt === maxRetries;
       const isNetworkError =
@@ -498,6 +537,7 @@ export async function retryBuildTx(callerAddress, contractId, method, args = [])
       if (isRateLimit) {
         if (isLastAttempt) {
           logger.warn("Horizon rate limit exceeded after max retries", {
+            correlationId,
             method,
             contractId,
             attempt,
@@ -510,6 +550,7 @@ export async function retryBuildTx(callerAddress, contractId, method, args = [])
         }
         const delay = baseBackoffMs * Math.pow(2, attempt - 1);
         logger.warn(`Horizon rate limit hit, retrying with backoff`, {
+          correlationId,
           method,
           contractId,
           attempt,
@@ -523,6 +564,7 @@ export async function retryBuildTx(callerAddress, contractId, method, args = [])
       if (isTimeout) {
         if (isLastAttempt) {
           logger.warn("Soroban RPC timed out after max retries", {
+            correlationId,
             method,
             contractId,
             attempt,
@@ -564,6 +606,14 @@ export function addressToScVal(addr) {
 
 export function u32ToScVal(n) {
   return xdr.ScVal.scvU32(n);
+}
+
+export function bytesN32HexToScVal(hex) {
+  const buf = Buffer.from(hex, "hex");
+  if (buf.length !== 32) {
+    throw new Error("Expected 32-byte hex value");
+  }
+  return xdr.ScVal.scvBytes(buf);
 }
 
 export function i128ToScVal(n) {

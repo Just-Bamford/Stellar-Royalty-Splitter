@@ -6,6 +6,8 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
+import { correlationMiddleware } from "./correlation.js";
+import { recordHttpRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
@@ -21,10 +23,9 @@ import { closeDatabase, initializeDatabase } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
-import { initializeDatabase } from "./database/index.js";
-import db from "./database/index.js";
 import { initializeSigningKey } from "./signing-key.js";
-import { sendError, normalizeErrorCode } from "./error-response.js";
+import { sendError } from "./error-response.js";
+import { verifyRequestSignatureMiddleware } from "./request-signing.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -32,16 +33,31 @@ initializeSigningKey();
 
 const app = express();
 
-// Request logging middleware
+// #396: Correlation ID — must be first so every subsequent middleware has req.correlationId
+app.use(correlationMiddleware);
+
+// #396: Request / response logging with correlation ID and timing
 app.use((req, res, next) => {
   const start = Date.now();
+  const requestBytes = parseInt(req.headers["content-length"] ?? "0", 10) || 0;
+
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    logger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`, {
+    const durationMs = Date.now() - start;
+    const responseBytes = parseInt(res.getHeader("content-length") ?? "0", 10) || 0;
+
+    logger.info("HTTP request completed", {
+      correlationId: req.correlationId,
       method: req.method,
       path: req.originalUrl,
       status: res.statusCode,
-      duration,
+      durationMs,
+      requestBytes,
+      responseBytes,
+    });
+
+    recordHttpRequest(req.method, req.originalUrl, res.statusCode, durationMs, {
+      requestBytes,
+      responseBytes,
     });
   });
   next();
@@ -61,7 +77,16 @@ logger.info("CORS origin configured", { origin: corsOrigin });
 app.use(
   cors({
     origin: corsOrigin,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "DELETE"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Idempotency-Key",
+      "X-Wallet-Address",
+      "X-Timestamp",
+      "X-Nonce",
+      "X-Signature",
+    ],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })
 );
@@ -85,8 +110,27 @@ const writeLimiter = rateLimit({
   handler: (_req, res) => sendError(res, 429, "too_many_requests", "Too many write requests, please slow down."),
 });
 
+// Read limiter for history/analytics: 30 req / 1 min per IP (issue #394)
+const readAnalyticsLimiter = rateLimit({
+  windowMs: 60_000,
+  max: parseInt(process.env.RATE_LIMIT_ANALYTICS_MAX ?? "30"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) =>
+    sendError(res, 429, "too_many_requests", "Too many analytics/history requests, please slow down."),
+});
+
 app.use(generalLimiter);
 app.use(express.json({ limit: "10kb" }));
+
+// Ed25519 request signature verification for write operations (#392)
+app.use((req, res, next) => {
+  if (req.path.startsWith("/admin")) return next();
+  if (["POST", "PUT", "DELETE"].includes(req.method)) {
+    return verifyRequestSignatureMiddleware(req, res, next);
+  }
+  next();
+});
 
 // Enforce Content-Type: application/json on POST requests
 app.use((req, res, next) => {
@@ -114,6 +158,11 @@ app.use("/api/v1/initialize", writeLimiter);
 app.use("/api/v1/distribute", writeLimiter);
 app.use("/api/v1/secondary-royalty", writeLimiter);
 app.use("/api/v1/webhooks", writeLimiter);
+
+// Per-endpoint rate limits for read-heavy analytics/history routes (#394)
+app.use("/api/v1/history", readAnalyticsLimiter);
+app.use("/api/v1/audit", readAnalyticsLimiter);
+app.use("/api/v1/analytics", readAnalyticsLimiter);
 
 app.use("/api/v1/initialize", initializeRouter);
 app.use("/api/v1/distribute", distributeRouter);
@@ -145,11 +194,15 @@ app.use("/api", (req, res) => {
 });
 
 // Central error handler
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   if (err.type === "entity.too.large") {
     return sendError(res, 413, "payload_too_large", "Payload too large");
   }
-  logger.error(err);
+  logger.error("Unhandled error", {
+    correlationId: req.correlationId,
+    error: err.message ?? String(err),
+    stack: err.stack,
+  });
 
   // Structured errors thrown by stellar.js (Soroban / RPC errors)
   if (err.status && err.code) {

@@ -337,3 +337,29 @@
     font-size: 0.9rem;
   }
 }
+
+/* Dark mode (#390) */
+[data-theme="dark"] .settings-header h1,
+[data-theme="dark"] .setting-label label,
+[data-theme="dark"] .settings-section h2 {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .settings-subtitle,
+[data-theme="dark"] .setting-description,
+[data-theme="dark"] .about-item p {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .settings-section,
+[data-theme="dark"] .setting-item,
+[data-theme="dark"] .about-item {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .save-status {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
