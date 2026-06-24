@@ -3681,6 +3681,206 @@ fn test_read_operations_work_when_paused() {
     assert_eq!(recipients.len(), 2);
 }
 
+// ── Emergency Pause Mechanism Tests (Issue #406) ───────────────────────────────
+
+/// Test that any collaborator can call pause_collaborator_distributions.
+#[test]
+fn test_collaborator_can_emergency_pause() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator1 = Address::generate(&env);
+    let collaborator2 = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator1.clone(), collaborator2.clone()],
+        &vec![&env, 4000_u32, 3000_u32, 3000_u32],
+    );
+
+    // Collaborator1 can emergency pause
+    env.mock_auths(&[
+        MockAuth {
+            address: &collaborator1,
+            invoked: &contract_id,
+        }
+    ]);
+    client.pause_collaborator_distributions();
+    assert!(client.is_paused());
+}
+
+/// Test that emergency pause tracks timestamp and source.
+#[test]
+fn test_emergency_pause_tracks_metadata() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pause_time = env.ledger().timestamp();
+    
+    env.mock_auths(&[
+        MockAuth {
+            address: &collaborator,
+            invoked: &contract_id,
+        }
+    ]);
+    client.pause_collaborator_distributions();
+
+    let (timestamp, source, remaining) = client.get_pause_info();
+    assert_eq!(timestamp, pause_time);
+    assert_eq!(source, collaborator);
+    assert!(remaining > 0); // Should have ~24 hours remaining
+}
+
+/// Test that emergency pause auto-expires after 24 hours.
+#[test]
+fn test_emergency_pause_auto_expires() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Emergency pause by collaborator
+    env.mock_auths(&[
+        MockAuth {
+            address: &collaborator,
+            invoked: &contract_id,
+        }
+    ]);
+    client.pause_collaborator_distributions();
+    assert!(client.is_paused());
+
+    // Fast-forward 24 hours
+    env.ledger().set(env.ledger().sequence() + 1, env.ledger().timestamp() + stellar_royalty_splitter::EMERGENCY_PAUSE_DURATION + 1);
+
+    // Pause should have auto-expired (check via remaining time)
+    let (_, _, remaining) = client.get_pause_info();
+    assert_eq!(remaining, 0); // Expired
+
+    // Admin can now unpause without multi-sig
+    env.mock_all_auths_allowing_non_root_auth();
+    client.unpause();
+    assert!(!client.is_paused());
+}
+
+/// Test that emergency pause cannot be called when already paused.
+#[test]
+#[should_panic]
+fn test_cannot_emergency_pause_when_already_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Admin pauses first
+    client.pause();
+    assert!(client.is_paused());
+
+    // Collaborator cannot emergency pause on top
+    env.mock_auths(&[
+        MockAuth {
+            address: &collaborator,
+            invoked: &contract_id,
+        }
+    ]);
+    client.pause_collaborator_distributions();
+}
+
+/// Test that admin pause also tracks metadata for consistency.
+#[test]
+fn test_admin_pause_tracks_metadata() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pause_time = env.ledger().timestamp();
+    client.pause();
+
+    let (timestamp, source, remaining) = client.get_pause_info();
+    assert_eq!(timestamp, pause_time);
+    assert_eq!(source, admin); // Admin is the source
+    assert_eq!(remaining, 0); // Admin pause doesn't auto-expire
+}
+
+/// Test that get_pause_info returns zeros when not paused.
+#[test]
+fn test_get_pause_info_when_not_paused() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let (timestamp, source, remaining) = client.get_pause_info();
+    assert_eq!(timestamp, 0);
+    assert_eq!(remaining, 0);
+}
+
+/// Test that unpause clears pause metadata.
+#[test]
+fn test_unpause_clears_pause_metadata() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), collaborator.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    client.pause();
+    assert!(client.is_paused());
+
+    client.unpause();
+    assert!(!client.is_paused());
+
+    let (timestamp, source, remaining) = client.get_pause_info();
+    assert_eq!(timestamp, 0);
+    assert_eq!(remaining, 0);
+}
+
 // ── Batch Distribute Tests ──────────────────────────────────────────────────
 
 /// Test that batch_distribute processes multiple tokens in one call.

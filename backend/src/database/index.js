@@ -11,6 +11,9 @@ export {
   countWrite,
   initializeDatabase,
   getMigrationVersion,
+  computeAuditEntryHash,
+  verifyAuditLogIntegrity,
+  verifyAuditLogOnStartup,
 } from "./core.js";
 
 // Transaction tracking

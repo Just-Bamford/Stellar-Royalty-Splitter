@@ -19,7 +19,7 @@ import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
-import { closeDatabase, initializeDatabase } from "./database/index.js";
+import { closeDatabase, initializeDatabase, verifyAuditLogOnStartup } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
@@ -30,6 +30,9 @@ import { verifyRequestSignatureMiddleware } from "./request-signing.js";
 // Initialize database on startup
 initializeDatabase();
 initializeSigningKey();
+
+// Issue #395: Verify audit log integrity on startup
+verifyAuditLogOnStartup();
 
 const app = express();
 

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import crypto from "crypto";
 import logger from "../logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,6 +57,22 @@ export function initializeDatabase() {
     {
       version: 1,
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
+    },
+    {
+      version: 4,
+      sql: `
+        -- Issue #395: Add hash chain to audit_log for integrity verification
+        BEGIN;
+        
+        -- Add hash columns if they don't exist
+        ALTER TABLE audit_log ADD COLUMN entry_hash TEXT;
+        ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
+        
+        -- Create index on entry_hash for faster verification
+        CREATE INDEX IF NOT EXISTS idx_audit_entry_hash ON audit_log(entry_hash);
+        
+        COMMIT;
+      `,
     },
     {
       version: 3,
@@ -186,6 +203,8 @@ export function initializeDatabase() {
       action TEXT NOT NULL,
       user TEXT,
       details TEXT,
+      entry_hash TEXT NOT NULL,
+      prev_hash TEXT,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -223,6 +242,121 @@ export function getMigrationVersion() {
     .prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1")
     .get();
   return result?.version ?? 0;
+}
+
+/**
+ * Compute SHA-256 hash of audit log entry data.
+ * Hash includes: contractId, action, user, details, timestamp, prev_hash
+ */
+export function computeAuditEntryHash(contractId, action, user, details, timestamp, prevHash = null) {
+  const hash = crypto.createHash('sha256');
+  hash.update(contractId);
+  hash.update(action);
+  hash.update(user || '');
+  hash.update(details || '');
+  hash.update(timestamp.toString());
+  if (prevHash) {
+    hash.update(prevHash);
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Verify the integrity of the audit log hash chain.
+ * Returns { valid: boolean, brokenAt: number|null, error: string|null }
+ */
+export function verifyAuditLogIntegrity(contractId = null) {
+  try {
+    let query = `
+      SELECT id, contractId, action, user, details, entry_hash, prev_hash, timestamp
+      FROM audit_log
+    `;
+    const params = [];
+    
+    if (contractId) {
+      query += ` WHERE contractId = ?`;
+      params.push(contractId);
+    }
+    
+    query += ` ORDER BY id ASC`;
+    
+    const entries = db.prepare(query).all(...params);
+    
+    if (entries.length === 0) {
+      return { valid: true, brokenAt: null, error: null };
+    }
+    
+    let prevHash = null;
+    
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      
+      // Verify prev_hash matches previous entry's entry_hash
+      if (i > 0) {
+        if (entry.prev_hash !== prevHash) {
+          return {
+            valid: false,
+            brokenAt: entry.id,
+            error: `Hash chain broken at entry ${entry.id}: prev_hash mismatch`
+          };
+        }
+      } else if (entry.prev_hash !== null) {
+        // First entry should have null prev_hash
+        return {
+          valid: false,
+          brokenAt: entry.id,
+          error: `First entry has non-null prev_hash`
+        };
+      }
+      
+      // Recompute entry hash and verify
+      const computedHash = computeAuditEntryHash(
+        entry.contractId,
+        entry.action,
+        entry.user,
+        entry.details,
+        entry.timestamp,
+        entry.prev_hash
+      );
+      
+      if (computedHash !== entry.entry_hash) {
+        return {
+          valid: false,
+          brokenAt: entry.id,
+          error: `Hash mismatch at entry ${entry.id}: stored=${entry.entry_hash}, computed=${computedHash}`
+        };
+      }
+      
+      prevHash = entry.entry_hash;
+    }
+    
+    return { valid: true, brokenAt: null, error: null };
+  } catch (err) {
+    logger.error("Error verifying audit log integrity", err);
+    return {
+      valid: false,
+      brokenAt: null,
+      error: err.message
+    };
+  }
+}
+
+/**
+ * Verify audit log integrity on startup.
+ * Logs warnings if integrity check fails but doesn't block startup.
+ */
+export function verifyAuditLogOnStartup() {
+  const result = verifyAuditLogIntegrity();
+  
+  if (!result.valid) {
+    logger.error(`Audit log integrity check failed: ${result.error}`, {
+      brokenAt: result.brokenAt
+    });
+  } else {
+    logger.info("Audit log integrity verification passed");
+  }
+  
+  return result;
 }
 
 export default db;

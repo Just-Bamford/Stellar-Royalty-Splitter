@@ -29,6 +29,7 @@ pub mod msg {
     pub const RECORD_SECONDARY_PAYER: &str =
         "record_secondary_royalty: payer authorization required";
     pub const SET_ADMINS_ADMIN: &str = "set_admins: admin authorization required";
+    pub const PAUSE_COLLABORATOR: &str = "pause_collaborator_distributions: collaborator authorization required";
 }
 
 /// Requires admin authorization; panics with `message` if missing.

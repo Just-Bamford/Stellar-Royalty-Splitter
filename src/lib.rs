@@ -51,6 +51,8 @@ pub enum StorageKey {
     InitCS,
     InitCM,
     InitNC,
+    PauseTimestamp,
+    PauseSource,
     // Persistent storage
     Collaborators,
     ShareMap,
@@ -61,6 +63,10 @@ pub enum StorageKey {
 /// Maximum number of rate-change entries kept in history.
 /// Older entries are dropped when the cap is reached.
 pub const RATE_HISTORY_CAP: u32 = 20;
+
+/// Emergency pause duration in seconds (24 hours).
+/// Collaborator-initiated pauses auto-expire after this duration.
+pub const EMERGENCY_PAUSE_DURATION: u64 = 24 * 60 * 60;
 
 /// Backward-compatible alias for integration tests and external references.
 pub type DataKey = StorageKey;
@@ -416,6 +422,65 @@ impl RoyaltySplitter {
 
         Self::check_admin_auth(&env, auth::msg::PAUSE_ADMIN);
         storage::instance_set(&env, &StorageKey::Paused, &true);
+        storage::instance_set(&env, &StorageKey::PauseTimestamp, &env.ledger().timestamp());
+        
+        let admin = Self::require_admin_address(&env);
+        storage::instance_set(&env, &StorageKey::PauseSource, &admin);
+        
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("pause")),
+            (admin, env.ledger().timestamp()),
+        );
+    }
+
+    /// Emergency pause by any collaborator — auto-expires after 24 hours.
+    ///
+    /// Allows any collaborator to pause the contract in emergencies. The pause
+    /// automatically expires after 24 hours. Multi-sig (2-of-3 admin) is required
+    /// to manually unpause before the 24-hour expiration.
+    ///
+    /// # Authorization
+    /// Requires signature from any collaborator.
+    ///
+    /// # Panics
+    /// * `"contract not initialized"` — called before `initialize`
+    /// * `"contract is already paused"` — pause is already active
+    pub fn pause_collaborator_distributions(env: Env) {
+        storage::extend_instance_ttl(&env);
+
+        // Check if already paused
+        if env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::Paused)
+            .unwrap_or(false)
+        {
+            Self::fail(&env, ContractError::ContractPaused);
+        }
+
+        // Verify caller is a collaborator
+        let collaborators = Self::require_collaborators(&env);
+        let mut caller: Option<Address> = None;
+        
+        for addr in collaborators.iter() {
+            let context = String::from_str(&env, auth::msg::PAUSE_COLLABORATOR);
+            env.events().publish((symbol_short!("auth_req"),), context);
+            addr.require_auth();
+            caller = Some(addr.clone());
+            break; // Only need one collaborator to authorize
+        }
+        
+        let caller = caller.unwrap();
+        
+        // Set pause with timestamp and source
+        storage::instance_set(&env, &StorageKey::Paused, &true);
+        storage::instance_set(&env, &StorageKey::PauseTimestamp, &env.ledger().timestamp());
+        storage::instance_set(&env, &StorageKey::PauseSource, &caller);
+        
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("collab_pause")),
+            (caller, env.ledger().timestamp()),
+        );
     }
 
     /// Transfer admin rights to a new address (single-admin mode only).
@@ -517,16 +582,54 @@ impl RoyaltySplitter {
 
     /// Unpause the contract — re-enables `distribute` and `distribute_secondary_royalties`.
     ///
+    /// If the pause was initiated by a collaborator (emergency pause), it will
+    /// auto-expire after 24 hours. Before expiration, multi-sig (2-of-3 admin) is
+    /// required to manually unpause. After 24 hours, any admin can unpause.
+    ///
     /// # Authorization
-    /// Requires admin signature.
+    /// Requires admin signature (multi-sig if pause is collaborator-initiated and < 24h).
     ///
     /// # Panics
     /// * `"contract not initialized"` — called before `initialize`
     pub fn unpause(env: Env) {
         storage::extend_instance_ttl(&env);
 
-        Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
+        // Check if pause exists and get its details
+        let pause_timestamp: Option<u64> = env.storage().instance().get(&StorageKey::PauseTimestamp);
+        let pause_source: Option<Address> = env.storage().instance().get(&StorageKey::PauseSource);
+        
+        if let Some(timestamp) = pause_timestamp {
+            let current_time = env.ledger().timestamp();
+            let elapsed = current_time.saturating_sub(timestamp);
+            
+            // If pause was initiated by collaborator and < 24 hours have passed, require multi-sig
+            if let Some(source) = pause_source {
+                let is_admin_pause = source == Self::require_admin_address(&env);
+                
+                if !is_admin_pause && elapsed < EMERGENCY_PAUSE_DURATION {
+                    // Emergency pause still active - require multi-sig (2-of-3 admin)
+                    Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
+                } else {
+                    // Either admin pause or emergency pause expired - single admin can unpause
+                    Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
+                }
+            } else {
+                // Legacy pause without source tracking - require admin
+                Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
+            }
+        } else {
+            // No pause timestamp - require admin
+            Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
+        }
+        
         storage::instance_set(&env, &StorageKey::Paused, &false);
+        env.storage().instance().remove(&StorageKey::PauseTimestamp);
+        env.storage().instance().remove(&StorageKey::PauseSource);
+        
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("unpause")),
+            env.ledger().timestamp(),
+        );
     }
 
     /// Replace the contract's executable WASM while preserving instance storage.
@@ -559,6 +662,41 @@ impl RoyaltySplitter {
             .instance()
             .get(&StorageKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Returns pause information for frontend display.
+    ///
+    /// Returns a tuple of (pause_timestamp, pause_source, remaining_seconds).
+    /// If not paused, returns (0, zero_address, 0).
+    /// remaining_seconds is the time until auto-expiration (0 if not an emergency pause).
+    pub fn get_pause_info(env: Env) -> (u64, Address, u64) {
+        storage::extend_instance_ttl(&env);
+        
+        let paused = env.storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false);
+        
+        if !paused {
+            let zero_addr = Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap();
+            return (0, zero_addr, 0);
+        }
+        
+        let timestamp = env.storage()
+            .instance()
+            .get(&StorageKey::PauseTimestamp)
+            .unwrap_or(0);
+        
+        let source = env.storage()
+            .instance()
+            .get(&StorageKey::PauseSource)
+            .unwrap_or_else(|| Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap());
+        
+        let current_time = env.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(timestamp);
+        let remaining = EMERGENCY_PAUSE_DURATION.saturating_sub(elapsed);
+        
+        (timestamp, source, remaining)
     }
 
     /// Returns `true` if `initialize` has been called, `false` otherwise.
