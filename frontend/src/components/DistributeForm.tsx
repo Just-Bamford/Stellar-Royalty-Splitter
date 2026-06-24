@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useForm, SubmitHandler } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../api";
-import { getContractAddressError, isValidContractAddress } from "../lib/stellar-address";
-import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
-import FormStatus from "./FormStatus";
 import { useFormStatus } from "../hooks/useFormStatus";
+import { signAndSubmitTransaction } from "../stellar";
+import FormStatus from "./FormStatus";
+import { distributeFormSchema } from "../schemas/royaltySchemas";
 
 interface Props {
   contractId: string;
@@ -56,8 +58,6 @@ export default function DistributeForm({
   onSuccess,
 }: Props) {
   const { network } = useNetwork();
-  const [tokenId, setTokenId] = useState("");
-  const [amount, setAmount] = useState("");
   const [contractBalance, setContractBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [collaborators, setCollaborators] = useState<CollaboratorShare[]>([]);
@@ -65,12 +65,27 @@ export default function DistributeForm({
   const [draftPrompt, setDraftPrompt] = useState<DistributionDraft | null>(null);
   const [draftDecisionMade, setDraftDecisionMade] = useState(false);
   const { status, setStatus, clearStatus } = useFormStatus();
-  const [loading, setLoading] = useState(false);
   const [successTxHash, setSuccessTxHash] = useState<string | null>(null);
   const draftKey = useMemo(
     () => `${DRAFT_KEY_PREFIX}:${walletAddress}:${contractId || "no-contract"}`,
     [contractId, walletAddress],
   );
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+    reset,
+    setValue,
+  } = useForm({
+    resolver: zodResolver(distributeFormSchema),
+    defaultValues: { tokenId: "", amount: "" },
+    mode: "onChange",
+  });
+
+  const tokenId = watch("tokenId");
+  const amount = watch("amount");
 
   useEffect(() => {
     const draft = readDraft(draftKey);
@@ -114,7 +129,6 @@ export default function DistributeForm({
     };
   }, [contractId]);
 
-  // Fetch contract balance whenever tokenId changes (debounced)
   useEffect(() => {
     if (!contractId || !tokenId) {
       setContractBalance(null);
@@ -134,15 +148,11 @@ export default function DistributeForm({
     return () => clearTimeout(timer);
   }, [contractId, tokenId]);
 
-  const parsedAmount = parseFloat(amount);
+  const parsedAmount = typeof amount === "string" ? parseFloat(amount) : amount;
   const parsedBalance = contractBalance !== null ? parseFloat(contractBalance) : null;
   const exceedsBalance =
     parsedBalance !== null && !isNaN(parsedAmount) && parsedAmount > parsedBalance;
-  // Live token-address validation. The error is null for empty input so an
-  // untouched field is not flagged as malformed (emptiness is reported as a
-  // "required" error on submit instead, matching existing behaviour).
-  const tokenIdError = getContractAddressError(tokenId);
-  const tokenIdValid = isValidContractAddress(tokenId);
+
   const recipientBreakdown = useMemo(() => {
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || collaborators.length === 0) {
       return [];
@@ -163,32 +173,28 @@ export default function DistributeForm({
       };
     });
   }, [collaborators, parsedAmount]);
+
   const totalBasisPoints = collaborators.reduce(
     (total, collaborator) => total + collaborator.basisPoints,
     0,
   );
 
-  async function submit() {
-    if (!contractId)
+  const onSubmit: SubmitHandler<any> = async (data: any) => {
+    if (!contractId) {
       return setStatus("error", "Enter a contract ID first.");
-    if (!tokenId)
-      return setStatus("error", "Enter a token address.");
-    if (!tokenIdValid)
-      return setStatus("error", "Enter a valid Stellar token address (C...).");
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0)
-      return setStatus("error", "Enter a valid amount.");
-    if (exceedsBalance)
-      return setStatus("error", "Amount exceeds contract balance.");
+    }
 
-    setLoading(true);
+    if (exceedsBalance) {
+      return setStatus("error", "Amount exceeds contract balance.");
+    }
+
     setStatus("info", "Building transaction…");
 
     try {
       const res = await api.distribute({
         contractId,
         walletAddress,
-        tokenId,
-        amount: parsedAmount,
+        tokenId: data.tokenId,
       });
 
       setStatus("info", "Signing transaction with Freighter...");
@@ -204,20 +210,17 @@ export default function DistributeForm({
       setSuccessTxHash(hash);
       setStatus("ok", "Distributed successfully.");
       localStorage.removeItem(draftKey);
-      setTokenId("");
-      setAmount("");
+      reset();
       onSuccess();
     } catch (e: unknown) {
       setStatus("error", e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
     }
-  }
+  };
 
   function restoreDraft() {
     if (!draftPrompt) return;
-    setTokenId(draftPrompt.tokenId);
-    setAmount(draftPrompt.amount);
+    setValue("tokenId", draftPrompt.tokenId);
+    setValue("amount", draftPrompt.amount as any);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
     setStatus("info", "Previous distribute draft restored.");
@@ -230,8 +233,7 @@ export default function DistributeForm({
   }
 
   function clearForm() {
-    setTokenId("");
-    setAmount("");
+    reset();
     setContractBalance(null);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
@@ -243,10 +245,7 @@ export default function DistributeForm({
   return (
     <form
       className="card"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
+      onSubmit={handleSubmit(onSubmit)}
     >
       <span className="badge">Distribute</span>
 
@@ -257,10 +256,20 @@ export default function DistributeForm({
             <p>Saved token and amount values are available for this contract.</p>
           </div>
           <div className="restore-actions">
-            <button type="button" className="btn-primary" onClick={restoreDraft} disabled={loading}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={restoreDraft}
+              disabled={isSubmitting}
+            >
               Restore
             </button>
-            <button type="button" className="btn-secondary" onClick={discardDraft} disabled={loading}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={discardDraft}
+              disabled={isSubmitting}
+            >
               Discard
             </button>
           </div>
@@ -271,17 +280,16 @@ export default function DistributeForm({
       <input
         id="distribute-token-id"
         placeholder="C..."
-        value={tokenId}
+        {...register("tokenId")}
         autoComplete="off"
         spellCheck={false}
-        disabled={loading}
-        aria-invalid={tokenIdError ? "true" : undefined}
-        aria-describedby={tokenIdError ? "distribute-token-id-error" : undefined}
-        onChange={(e) => { setTokenId(e.target.value); setAmount(""); }}
+        disabled={isSubmitting}
+        aria-invalid={errors.tokenId ? "true" : undefined}
+        aria-describedby={errors.tokenId ? "distribute-token-id-error" : undefined}
       />
-      {tokenIdError && (
+      {errors.tokenId && (
         <p className="field-error" id="distribute-token-id-error" role="alert">
-          {tokenIdError}
+          {errors.tokenId.message}
         </p>
       )}
       {tokenId && (
@@ -289,32 +297,39 @@ export default function DistributeForm({
           {balanceLoading
             ? "Fetching balance…"
             : contractBalance !== null
-            ? `Available balance: ${contractBalance}`
-            : "Could not fetch balance."}
+              ? `Available balance: ${contractBalance}`
+              : "Could not fetch balance."}
         </p>
       )}
+
       <label htmlFor="distribute-amount">Amount</label>
       <input
         id="distribute-amount"
         type="text"
         inputMode="decimal"
         placeholder="0"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        disabled={contractBalance === null || loading}
-        aria-invalid={exceedsBalance ? "true" : undefined}
-        aria-describedby={exceedsBalance ? "distribute-amount-error" : undefined}
+        {...register("amount")}
+        disabled={contractBalance === null || isSubmitting}
+        aria-invalid={exceedsBalance || errors.amount ? "true" : undefined}
+        aria-describedby={
+          exceedsBalance || errors.amount ? "distribute-amount-error" : undefined
+        }
       />
+      {errors.amount && (
+        <p className="field-error" id="distribute-amount-error" role="alert">
+          {errors.amount.message}
+        </p>
+      )}
       {exceedsBalance && (
-        <p
-          className="field-error"
-          id="distribute-amount-error"
-        >
+        <p className="field-error" id="distribute-amount-error" role="alert">
           Amount exceeds available balance of {contractBalance}.
         </p>
       )}
+
       {collaboratorsLoading && (
-        <p className="description" aria-live="polite">Loading recipients…</p>
+        <p className="description" aria-live="polite">
+          Loading recipients…
+        </p>
       )}
       {recipientBreakdown.length > 0 && (
         <div className="recipient-preview" aria-label="Recipient breakdown preview">
@@ -343,17 +358,17 @@ export default function DistributeForm({
         <button
           type="submit"
           className="btn-primary btn-with-spinner"
-          disabled={loading || exceedsBalance || !amount || !tokenIdValid}
-          aria-busy={loading}
+          disabled={isSubmitting || exceedsBalance || Object.keys(errors).length > 0}
+          aria-busy={isSubmitting}
         >
-          {loading && <span className="btn-spinner" aria-hidden="true" />}
-          {loading ? "Submitting…" : "Distribute funds"}
+          {isSubmitting && <span className="btn-spinner" aria-hidden="true" />}
+          {isSubmitting ? "Submitting…" : "Distribute funds"}
         </button>
         <button
           type="button"
           className="btn-secondary"
           onClick={clearForm}
-          disabled={loading || (!tokenId && !amount && !draftPrompt)}
+          disabled={isSubmitting || (!tokenId && !amount && !draftPrompt)}
         >
           Clear
         </button>
