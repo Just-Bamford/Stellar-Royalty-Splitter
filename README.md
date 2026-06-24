@@ -101,6 +101,15 @@ npm test
 
 **Status:** ✅ **152/152 tests passing (100%)**
 
+### Frontend Unit Tests
+
+```bash
+cd frontend
+npm run test:coverage
+```
+
+**Status:** ✅ Vitest + RTL configured, unit tests for core components.
+
 ### Frontend E2E Tests
 
 ```bash

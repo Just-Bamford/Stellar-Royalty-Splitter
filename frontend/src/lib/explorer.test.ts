@@ -1,5 +1,5 @@
-import { describe, test, expect } from "@jest/globals";
-import { getStellarExpertTxUrl, formatTxHash } from "../src/lib/explorer";
+import { describe, test, expect } from "vitest";
+import { getStellarExpertTxUrl, formatTxHash } from "./explorer";
 
 describe("explorer helpers (#299)", () => {
   const hash = "a".repeat(64);

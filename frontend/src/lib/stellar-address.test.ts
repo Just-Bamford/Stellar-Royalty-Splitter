@@ -1,10 +1,10 @@
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import {
   isValidContractAddress,
   getContractAddressError,
   CONTRACT_ADDRESS_REGEX,
   INVALID_CONTRACT_ADDRESS_MESSAGE,
-} from "../src/lib/stellar-address";
+} from "./stellar-address";
 
 // A structurally valid contract address: "C" + 55 base32 chars.
 const VALID_C_ADDRESS = "C" + "A".repeat(55);
