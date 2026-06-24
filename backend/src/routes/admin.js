@@ -1,13 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import logger from "../logger.js";
-import { validate } from "../validation.js";
-import { sendError } from "../error-response.js";
+import { validate, contractAddress, stellarAddress } from "../validation.js";
+import { sendError, sendValidationError } from "../error-response.js";
 import {
   isAdminRotateTokenValid,
   reloadSigningKeyFromSecretsFile,
   rotateSigningKey,
 } from "../signing-key.js";
+import { buildAndRecordTransaction } from "./_shared.js";
 
 export const adminRouter = Router();
 
@@ -49,6 +50,71 @@ function requireAdminRotateToken(req, res, next) {
 
   next();
 }
+
+// ---------------------------------------------------------------------------
+// Multi-sig admin management (#404)
+// ---------------------------------------------------------------------------
+
+const setAdminsSchema = z
+  .object({
+    contractId: contractAddress,
+    walletAddress: stellarAddress,
+    admins: z
+      .array(stellarAddress)
+      .min(1, "admins list must not be empty")
+      .max(10, "admins list may not exceed 10 addresses"),
+    threshold: z
+      .number()
+      .int()
+      .min(1, "threshold must be at least 1"),
+  })
+  .refine((d) => d.threshold <= d.admins.length, {
+    message: "threshold must not exceed the number of admins",
+    path: ["threshold"],
+  });
+
+/**
+ * POST /admin/set-admins
+ * Configure the multi-sig admin list and signing threshold (#404).
+ * Body: { contractId, walletAddress, admins: string[], threshold: number }
+ * Default threshold is 2 (2-of-N multi-sig).
+ */
+adminRouter.post("/set-admins", validate(setAdminsSchema), async (req, res, next) => {
+  try {
+    const { contractId, walletAddress, admins, threshold = 2 } = req.body;
+
+    if (threshold > admins.length) {
+      return sendValidationError(res, [
+        {
+          field: "threshold",
+          message: `threshold (${threshold}) must not exceed admins count (${admins.length})`,
+          constraint: "max",
+        },
+      ]);
+    }
+
+    logger.info("set_admins requested", { contractId, adminCount: admins.length, threshold });
+
+    const { addressToScVal, vecToScVal, u32ToScVal } = await import("../stellar.js");
+    const adminsVec = vecToScVal(admins.map(addressToScVal));
+    const thresholdVal = u32ToScVal(threshold);
+
+    const { xdr, transactionId } = await buildAndRecordTransaction({
+      contractId,
+      walletAddress,
+      transactionType: "initialize",
+      scvlArgs: [adminsVec, thresholdVal],
+      auditAction: "set_admins",
+      auditMetadata: { adminCount: admins.length, threshold },
+      transactionMetadata: { requestedAmount: null, tokenId: null },
+      correlationId: req.correlationId,
+    });
+
+    res.json({ success: true, xdr, transactionId, adminCount: admins.length, threshold });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * POST /admin/rotate-key

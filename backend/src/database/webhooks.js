@@ -1,5 +1,5 @@
 /**
- * Webhook registration storage for distribute completion callbacks (#295).
+ * Webhook registration and dead-letter queue storage (#295, #401).
  */
 
 import { db, countWrite } from "./core.js";
@@ -45,4 +45,53 @@ export function deleteWebhook(contractId, webhookId) {
   const result = stmt.run(webhookId, contractId);
   countWrite();
   return result.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Dead-letter queue (#401)
+// ---------------------------------------------------------------------------
+
+export function enqueueDeadLetter(webhookId, contractId, url, payload, errorMessage) {
+  db.prepare(`
+    INSERT INTO webhook_dead_letters (webhookId, contractId, url, payload, errorMessage)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(webhookId, contractId, url, JSON.stringify(payload), errorMessage);
+  countWrite();
+}
+
+export function listDeadLetters(contractId, limit = 50) {
+  return db
+    .prepare(
+      `SELECT id, webhookId, contractId, url, payload, errorMessage, retryCount, createdAt, lastAttemptAt
+       FROM webhook_dead_letters
+       WHERE contractId = ? AND retryCount < 10
+       ORDER BY createdAt ASC
+       LIMIT ?`,
+    )
+    .all(contractId, limit);
+}
+
+export function listAllPendingDeadLetters(limit = 100) {
+  return db
+    .prepare(
+      `SELECT id, webhookId, contractId, url, payload, errorMessage, retryCount, createdAt, lastAttemptAt
+       FROM webhook_dead_letters
+       WHERE retryCount < 10
+       ORDER BY createdAt ASC
+       LIMIT ?`,
+    )
+    .all(limit);
+}
+
+export function markDeadLetterRetried(id, succeeded) {
+  if (succeeded) {
+    db.prepare(`DELETE FROM webhook_dead_letters WHERE id = ?`).run(id);
+  } else {
+    db.prepare(
+      `UPDATE webhook_dead_letters
+       SET retryCount = retryCount + 1, lastAttemptAt = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+    ).run(id);
+  }
+  countWrite();
 }

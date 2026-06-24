@@ -1,8 +1,13 @@
 /**
- * Deliver distribute-completion webhooks with retry logic (#295).
+ * Deliver distribute-completion webhooks with retry logic and dead-letter queue (#295, #401).
  */
 
-import { listWebhooks } from "./database/webhooks.js";
+import {
+  listWebhooks,
+  enqueueDeadLetter,
+  listAllPendingDeadLetters,
+  markDeadLetterRetried,
+} from "./database/webhooks.js";
 import logger from "./logger.js";
 
 function parsePositiveInt(value, fallback) {
@@ -13,6 +18,10 @@ function parsePositiveInt(value, fallback) {
 const WEBHOOK_MAX_RETRIES = parsePositiveInt(process.env.WEBHOOK_MAX_RETRIES, 3);
 const WEBHOOK_RETRY_BASE_MS = parsePositiveInt(process.env.WEBHOOK_RETRY_BASE_MS, 1000);
 const WEBHOOK_TIMEOUT_MS = parsePositiveInt(process.env.WEBHOOK_TIMEOUT_MS, 10_000);
+const RETRY_SCHEDULER_INTERVAL_MS = parsePositiveInt(
+  process.env.WEBHOOK_RETRY_SCHEDULER_MS,
+  5 * 60 * 1000, // 5 minutes
+);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,7 +56,7 @@ async function deliverWithRetry(url, payload) {
     try {
       await postWebhook(url, payload);
       logger.info("Webhook delivered", { url, attempt });
-      return;
+      return { success: true };
     } catch (error) {
       const isLastAttempt = attempt === WEBHOOK_MAX_RETRIES;
       logger.warn("Webhook delivery failed", {
@@ -58,19 +67,21 @@ async function deliverWithRetry(url, payload) {
       });
 
       if (isLastAttempt) {
+        const message = error instanceof Error ? error.message : String(error);
         logger.error("Webhook delivery exhausted retries", { url });
-        return;
+        return { success: false, error: message };
       }
 
       const delay = WEBHOOK_RETRY_BASE_MS * Math.pow(2, attempt - 1);
       await sleep(delay);
     }
   }
+  return { success: false, error: "Unknown failure" };
 }
 
 /**
  * Fire distribute-completion webhooks for a confirmed transaction.
- * Runs asynchronously; errors are logged but do not block the caller.
+ * Runs asynchronously; failed webhooks are written to the dead-letter queue.
  */
 export function deliverDistributeWebhooks(transaction) {
   const webhooks = listWebhooks(transaction.contractId);
@@ -93,17 +104,70 @@ export function deliverDistributeWebhooks(transaction) {
   };
 
   for (const webhook of webhooks) {
-    deliverWithRetry(webhook.url, payload).catch((error) => {
-      logger.error("Unexpected webhook delivery error", {
-        url: webhook.url,
-        error: error instanceof Error ? error.message : String(error),
+    deliverWithRetry(webhook.url, payload)
+      .then((result) => {
+        if (!result.success) {
+          enqueueDeadLetter(
+            webhook.id,
+            transaction.contractId,
+            webhook.url,
+            payload,
+            result.error ?? "Delivery failed",
+          );
+        }
+      })
+      .catch((error) => {
+        logger.error("Unexpected webhook delivery error", {
+          url: webhook.url,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        enqueueDeadLetter(
+          webhook.id,
+          transaction.contractId,
+          webhook.url,
+          payload,
+          error instanceof Error ? error.message : String(error),
+        );
       });
-    });
   }
+}
+
+/**
+ * Retry scheduler: processes dead-letter queue entries every 5 minutes.
+ * Returns the interval handle so callers can stop it (e.g. on shutdown).
+ */
+export function startWebhookRetryScheduler() {
+  const handle = setInterval(async () => {
+    const pending = listAllPendingDeadLetters(50);
+    if (pending.length === 0) return;
+
+    logger.info("Webhook retry scheduler: processing dead letters", { count: pending.length });
+
+    for (const entry of pending) {
+      let payload;
+      try {
+        payload = JSON.parse(entry.payload);
+      } catch {
+        markDeadLetterRetried(entry.id, false);
+        continue;
+      }
+
+      const result = await deliverWithRetry(entry.url, payload).catch((err) => ({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+
+      markDeadLetterRetried(entry.id, result.success);
+      logger.info("Dead letter retry", { id: entry.id, url: entry.url, success: result.success });
+    }
+  }, RETRY_SCHEDULER_INTERVAL_MS);
+
+  return handle;
 }
 
 export const _config = {
   WEBHOOK_MAX_RETRIES,
   WEBHOOK_RETRY_BASE_MS,
   WEBHOOK_TIMEOUT_MS,
+  RETRY_SCHEDULER_INTERVAL_MS,
 };

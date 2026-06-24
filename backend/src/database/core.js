@@ -59,6 +59,26 @@ export function initializeDatabase() {
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
+      version: 5,
+      sql: `
+        -- Issue #401: Dead-letter queue for failed webhook deliveries
+        CREATE TABLE IF NOT EXISTS webhook_dead_letters (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          webhookId INTEGER,
+          contractId TEXT NOT NULL,
+          url TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          errorMessage TEXT,
+          retryCount INTEGER NOT NULL DEFAULT 0,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          lastAttemptAt DATETIME,
+          FOREIGN KEY(webhookId) REFERENCES webhooks(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_dead_letters_contractId ON webhook_dead_letters(contractId);
+        CREATE INDEX IF NOT EXISTS idx_dead_letters_retryCount ON webhook_dead_letters(retryCount);
+      `,
+    },
+    {
       version: 4,
       sql: `
         -- Issue #395: Add hash chain to audit_log for integrity verification
