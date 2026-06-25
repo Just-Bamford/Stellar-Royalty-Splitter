@@ -118,11 +118,30 @@ button:disabled {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
-.collaborator-row input:first-child {
+
+.share-calculator-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.share-editor {
+  min-width: 0;
+}
+
+.collaborator-address-field {
   flex: 3;
 }
-.collaborator-row input:last-child {
+
+.collaborator-share-field {
   flex: 1;
+}
+
+.collaborator-address-field,
+.collaborator-share-field {
+  display: flex;
+  flex-direction: column;
 }
 
 .status {
@@ -174,8 +193,10 @@ td:last-child {
 }
 
 .share-total {
-  font-size: 0.8rem;
-  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
 }
 .share-total--valid {
   color: var(--success);
@@ -186,6 +207,66 @@ td:last-child {
 .share-total__hint {
   opacity: 0.8;
   font-size: 0.75rem;
+}
+
+.share-calculator {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  padding: 0.9rem;
+}
+
+.share-calculator__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.share-calculator__header strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.share-calculator__split {
+  margin-top: 0;
+  padding: 0.45rem 0.65rem;
+  white-space: nowrap;
+}
+
+.share-calculator__metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-top: 0.55rem;
+}
+
+.share-calculator__warning {
+  color: var(--error-color);
+  font-size: 0.8rem;
+  margin-top: 0.65rem;
+}
+
+.share-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border-color);
+  margin-top: 0.85rem;
+  overflow: hidden;
+}
+
+.share-progress__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--info);
+  transition: width 0.2s ease;
+}
+
+.share-progress__bar--over {
+  background: var(--error-color);
 }
 
 .field-error {
@@ -526,6 +607,18 @@ small {
 }
 
 @media (max-width: 520px) {
+  .share-calculator-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .collaborator-row {
+    flex-wrap: wrap;
+  }
+
+  .collaborator-address-field {
+    flex-basis: 100%;
+  }
+
   .restore-prompt {
     flex-direction: column;
   }

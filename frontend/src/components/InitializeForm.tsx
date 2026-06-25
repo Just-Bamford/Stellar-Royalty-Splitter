@@ -41,7 +41,8 @@ interface Props {
 
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const MAX_COLLABORATORS = 50;
-const PERCENTAGE_INPUT_RE = /^(\d+(\.\d*)?|\.\d+)?$/;
+const BASIS_POINTS_TOTAL = 10_000;
+const PERCENTAGE_INPUT_RE = /^(\d+(\.\d{0,2})?|\.\d{1,2})?$/;
 const SIGNED_PERCENTAGE_INPUT_RE = /^-(\d+(\.\d*)?|\.\d+)$/;
 const PERCENTAGE_NAVIGATION_KEYS = [
   "Backspace",
@@ -62,6 +63,9 @@ function getPercentageError(value: string) {
   if (SIGNED_PERCENTAGE_INPUT_RE.test(value)) {
     return "Percentage must be between 0 and 100.";
   }
+  if (/^\d+(\.\d{3,})$|^\.\d{3,}$/.test(value)) {
+    return "Percentage supports up to 2 decimal places.";
+  }
   if (!PERCENTAGE_INPUT_RE.test(value)) return "Percentage must be a number.";
 
   const numericValue = Number(value);
@@ -75,6 +79,40 @@ function getPercentageError(value: string) {
 
 function isAllowedPercentageInput(value: string) {
   return PERCENTAGE_INPUT_RE.test(value);
+}
+
+function parsePercentageToBasisPoints(value: string) {
+  const error = getPercentageError(value);
+  if (error) return null;
+  return Math.round(Number(value) * 100);
+}
+
+function formatBasisPointsAsPercent(basisPoints: number) {
+  return (basisPoints / 100).toFixed(2);
+}
+
+function calculateShareSummary(collaborators: Collaborator[]) {
+  const allocatedBasisPoints = collaborators.reduce((sum, collaborator) => {
+    return sum + (parsePercentageToBasisPoints(collaborator.basisPoints) ?? 0);
+  }, 0);
+  const remainingBasisPoints = BASIS_POINTS_TOTAL - allocatedBasisPoints;
+
+  return {
+    allocatedBasisPoints,
+    remainingBasisPoints,
+    progressPercent: Math.min(100, Math.max(0, allocatedBasisPoints / 100)),
+    isComplete: allocatedBasisPoints === BASIS_POINTS_TOTAL,
+    isOverAllocated: allocatedBasisPoints > BASIS_POINTS_TOTAL,
+  };
+}
+
+function calculateEvenSplit(collaboratorCount: number) {
+  const baseShare = Math.floor(BASIS_POINTS_TOTAL / collaboratorCount);
+  const remainder = BASIS_POINTS_TOTAL % collaboratorCount;
+
+  return Array.from({ length: collaboratorCount }, (_, index) =>
+    formatBasisPointsAsPercent(baseShare + (index < remainder ? 1 : 0)),
+  );
 }
 
 function updatePercentageError(
@@ -196,14 +234,35 @@ export default function InitializeForm({
     });
   }
 
-  const total = collaborators.reduce(
-    (sum: number, c: Collaborator) => sum + (parseFloat(c.basisPoints) || 0),
-    0,
-  );
+  function splitEvenly() {
+    const evenShares = calculateEvenSplit(collaborators.length);
+    setCollaborators((prev) =>
+      prev.map((collaborator, index) => ({
+        ...collaborator,
+        basisPoints: evenShares[index],
+      })),
+    );
+    setErrors((prev) => {
+      const next = { ...prev };
+      collaborators.forEach((_, index) => {
+        const { basisPoints: _basisPoints, ...rest } = next[index] ?? {};
+        next[index] = rest;
+      });
+      return next;
+    });
+  }
+
+  const shareSummary = calculateShareSummary(collaborators);
 
   const hasErrors = Object.values(errors).some((e) => (e as { address?: string; basisPoints?: string })?.address || (e as { address?: string; basisPoints?: string })?.basisPoints);
   const hasEmptyFields = collaborators.some((c: Collaborator) => !c.address || !c.basisPoints);
   const hasInvalidPercentages = collaborators.some((c: Collaborator) => getPercentageError(c.basisPoints));
+  const canSubmit =
+    !loading &&
+    !hasErrors &&
+    !hasEmptyFields &&
+    !hasInvalidPercentages &&
+    shareSummary.isComplete;
 
   async function submit() {
     if (phase === "committed") {
@@ -230,8 +289,8 @@ export default function InitializeForm({
       setErrors((prev) => ({ ...prev, ...nextErrors }));
       return setStatus("error", "Please fix all field errors before submitting.");
     }
-    if (Math.round(total * 100) !== 10_000) {
-      return setStatus("error", `Percentages must sum to 100% (currently ${total.toFixed(2)}%).`);
+    if (!shareSummary.isComplete) {
+      return setStatus("error", `Percentages must sum to 100% (currently ${formatBasisPointsAsPercent(shareSummary.allocatedBasisPoints)}%).`);
     }
     const addresses = collaborators.map((c: Collaborator) => c.address);
     if (new Set(addresses).size !== addresses.length) {
@@ -242,7 +301,7 @@ export default function InitializeForm({
     setStatus("info", "Step 1/2: Committing initialization hashes…");
     try {
       const shares = collaborators.map((c: Collaborator) =>
-        Math.round(parseFloat(c.basisPoints) * 100),
+        parsePercentageToBasisPoints(c.basisPoints) ?? 0,
       );
       const salt = generateInitSalt();
       const nonce = generateInitNonce();
@@ -296,7 +355,7 @@ export default function InitializeForm({
     try {
       const addresses = collaborators.map((c: Collaborator) => c.address);
       const shares = collaborators.map((c: Collaborator) =>
-        Math.round(parseFloat(c.basisPoints) * 100),
+        parsePercentageToBasisPoints(c.basisPoints) ?? 0,
       );
 
       const res = await api.revealInitialize({
@@ -339,72 +398,111 @@ export default function InitializeForm({
         </div>
       )}
 
-      {collaborators.map((c: Collaborator, i: number) => (
-        <div key={i}>
-          <div className="collaborator-row">
-            <div style={{ flex: 3, display: "flex", flexDirection: "column" }}>
-              <input
-                placeholder="Wallet address (G...)"
-                value={c.address}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
-                onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "address", e.target.value)}
-                style={{ marginBottom: errors[i]?.address ? "0.25rem" : undefined }}
-              />
-              {errors[i]?.address && (
-                <span className="field-error">{errors[i].address}</span>
-              )}
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <input
-                placeholder="% (0–100)"
-                type="number"
-                min={0}
-                max={100}
-                step="any"
-                value={c.basisPoints}
-                className={errors[i]?.basisPoints ? "input-error" : ""}
-                aria-label={`Royalty percentage for collaborator ${i + 1}`}
-                aria-invalid={Boolean(errors[i]?.basisPoints)}
-                aria-describedby={errors[i]?.basisPoints ? `collaborator-${i}-percentage-error` : undefined}
-                onKeyDown={handlePercentageKeyDown}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  const { value } = e.target;
-                  if (!isAllowedPercentageInput(value)) {
-                    updatePercentageError(setErrors, i, getPercentageError(value));
-                    return;
-                  }
-                  update(i, "basisPoints", value);
-                  validateRow(i, "basisPoints", value);
-                }}
-                onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
-                style={{ marginBottom: errors[i]?.basisPoints ? "0.25rem" : undefined }}
-              />
-              {errors[i]?.basisPoints && (
-                <span id={`collaborator-${i}-percentage-error`} className="field-error">{errors[i].basisPoints}</span>
-              )}
-            </div>
-            {collaborators.length > 1 && (
-              <button className="btn-danger" onClick={() => removeRow(i)}>
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
+      <div className="share-calculator-layout">
+        <div className="share-editor">
+          {collaborators.map((c: Collaborator, i: number) => {
+            const percentageError = errors[i]?.basisPoints;
+            const highlightShare = Boolean(percentageError) || shareSummary.isOverAllocated;
 
-      <div
-        className={`share-total ${Math.round(total * 100) === 10_000 ? "share-total--valid" : "share-total--invalid"}`}
-        role="status"
-        aria-live="polite"
-        aria-label={`Share total: ${total.toFixed(2)}% of 100% required`}
-        data-testid="share-total"
-      >
-        Total: {total.toFixed(2)}% / 100%
-        {Math.round(total * 100) !== 10_000 && total > 0 && (
-          <span className="share-total__hint" aria-hidden="true">
-            {" "}({Math.round(total * 100) < 10_000 ? `${(100 - total).toFixed(2)}% remaining` : `${(total - 100).toFixed(2)}% over`})
-          </span>
-        )}
+            return (
+              <div key={i}>
+                <div className="collaborator-row">
+                  <div className="collaborator-address-field">
+                    <input
+                      placeholder="Wallet address (G...)"
+                      value={c.address}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
+                      onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "address", e.target.value)}
+                      style={{ marginBottom: errors[i]?.address ? "0.25rem" : undefined }}
+                    />
+                    {errors[i]?.address && (
+                      <span className="field-error">{errors[i].address}</span>
+                    )}
+                  </div>
+                  <div className="collaborator-share-field">
+                    <input
+                      placeholder="% (0–100)"
+                      type="text"
+                      inputMode="decimal"
+                      min={0}
+                      max={100}
+                      step="any"
+                      value={c.basisPoints}
+                      className={highlightShare ? "input-error" : ""}
+                      aria-label={`Royalty percentage for collaborator ${i + 1}`}
+                      aria-invalid={highlightShare}
+                      aria-describedby={percentageError ? `collaborator-${i}-percentage-error` : undefined}
+                      onKeyDown={handlePercentageKeyDown}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const { value } = e.target;
+                        if (!isAllowedPercentageInput(value)) {
+                          update(i, "basisPoints", value);
+                          updatePercentageError(setErrors, i, getPercentageError(value));
+                          return;
+                        }
+                        update(i, "basisPoints", value);
+                        validateRow(i, "basisPoints", value);
+                      }}
+                      onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
+                      style={{ marginBottom: percentageError ? "0.25rem" : undefined }}
+                    />
+                    {percentageError && (
+                      <span id={`collaborator-${i}-percentage-error`} className="field-error">{percentageError}</span>
+                    )}
+                  </div>
+                  {collaborators.length > 1 && (
+                    <button className="btn-danger" onClick={() => removeRow(i)}>
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <aside className="share-calculator" aria-label="Collaborator share calculator">
+          <div className="share-calculator__header">
+            <strong>Share calculator</strong>
+            <button
+              type="button"
+              className="btn-add share-calculator__split"
+              onClick={splitEvenly}
+            >
+              Split Evenly
+            </button>
+          </div>
+          <div
+            className={`share-total ${shareSummary.isComplete ? "share-total--valid" : "share-total--invalid"}`}
+            role="status"
+            aria-live="polite"
+            aria-label={`Share total: ${formatBasisPointsAsPercent(shareSummary.allocatedBasisPoints)}% of 100% required`}
+            data-testid="share-total"
+          >
+            <span>Total allocated</span>
+            <strong>{formatBasisPointsAsPercent(shareSummary.allocatedBasisPoints)}%</strong>
+          </div>
+          <div className="share-calculator__metric">
+            <span>
+              {shareSummary.isOverAllocated ? "Over allocated" : "Remaining"}
+            </span>
+            <strong>
+              {formatBasisPointsAsPercent(Math.abs(shareSummary.remainingBasisPoints))}%
+            </strong>
+          </div>
+          {shareSummary.isOverAllocated && (
+            <p className="share-calculator__warning" role="alert">
+              Shares exceed 100%.
+            </p>
+          )}
+          <div className="share-progress" aria-hidden="true">
+            <div
+              data-testid="share-progress-bar"
+              className={`share-progress__bar ${shareSummary.isOverAllocated ? "share-progress__bar--over" : ""}`}
+              style={{ width: `${shareSummary.progressPercent}%` }}
+            />
+          </div>
+        </aside>
       </div>
 
       {collaborators.length >= MAX_COLLABORATORS - 5 && collaborators.length < MAX_COLLABORATORS && (
@@ -425,7 +523,7 @@ export default function InitializeForm({
         <button
           className="btn-primary"
           onClick={submit}
-          disabled={loading || hasErrors || hasEmptyFields || hasInvalidPercentages}
+          disabled={!canSubmit}
         >
           {loading
             ? "Submitting…"
