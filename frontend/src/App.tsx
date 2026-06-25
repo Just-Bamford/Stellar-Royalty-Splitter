@@ -43,6 +43,7 @@ export default function App() {
   );
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionToast, setSessionToast] = useState<string | null>(null);
+  const [tourTrigger, setTourTrigger] = useState(0);
 
   function handleWalletConnect(address: string) {
     setWalletAddress(address);
@@ -335,6 +336,7 @@ export default function App() {
         onPageChange={handlePageChange}
         walletAddress={walletAddress}
         onDisconnect={handleDisconnect}
+        onStartTour={() => setTourTrigger((n) => n + 1)}
       />
 
       <div className="app-content">
@@ -428,7 +430,11 @@ export default function App() {
         <div className="app-main">{renderPage()}</div>
       </div>
 
-      <OnboardingWalkthrough />
+      <OnboardingWalkthrough
+        currentPage={currentPage}
+        onPageChange={handlePageChange}
+        restartSignal={tourTrigger}
+      />
     </div>
   );
 }
