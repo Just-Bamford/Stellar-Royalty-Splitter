@@ -16,6 +16,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -132,6 +133,75 @@ describe("POST /api/v1/initialize", () => {
     const res = await request(app).post("/api/v1/initialize").send({ contractId: CONTRACT });
 
     expect(res.status).toBe(400);
+  });
+
+  test("happy path with 1 collaborator (minimum) — returns xdr and transactionId", async () => {
+    isContractInitialized.mockResolvedValue(false);
+    retryBuildTx.mockResolvedValue("unsigned-xdr-string");
+    recordTransaction.mockReturnValue("tx-123");
+
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({
+        ...validBody,
+        collaborators: [COLLAB1],
+        shares: [10000],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ xdr: "unsigned-xdr-string", transactionId: "tx-123" });
+  });
+
+  test("happy path with 20 collaborators (maximum) — returns xdr and transactionId", async () => {
+    isContractInitialized.mockResolvedValue(false);
+    retryBuildTx.mockResolvedValue("unsigned-xdr-string");
+    recordTransaction.mockReturnValue("tx-123");
+
+    const collaborators = Array.from({ length: 20 }, (_, i) => {
+      const char = String.fromCharCode(65 + (i % 26));
+      return `G${char.repeat(55)}`;
+    });
+    const shares = Array.from({ length: 20 }, () => 500);
+
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({
+        ...validBody,
+        collaborators,
+        shares,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ xdr: "unsigned-xdr-string", transactionId: "tx-123" });
+  });
+
+  test("400 when collaborators array contains invalid addresses", async () => {
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({
+        ...validBody,
+        collaborators: [COLLAB1, "invalid-stellar-address"],
+        shares: [5000, 5000],
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  test("duplicate addresses in collaborators — succeeds at API validation layer", async () => {
+    isContractInitialized.mockResolvedValue(false);
+    retryBuildTx.mockResolvedValue("unsigned-xdr-string");
+    recordTransaction.mockReturnValue("tx-123");
+
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({
+        ...validBody,
+        collaborators: [COLLAB1, COLLAB1],
+        shares: [5000, 5000],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ xdr: "unsigned-xdr-string", transactionId: "tx-123" });
   });
 
   test("413 when initialize request body is too large", async () => {
