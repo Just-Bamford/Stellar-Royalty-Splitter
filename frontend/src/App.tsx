@@ -16,6 +16,7 @@ import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalt
 import ResaleHistory from "./components/ResaleHistory";
 import { Skeleton } from "./components/Skeleton";
 import { CopyButton } from "./components/CopyButton";
+import { ContractAddress } from "./components/ContractAddress";
 import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 
@@ -364,6 +365,9 @@ export default function App() {
             </div>
             {contractIdError && (
               <p className="contract-input-error">{contractIdError}</p>
+            )}
+            {contractIdValid && (
+              <ContractAddress address={contractId} label="contract ID" />
             )}
             {contractIdValid && contractInitialized !== null && (
               <p className={`contract-status ${contractInitialized ? "contract-status--ok" : "contract-status--warn"}`}>

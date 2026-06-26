@@ -5,6 +5,8 @@ interface CopyButtonProps {
   label?: string;
   className?: string;
   size?: "sm" | "md";
+  /** Called after the value is successfully copied (e.g. to show a toast). */
+  onCopied?: () => void;
 }
 
 export function CopyButton({
@@ -12,6 +14,7 @@ export function CopyButton({
   label = "Copy",
   className = "",
   size = "md",
+  onCopied,
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
@@ -22,12 +25,13 @@ export function CopyButton({
       try {
         await navigator.clipboard.writeText(value);
         setCopied(true);
+        onCopied?.();
         setTimeout(() => setCopied(false), 2000);
       } catch {
         setCopied(false);
       }
     },
-    [value],
+    [value, onCopied],
   );
 
   const sizeClass = size === "sm" ? "copy-btn-sm" : "copy-btn";
