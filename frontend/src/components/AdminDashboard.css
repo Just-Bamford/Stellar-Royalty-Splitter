@@ -171,6 +171,90 @@
   transition: all var(--transition-base);
 }
 
+.contract-state-panel {
+  display: grid;
+  gap: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.contract-state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 32px;
+}
+
+.contract-state-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.contract-state-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.contract-state-admin {
+  max-width: min(100%, 520px);
+  overflow-wrap: anywhere;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-family: "Courier New", monospace;
+  font-size: 0.85rem;
+}
+
+.auto-refresh-control select {
+  min-width: 110px;
+  min-height: 36px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--spacing-sm);
+}
+
+.cache-status-badge {
+  padding: 0.3rem var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.cache-status-badge.cached {
+  background: var(--warning-light);
+  color: var(--warning-dark);
+}
+
+.cache-status-badge.live {
+  background: var(--success-light);
+  color: var(--success-dark);
+}
+
+.cache-status-badge.error {
+  background: var(--error-light);
+  color: var(--error-dark);
+}
+
+.contract-state-error {
+  color: var(--error-dark);
+  background: var(--error-light);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.9rem;
+}
+
 .copy-btn {
   padding: var(--spacing-xs) var(--spacing-md);
   background: var(--bg-secondary);
@@ -841,10 +925,34 @@
   box-shadow: var(--shadow-sm);
 }
 
+.action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+}
+
+.refresh-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.refresh-spinner.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
 .action-btn.copied {
   background: var(--success-color);
   color: white;
   border-color: var(--success-color);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* QR Modal Styles */

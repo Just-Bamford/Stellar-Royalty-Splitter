@@ -32,6 +32,20 @@ function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function shouldBypassCache(value) {
+  const normalized = String(firstQueryValue(value) ?? "").toLowerCase();
+  return normalized === "false" || normalized === "0" || normalized === "no";
+}
+
+function withCacheMetadata(state, cacheStatus, fetchedAt) {
+  return {
+    ...state,
+    cacheStatus,
+    cacheTtlMs: CONTRACT_STATE_CACHE_TTL_MS,
+    fetchedAt: new Date(fetchedAt).toISOString(),
+  };
+}
+
 function i128ScValToString(scVal) {
   const i128 = scVal?.i128?.();
   if (!i128) return "0";
@@ -132,14 +146,15 @@ contractRouter.get("/state", async (req, res, next) => {
     const cacheKey = getContractStateCacheKey(contractId, tokenId);
     const cached = contractStateCache.get(cacheKey);
     const now = Date.now();
+    const bypassCache = shouldBypassCache(req.query.cache);
 
-    if (cached && now - cached.fetchedAt < CONTRACT_STATE_CACHE_TTL_MS) {
-      return res.json(cached.state);
+    if (!bypassCache && cached && now - cached.fetchedAt < CONTRACT_STATE_CACHE_TTL_MS) {
+      return res.json(withCacheMetadata(cached.state, "cached", cached.fetchedAt));
     }
 
     const state = await readContractState(contractId, tokenId);
     contractStateCache.set(cacheKey, { state, fetchedAt: now });
-    res.json(state);
+    res.json(withCacheMetadata(state, "live", now));
   } catch (err) {
     if (err.status) {
       return res.status(err.status).json({ error: err.message });

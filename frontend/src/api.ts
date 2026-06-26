@@ -181,6 +181,22 @@ export interface RoyaltyStats {
   } | null;
 }
 
+export type ContractStateCacheStatus = "cached" | "live" | "error";
+
+export interface ContractState {
+  contractId: string;
+  adminAddress: string | null;
+  royaltyRate: number;
+  recipients: Array<{ address: string; basisPoints: number }>;
+  balance: string;
+  tokenId: string;
+  network: string;
+  networkPassphrase?: string;
+  cacheStatus: Exclude<ContractStateCacheStatus, "error">;
+  cacheTtlMs: number;
+  fetchedAt: string;
+}
+
 export const api = {
   initialize: (body: {
     contractId: string;
@@ -376,6 +392,15 @@ export const api = {
     get<{ contractId: string; version: string }>(
       `/contract/version/${contractId}`,
     ),
+
+  getContractState: (
+    contractId: string,
+    options: { bypassCache?: boolean } = {},
+  ) => {
+    const params = new URLSearchParams({ contractId });
+    if (options.bypassCache) params.set("cache", "false");
+    return get<ContractState>(`/contract/state?${params.toString()}`);
+  },
 
   // NEW: Fetch royalty rate from contract
   getRoyaltyRate: (contractId: string) =>
