@@ -3,9 +3,9 @@
 use soroban_sdk::{
     testutils::Address as _,
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, Vec as SorobanVec,
+    Address, Env, Map, Vec as SorobanVec,
 };
-use stellar_royalty_splitter::{Recipient, RoyaltySplitterClient};
+use stellar_royalty_splitter::{DataKey, Recipient, RoyaltySplitterClient};
 
 fn setup(env: &Env) -> (Address, RoyaltySplitterClient) {
     let contract_id = env.register_contract(None, stellar_royalty_splitter::RoyaltySplitter);
@@ -48,6 +48,26 @@ fn build_override_recipients(
     }
 
     (recipients, addresses, shares)
+}
+
+fn seed_collaborators(env: &Env, contract_id: &Address, recipients: &SorobanVec<Recipient>) {
+    let mut collaborators = SorobanVec::new(env);
+    let mut share_map: Map<Address, u32> = Map::new(env);
+
+    for i in 0..recipients.len() {
+        let recipient = recipients.get(i).unwrap();
+        collaborators.push_back(recipient.address.clone());
+        share_map.set(recipient.address.clone(), recipient.share);
+    }
+
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Collaborators, &collaborators);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ShareMap, &share_map);
+    });
 }
 
 fn expected_payouts(amount: i128, shares: &[u32]) -> std::vec::Vec<i128> {
@@ -95,6 +115,7 @@ fn test_override_distribution_with_100_plus_recipients() {
     );
 
     let (recipients, addresses, shares) = build_override_recipients(&env, 120);
+    seed_collaborators(&env, &contract_id, &recipients);
     let amount: i128 = 120_000_000;
     mint(&env, &token, &contract_id, amount);
 
@@ -134,6 +155,7 @@ fn test_repeated_large_batches_same_contract() {
     );
 
     let (recipients, addresses, shares) = build_override_recipients(&env, 100);
+    seed_collaborators(&env, &contract_id, &recipients);
     let payouts = expected_payouts(500_000_000, &shares);
     let mut running_balances = std::vec::Vec::with_capacity(addresses.len());
     running_balances.resize(addresses.len(), 0i128);
@@ -178,6 +200,7 @@ fn test_large_amount_distribution_with_100_recipients() {
     );
 
     let (recipients, addresses, shares) = build_override_recipients(&env, 100);
+    seed_collaborators(&env, &contract_id, &recipients);
     let amount: i128 = 1_000_000_000_000_000;
     mint(&env, &token, &contract_id, amount);
 
@@ -218,12 +241,14 @@ fn test_large_batch_scale_is_reasonable() {
 
     let (small_recipients, _, _) = build_override_recipients(&env, 100);
     let (large_recipients, _, _) = build_override_recipients(&env, 120);
+    seed_collaborators(&env, &contract_id, &small_recipients);
 
     mint(&env, &token, &contract_id, 10_000_000);
     let (_, small_cpu) = measure_cpu(&env, || {
         client.distribute_with_override(&token, &small_recipients)
     });
 
+    seed_collaborators(&env, &contract_id, &large_recipients);
     mint(&env, &token, &contract_id, 10_000_000);
     let (_, large_cpu) = measure_cpu(&env, || {
         client.distribute_with_override(&token, &large_recipients)
@@ -252,6 +277,7 @@ fn test_repeated_batches_do_not_leave_residual_balance() {
     );
 
     let (recipients, _, shares) = build_override_recipients(&env, 150);
+    seed_collaborators(&env, &contract_id, &recipients);
     let payouts = expected_payouts(75_000_000, &shares);
 
     for _ in 0..3 {

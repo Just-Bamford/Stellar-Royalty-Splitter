@@ -57,8 +57,8 @@ fn test_distribute_rejects_invalid_share_total() {
     let token = make_token(&env, &token_admin);
 
     client.initialize(
-        &vec![&env, admin.clone(), b.clone()],
-        &vec![&env, 5000_u32, 5000_u32],
+        &vec![&env, admin.clone(), b.clone(), c.clone()],
+        &vec![&env, 4000_u32, 3000_u32, 3000_u32],
     );
     mint(&env, &token, &contract_id, 1000);
 
@@ -1577,8 +1577,8 @@ fn test_distribute_with_override_uses_override() {
     let token = make_token(&env, &token_admin);
 
     client.initialize(
-        &vec![&env, admin.clone(), b.clone()],
-        &vec![&env, 5000_u32, 5000_u32],
+        &vec![&env, admin.clone(), b.clone(), c.clone()],
+        &vec![&env, 4000_u32, 3000_u32, 3000_u32],
     );
 
     let default1 = Recipient {
@@ -1605,6 +1605,64 @@ fn test_distribute_with_override_uses_override() {
     assert_eq!(TokenClient::new(&env, &token).balance(&c), 1000);
     assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
     assert_eq!(TokenClient::new(&env, &token).balance(&b), 0);
+
+    let events = env.events().all();
+    let found = events.iter().any(|(cid, topics, data)| {
+        cid == contract_id
+            && topics
+                == vec![
+                    &env,
+                    symbol_short!("royalty").into_val(&env),
+                    symbol_short!("ovr_dist").into_val(&env),
+                ]
+            && val_eq(
+                &env,
+                data,
+                (
+                    stellar_royalty_splitter::EVENT_VERSION,
+                    env.ledger().sequence(),
+                    token.clone(),
+                    amount,
+                    1_u32,
+                ),
+            )
+    });
+    assert!(found, "override audit event not emitted");
+}
+
+/// Test distribute_with_override rejects override recipients that are not initialized collaborators
+#[test]
+fn test_distribute_with_override_rejects_unauthorized_recipients() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let outsider = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let amount: i128 = 1000;
+    mint(&env, &token, &contract_id, amount);
+
+    let unauthorized_override = vec![
+        &env,
+        Recipient {
+            address: outsider.clone(),
+            share: 10000_u32,
+        },
+    ];
+
+    let result = client.try_distribute_with_override(&token, &unauthorized_override);
+    assert_eq!(result, Err(Ok(ContractError::CollaboratorNotFound)));
+    assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), amount);
+    assert_eq!(TokenClient::new(&env, &token).balance(&outsider), 0);
 }
 
 /// Test distribute_with_override rejects override recipients whose shares do not sum to 10000
@@ -1621,8 +1679,8 @@ fn test_distribute_with_override_invalid_share_sum_panics_without_distribution()
     let token = make_token(&env, &token_admin);
 
     client.initialize(
-        &vec![&env, admin.clone(), b.clone()],
-        &vec![&env, 5000_u32, 5000_u32],
+        &vec![&env, admin.clone(), b.clone(), c.clone()],
+        &vec![&env, 4000_u32, 3000_u32, 3000_u32],
     );
 
     let amount: i128 = 1000;
@@ -1675,6 +1733,43 @@ fn test_distribute_with_override_invalid_share_sum_panics_without_distribution()
     assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), amount);
     assert_eq!(TokenClient::new(&env, &token).balance(&admin), 0);
     assert_eq!(TokenClient::new(&env, &token).balance(&c), 0);
+}
+
+/// Test distribute_with_override rejects duplicate override recipients.
+#[test]
+fn test_distribute_with_override_duplicate_recipients_rejected() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let amount: i128 = 1000;
+    mint(&env, &token, &contract_id, amount);
+
+    let duplicate_override = vec![
+        &env,
+        Recipient {
+            address: admin.clone(),
+            share: 5000_u32,
+        },
+        Recipient {
+            address: admin.clone(),
+            share: 5000_u32,
+        },
+    ];
+
+    let result = client.try_distribute_with_override(&token, &duplicate_override);
+    assert_eq!(result, Err(Ok(ContractError::DuplicateRecipient)));
+    assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), amount);
 }
 
 /// Test distribute_with_override falls back to defaults when override is empty

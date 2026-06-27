@@ -356,6 +356,63 @@ impl RoyaltySplitter {
         }
     }
 
+    fn validate_override_recipients(env: &Env, recipients: &Vec<Recipient>) {
+        let collaborators = Self::require_collaborators(env);
+
+        if recipients.is_empty() {
+            Self::fail(env, ContractError::EmptyRecipients);
+        }
+
+        let mut total_shares: u32 = 0;
+        let mut seen: Vec<Address> = Vec::new(env);
+
+        for i in 0..recipients.len() {
+            let recipient = recipients.get(i).unwrap();
+            if recipient.share == 0 {
+                Self::fail(env, ContractError::ZeroShare);
+            }
+
+            for j in 0..seen.len() {
+                if seen.get(j).unwrap() == recipient.address {
+                    Self::fail(env, ContractError::DuplicateRecipient);
+                }
+            }
+            seen.push_back(recipient.address.clone());
+
+            let mut is_initialized_collaborator = false;
+
+            for j in 0..collaborators.len() {
+                if collaborators.get(j).unwrap() == recipient.address {
+                    is_initialized_collaborator = true;
+                    break;
+                }
+            }
+
+            if !is_initialized_collaborator {
+                Self::fail(env, ContractError::CollaboratorNotFound);
+            }
+
+            total_shares = Self::checked_add_share_total(env, total_shares, recipient.share);
+        }
+
+        if total_shares != 10_000 {
+            Self::fail(env, ContractError::InvalidShareTotal);
+        }
+    }
+
+    fn emit_override_audit_event(env: &Env, token: &Address, recipient_count: u32, amount: i128) {
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("ovr_dist")),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                token.clone(),
+                amount,
+                recipient_count,
+            ),
+        );
+    }
+
     fn get_recipients_for_batch(env: &Env) -> Vec<Recipient> {
         let defaults: Vec<Recipient> =
             storage::persistent_get::<Vec<Recipient>>(env, &StorageKey::DefaultRecipients)
@@ -1224,9 +1281,10 @@ impl RoyaltySplitter {
     ///
     /// # Arguments
     /// * `token` - The token address to distribute (e.g., XLM or other Stellar asset)
-    /// * `override_recipients` - Optional override recipient list. If provided, uses this
-    ///   list instead of default recipients. If None/empty, falls back to default recipients
-    ///   if configured, otherwise uses the original collaborator list.
+    /// * `override_recipients` - Optional override recipient list. If provided, each
+    ///   recipient must already exist in the initialized collaborator list. If None/empty,
+    ///   falls back to default recipients if configured, otherwise uses the original
+    ///   collaborator list.
     ///
     /// # Distribution Logic
     /// Each recipient receives: (total_amount * their_share) / 10,000
@@ -1234,6 +1292,11 @@ impl RoyaltySplitter {
     ///
     /// # Authorization
     /// Requires admin signature
+    ///
+    /// # Override Restrictions
+    /// When `override_recipients` is provided, every recipient must already be
+    /// present in the initialized collaborator list. Override distributions also
+    /// emit an audit event before funds are transferred.
     ///
     /// # Panics
     /// * `"recipients list cannot be empty"` — no recipients are configured
@@ -1251,10 +1314,14 @@ impl RoyaltySplitter {
         if amount == 0 {
             soroban_sdk::panic_with_error!(&env, ContractError::Underfunded);
         }
+        let used_override = !override_recipients.is_empty();
 
         // Determine which recipient list to use
         let recipients_to_use: Vec<Recipient> = if !override_recipients.is_empty() {
-            // Use override recipients if provided
+            // Override recipients are a restricted admin path: they must already be
+            // part of the initialized collaborator set and still satisfy the normal
+            // share validation rules.
+            Self::validate_override_recipients(&env, &override_recipients);
             override_recipients
         } else {
             // Try to use default recipients (persistent storage), fall back to collaborators
@@ -1309,6 +1376,11 @@ impl RoyaltySplitter {
         if amount < n as i128 {
             Self::fail(&env, ContractError::AmountTooSmall);
         }
+
+        if used_override {
+            Self::emit_override_audit_event(&env, &token, n as u32, amount);
+        }
+
         let mut payouts: Vec<(Address, i128)> = Vec::new(&env);
         let mut total_calculated: i128 = 0;
 
