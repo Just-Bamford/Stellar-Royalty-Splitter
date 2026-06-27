@@ -3,8 +3,8 @@ pub mod auth;
 mod storage;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Bytes, BytesN,
-    Env, Map, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Bytes,
+    BytesN, Env, Map, String, Vec,
 };
 
 #[contracttype]
@@ -64,6 +64,7 @@ pub enum StorageKey {
     InitNC,
     PauseTimestamp,
     PauseSource,
+    PauseEmergency,
     // Persistent storage
     Collaborators,
     ShareMap,
@@ -80,9 +81,9 @@ pub const RATE_HISTORY_CAP: u32 = 20;
 /// Dust is bounded by 1 basis point (0.01%) of any distribution to prevent
 /// excessive accumulation from many small transactions.
 pub const MAX_DUST: i128 = 100; // 100 stroops = 1 basis point of 10,000
-/// Emergency pause duration in seconds (24 hours).
+/// Emergency pause duration in seconds (48 hours).
 /// Collaborator-initiated pauses auto-expire after this duration.
-pub const EMERGENCY_PAUSE_DURATION: u64 = 24 * 60 * 60;
+pub const EMERGENCY_PAUSE_DURATION: u64 = 48 * 60 * 60;
 
 /// Issue #402: Admin transfer time-lock duration in seconds (48 hours).
 /// Proposed admin transfers must wait this duration before acceptance.
@@ -194,12 +195,101 @@ impl RoyaltySplitter {
         }
         result as i128
     }
+
+    fn zero_address(env: &Env) -> Address {
+        Address::from_string(
+            env,
+            &String::from_str(env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        )
+        .unwrap()
+    }
+
+    fn clear_pause_state(env: &Env) {
+        env.storage().instance().set(&StorageKey::Paused, &false);
+        env.storage().instance().remove(&StorageKey::PauseTimestamp);
+        env.storage().instance().remove(&StorageKey::PauseSource);
+        env.storage().instance().remove(&StorageKey::PauseEmergency);
+    }
+
+    fn is_emergency_pause_expired(env: &Env) -> bool {
+        let paused = env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::Paused)
+            .unwrap_or(false);
+        if !paused {
+            return false;
+        }
+
+        let is_emergency = env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::PauseEmergency)
+            .unwrap_or(false);
+        if !is_emergency {
+            return false;
+        }
+
+        let timestamp = env
+            .storage()
+            .instance()
+            .get::<StorageKey, u64>(&StorageKey::PauseTimestamp)
+            .unwrap_or(0);
+        env.ledger().timestamp().saturating_sub(timestamp) >= EMERGENCY_PAUSE_DURATION
+    }
+
+    fn auto_unpause_if_expired(env: &Env) -> bool {
+        if !Self::is_emergency_pause_expired(env) {
+            return false;
+        }
+
+        Self::clear_pause_state(env);
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("unpause")),
+            env.ledger().timestamp(),
+        );
+        true
+    }
+
+    fn ensure_not_paused(env: &Env) {
+        if Self::auto_unpause_if_expired(env) {
+            return;
+        }
+
+        if env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::Paused)
+            .unwrap_or(false)
+        {
+            Self::fail(env, ContractError::ContractPaused);
+        }
+    }
+
+    fn require_collaborator_auth(env: &Env, collaborator: &Address, message: &str) {
+        let collaborators = Self::require_collaborators(env);
+        let mut is_collaborator = false;
+
+        for addr in collaborators.iter() {
+            if &addr == collaborator {
+                is_collaborator = true;
+                break;
+            }
+        }
+
+        if !is_collaborator {
+            Self::fail(env, ContractError::CollaboratorNotFound);
+        }
+
+        let context = String::from_str(env, message);
+        env.events().publish((symbol_short!("auth_req"),), context);
+        collaborator.require_auth();
+    }
 }
 
 impl RoyaltySplitter {
     fn check_admin_auth(env: &Env, message: &str) {
-        let admin_list: Option<Vec<Address>> =
-            env.storage().instance().get(&StorageKey::AdminList);
+        let admin_list: Option<Vec<Address>> = env.storage().instance().get(&StorageKey::AdminList);
         if let Some(admins) = admin_list {
             if !admins.is_empty() {
                 let threshold: u32 = env
@@ -302,11 +392,8 @@ impl RoyaltySplitter {
 
         let mut total_shares: u32 = 0;
         for i in 0..recipients.len() {
-            total_shares = Self::checked_add_share_total(
-                env,
-                total_shares,
-                recipients.get(i).unwrap().share,
-            );
+            total_shares =
+                Self::checked_add_share_total(env, total_shares, recipients.get(i).unwrap().share);
         }
         if total_shares != 10_000 {
             Self::fail(env, ContractError::InvalidShareTotal);
@@ -348,13 +435,20 @@ impl RoyaltySplitter {
 
         for (addr, payout) in payouts.iter() {
             token_client.transfer(&env.current_contract_address(), &addr, &payout);
-            env.events()
-                .publish((symbol_short!("dist"),), (EVENT_VERSION, env.ledger().sequence(), addr, payout));
+            env.events().publish(
+                (symbol_short!("dist"),),
+                (EVENT_VERSION, env.ledger().sequence(), addr, payout),
+            );
         }
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("dist_all")),
-            (EVENT_VERSION, env.ledger().sequence(), token.clone(), amount),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                token.clone(),
+                amount,
+            ),
         );
     }
 }
@@ -401,7 +495,10 @@ impl RoyaltySplitter {
         storage::instance_set(&env, &StorageKey::InitCS, &ledger);
         storage::instance_set(&env, &StorageKey::InitCM, &committer);
         storage::instance_set(&env, &StorageKey::InitNC, &nonce);
-        env.events().publish((symbol_short!("royalty"), symbol_short!("commt")), committer);
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("commt")),
+            committer,
+        );
     }
 
     pub fn reveal_initialize(
@@ -449,7 +546,12 @@ impl RoyaltySplitter {
             Self::fail(&env, ContractError::InvalidReveal);
         }
         Self::clear_init_commit(&env);
-        Self::apply_initialize(&env, collaborators, shares, auth::msg::REVEAL_INITIALIZE_ADMIN);
+        Self::apply_initialize(
+            &env,
+            collaborators,
+            shares,
+            auth::msg::REVEAL_INITIALIZE_ADMIN,
+        );
     }
 
     fn clear_init_commit(env: &Env) {
@@ -460,7 +562,11 @@ impl RoyaltySplitter {
         env.storage().instance().remove(&StorageKey::InitNC);
     }
 
-    fn hash_collaborators(env: &Env, collaborators: &Vec<Address>, salt: &BytesN<32>) -> BytesN<32> {
+    fn hash_collaborators(
+        env: &Env,
+        collaborators: &Vec<Address>,
+        salt: &BytesN<32>,
+    ) -> BytesN<32> {
         let mut bytes = Bytes::new(env);
         bytes.extend_from_slice(salt.as_ref());
         for i in 0..collaborators.len() {
@@ -521,7 +627,12 @@ impl RoyaltySplitter {
         storage::instance_set(env, &StorageKey::ContractVersion, &version);
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("init")),
-            (EVENT_VERSION, env.ledger().sequence(), collaborators, shares),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                collaborators,
+                shares,
+            ),
         );
     }
 
@@ -574,8 +685,11 @@ impl RoyaltySplitter {
             .expect("contract not initialized");
 
         let mut history: Vec<RoyaltyRateChange> =
-            storage::persistent_get::<Vec<RoyaltyRateChange>>(&env, &StorageKey::RoyaltyRateHistory)
-                .unwrap_or(Vec::new(&env));
+            storage::persistent_get::<Vec<RoyaltyRateChange>>(
+                &env,
+                &StorageKey::RoyaltyRateHistory,
+            )
+            .unwrap_or(Vec::new(&env));
 
         if history.len() >= RATE_HISTORY_CAP {
             // Drop the oldest entry to keep the vec at the cap.
@@ -625,67 +739,58 @@ impl RoyaltySplitter {
         Self::check_admin_auth(&env, auth::msg::PAUSE_ADMIN);
         storage::instance_set(&env, &StorageKey::Paused, &true);
         storage::instance_set(&env, &StorageKey::PauseTimestamp, &env.ledger().timestamp());
-        
+        storage::instance_set(&env, &StorageKey::PauseEmergency, &false);
+
         let admin = Self::require_admin_address(&env);
         storage::instance_set(&env, &StorageKey::PauseSource, &admin);
-        
+
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("pause")),
             (admin, env.ledger().timestamp()),
         );
     }
 
-    /// Emergency pause by any collaborator — auto-expires after 24 hours.
+    /// Emergency pause by any collaborator.
     ///
-    /// Allows any collaborator to pause the contract in emergencies. The pause
-    /// automatically expires after 24 hours. Multi-sig (2-of-3 admin) is required
-    /// to manually unpause before the 24-hour expiration.
+    /// Allows any configured collaborator to stop all distributions immediately.
+    /// The pause automatically expires after 48 hours. Manual unpause before the
+    /// expiry still uses the configured admin multi-sig threshold.
     ///
     /// # Authorization
-    /// Requires signature from any collaborator.
+    /// Requires signature from a collaborator address supplied by the caller.
     ///
     /// # Panics
     /// * `"contract not initialized"` — called before `initialize`
     /// * `"contract is already paused"` — pause is already active
-    pub fn pause_collaborator_distributions(env: Env) {
+    pub fn pause_emergency(env: Env, collaborator: Address) {
         storage::extend_instance_ttl(&env);
 
-        // Check if already paused
-        if env
-            .storage()
-            .instance()
-            .get::<StorageKey, bool>(&StorageKey::Paused)
-            .unwrap_or(false)
-        {
-            Self::fail(&env, ContractError::ContractPaused);
-        }
+        Self::ensure_not_paused(&env);
 
-        // Verify caller is a collaborator
-        let collaborators = Self::require_collaborators(&env);
-        let mut caller: Option<Address> = None;
-        
-        for addr in collaborators.iter() {
-            let context = String::from_str(&env, auth::msg::PAUSE_COLLABORATOR);
-            env.events().publish((symbol_short!("auth_req"),), context);
-            addr.require_auth();
-            caller = Some(addr.clone());
-            break; // Only need one collaborator to authorize
-        }
-        
-        let caller = caller.unwrap();
-        
-        // Set pause with timestamp and source
+        Self::require_collaborator_auth(&env, &collaborator, auth::msg::PAUSE_EMERGENCY);
+
         storage::instance_set(&env, &StorageKey::Paused, &true);
         storage::instance_set(&env, &StorageKey::PauseTimestamp, &env.ledger().timestamp());
-        storage::instance_set(&env, &StorageKey::PauseSource, &caller);
-        
+        storage::instance_set(&env, &StorageKey::PauseSource, &collaborator);
+        storage::instance_set(&env, &StorageKey::PauseEmergency, &true);
+
         env.events().publish(
-            (symbol_short!("royalty"), symbol_short!("collab_pause")),
-            (caller, env.ledger().timestamp()),
+            (symbol_short!("royalty"), symbol_short!("pause_emergency")),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                collaborator,
+                env.ledger().timestamp(),
+            ),
         );
     }
 
-        /// Transfer admin rights to a new address (single-admin mode only).
+    /// Backward-compatible alias for the collaborator emergency pause entrypoint.
+    pub fn pause_collaborator_distributions(env: Env, collaborator: Address) {
+        Self::pause_emergency(env, collaborator);
+    }
+
+    /// Transfer admin rights to a new address (single-admin mode only).
     ///
     /// Immediate single-step transfer — the new admin does NOT need to confirm.
     /// Disabled when multi-sig is active; use `propose_admin_transfer` instead.
@@ -721,7 +826,12 @@ impl RoyaltySplitter {
         // #399: Emit structured event for backend cache invalidation
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("admin_xfr")),
-            (EVENT_VERSION, env.ledger().sequence(), previous_admin, new_admin),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                previous_admin,
+                new_admin,
+            ),
         );
     }
 
@@ -737,7 +847,7 @@ impl RoyaltySplitter {
         storage::extend_instance_ttl(&env);
 
         Self::check_admin_auth(&env, auth::msg::PROPOSE_ADMIN_ADMIN);
-        
+
         let timestamp = env.ledger().timestamp();
         storage::instance_set(&env, &StorageKey::PendingAdmin, &new_admin);
         storage::instance_set(&env, &StorageKey::PendingAdminTimestamp, &timestamp);
@@ -796,12 +906,19 @@ impl RoyaltySplitter {
 
         storage::instance_set(&env, &StorageKey::Admin, &pending);
         env.storage().instance().remove(&StorageKey::PendingAdmin);
-        env.storage().instance().remove(&StorageKey::PendingAdminTimestamp);
+        env.storage()
+            .instance()
+            .remove(&StorageKey::PendingAdminTimestamp);
 
         // #399: Emit structured event for backend cache invalidation
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("adm_acc")),
-            (EVENT_VERSION, env.ledger().sequence(), previous_admin, pending),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                previous_admin,
+                pending,
+            ),
         );
     }
 
@@ -828,7 +945,9 @@ impl RoyaltySplitter {
             .expect("no pending admin transfer");
 
         env.storage().instance().remove(&StorageKey::PendingAdmin);
-        env.storage().instance().remove(&StorageKey::PendingAdminTimestamp);
+        env.storage()
+            .instance()
+            .remove(&StorageKey::PendingAdminTimestamp);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("adm_cancel")),
@@ -838,50 +957,22 @@ impl RoyaltySplitter {
 
     /// Unpause the contract — re-enables `distribute` and `distribute_secondary_royalties`.
     ///
-    /// If the pause was initiated by a collaborator (emergency pause), it will
-    /// auto-expire after 24 hours. Before expiration, multi-sig (2-of-3 admin) is
-    /// required to manually unpause. After 24 hours, any admin can unpause.
+    /// Emergency pauses auto-expire after 48 hours. Before expiration, the
+    /// configured admin quorum must authorize `unpause`. After expiration, the
+    /// pause is cleared automatically by read/write entrypoints and this call
+    /// simply clears any remaining metadata.
     ///
     /// # Authorization
-    /// Requires admin signature (multi-sig if pause is collaborator-initiated and < 24h).
+    /// Requires admin signature (multi-sig if admin quorum is configured).
     ///
     /// # Panics
     /// * `"contract not initialized"` — called before `initialize`
     pub fn unpause(env: Env) {
         storage::extend_instance_ttl(&env);
 
-        // Check if pause exists and get its details
-        let pause_timestamp: Option<u64> = env.storage().instance().get(&StorageKey::PauseTimestamp);
-        let pause_source: Option<Address> = env.storage().instance().get(&StorageKey::PauseSource);
-        
-        if let Some(timestamp) = pause_timestamp {
-            let current_time = env.ledger().timestamp();
-            let elapsed = current_time.saturating_sub(timestamp);
-            
-            // If pause was initiated by collaborator and < 24 hours have passed, require multi-sig
-            if let Some(source) = pause_source {
-                let is_admin_pause = source == Self::require_admin_address(&env);
-                
-                if !is_admin_pause && elapsed < EMERGENCY_PAUSE_DURATION {
-                    // Emergency pause still active - require multi-sig (2-of-3 admin)
-                    Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
-                } else {
-                    // Either admin pause or emergency pause expired - single admin can unpause
-                    Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
-                }
-            } else {
-                // Legacy pause without source tracking - require admin
-                Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
-            }
-        } else {
-            // No pause timestamp - require admin
-            Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
-        }
-        
-        storage::instance_set(&env, &StorageKey::Paused, &false);
-        env.storage().instance().remove(&StorageKey::PauseTimestamp);
-        env.storage().instance().remove(&StorageKey::PauseSource);
-        
+        Self::check_admin_auth(&env, auth::msg::UNPAUSE_ADMIN);
+        Self::clear_pause_state(&env);
+
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("unpause")),
             env.ledger().timestamp(),
@@ -914,6 +1005,7 @@ impl RoyaltySplitter {
     /// Defaults to `false` before `pause` is ever called.
     pub fn is_paused(env: Env) -> bool {
         storage::extend_instance_ttl(&env);
+        Self::auto_unpause_if_expired(&env);
         env.storage()
             .instance()
             .get(&StorageKey::Paused)
@@ -927,31 +1019,43 @@ impl RoyaltySplitter {
     /// remaining_seconds is the time until auto-expiration (0 if not an emergency pause).
     pub fn get_pause_info(env: Env) -> (u64, Address, u64) {
         storage::extend_instance_ttl(&env);
-        
-        let paused = env.storage()
+        Self::auto_unpause_if_expired(&env);
+
+        let paused = env
+            .storage()
             .instance()
             .get(&StorageKey::Paused)
             .unwrap_or(false);
-        
+
         if !paused {
-            let zero_addr = Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap();
-            return (0, zero_addr, 0);
+            return (0, Self::zero_address(&env), 0);
         }
-        
-        let timestamp = env.storage()
+
+        let timestamp = env
+            .storage()
             .instance()
             .get(&StorageKey::PauseTimestamp)
             .unwrap_or(0);
-        
-        let source = env.storage()
+
+        let source = env
+            .storage()
             .instance()
             .get(&StorageKey::PauseSource)
-            .unwrap_or_else(|| Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap());
-        
-        let current_time = env.ledger().timestamp();
-        let elapsed = current_time.saturating_sub(timestamp);
-        let remaining = EMERGENCY_PAUSE_DURATION.saturating_sub(elapsed);
-        
+            .unwrap_or_else(|| Self::zero_address(&env));
+
+        let remaining = if env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::PauseEmergency)
+            .unwrap_or(false)
+        {
+            let current_time = env.ledger().timestamp();
+            let elapsed = current_time.saturating_sub(timestamp);
+            EMERGENCY_PAUSE_DURATION.saturating_sub(elapsed)
+        } else {
+            0
+        };
+
         (timestamp, source, remaining)
     }
 
@@ -962,24 +1066,29 @@ impl RoyaltySplitter {
     /// remaining_seconds is the time until the time-lock expires (0 if already expired).
     pub fn get_pending_admin_transfer(env: Env) -> (Address, u64, u64) {
         storage::extend_instance_ttl(&env);
-        
+
         let pending: Option<Address> = env.storage().instance().get(&StorageKey::PendingAdmin);
-        
+
         if pending.is_none() {
-            let zero_addr = Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap();
+            let zero_addr = Address::from_string(
+                &env,
+                &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            )
+            .unwrap();
             return (zero_addr, 0, 0);
         }
-        
+
         let pending = pending.unwrap();
-        let timestamp = env.storage()
+        let timestamp = env
+            .storage()
             .instance()
             .get(&StorageKey::PendingAdminTimestamp)
             .unwrap_or(0);
-        
+
         let current_time = env.ledger().timestamp();
         let elapsed = current_time.saturating_sub(timestamp);
         let remaining = ADMIN_TRANSFER_TIMELOCK_DURATION.saturating_sub(elapsed);
-        
+
         (pending, timestamp, remaining)
     }
 
@@ -1135,14 +1244,7 @@ impl RoyaltySplitter {
 
         Self::check_admin_auth(&env, auth::msg::DISTRIBUTE_OVERRIDE_ADMIN);
 
-        if env
-            .storage()
-            .instance()
-            .get::<StorageKey, bool>(&StorageKey::Paused)
-            .unwrap_or(false)
-        {
-            Self::fail(&env, ContractError::ContractPaused);
-        }
+        Self::ensure_not_paused(&env);
 
         let token_client = token::Client::new(&env, &token);
         let amount = token_client.balance(&env.current_contract_address());
@@ -1232,8 +1334,10 @@ impl RoyaltySplitter {
 
         for (addr, payout) in payouts.iter() {
             token_client.transfer(&env.current_contract_address(), &addr, &payout);
-            env.events()
-                .publish((symbol_short!("dist"),), (EVENT_VERSION, env.ledger().sequence(), addr, payout));
+            env.events().publish(
+                (symbol_short!("dist"),),
+                (EVENT_VERSION, env.ledger().sequence(), addr, payout),
+            );
         }
 
         env.events().publish(
@@ -1327,14 +1431,7 @@ impl RoyaltySplitter {
         Self::check_admin_auth(&env, auth::msg::BATCH_DISTRIBUTE_ADMIN);
 
         // Check paused state once for the entire batch
-        if env
-            .storage()
-            .instance()
-            .get::<StorageKey, bool>(&StorageKey::Paused)
-            .unwrap_or(false)
-        {
-            Self::fail(&env, ContractError::ContractPaused);
-        }
+        Self::ensure_not_paused(&env);
 
         // Get recipient list once (reused for all distributions)
         let recipients_to_use = Self::get_recipients_for_batch(&env);
@@ -1520,8 +1617,11 @@ impl RoyaltySplitter {
 
         // Record distribution with dust tracking (#398)
         let mut history: Vec<DistributionRecord> =
-            storage::persistent_get::<Vec<DistributionRecord>>(&env, &StorageKey::DistributionHistory)
-                .unwrap_or(Vec::new(&env));
+            storage::persistent_get::<Vec<DistributionRecord>>(
+                &env,
+                &StorageKey::DistributionHistory,
+            )
+            .unwrap_or(Vec::new(&env));
         history.push_back(DistributionRecord {
             total_amount: pool,
             dust,
@@ -1531,8 +1631,10 @@ impl RoyaltySplitter {
 
         for (addr, payout) in payouts.iter() {
             token_client.transfer(&env.current_contract_address(), &addr, &payout);
-            env.events()
-                .publish((symbol_short!("sec_dist"),), (EVENT_VERSION, env.ledger().sequence(), addr, payout));
+            env.events().publish(
+                (symbol_short!("sec_dist"),),
+                (EVENT_VERSION, env.ledger().sequence(), addr, payout),
+            );
         }
 
         storage::instance_set(&env, &StorageKey::SecondaryPool, &0_i128);
@@ -1699,7 +1801,12 @@ impl RoyaltySplitter {
 
         env.events().publish(
             (symbol_short!("share"), symbol_short!("updated")),
-            (EVENT_VERSION, env.ledger().sequence(), collaborator, new_share),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                collaborator,
+                new_share,
+            ),
         );
     }
 
@@ -1836,7 +1943,12 @@ impl RoyaltySplitter {
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("adms_set")),
-            (EVENT_VERSION, env.ledger().sequence(), admins.len(), threshold),
+            (
+                EVENT_VERSION,
+                env.ledger().sequence(),
+                admins.len(),
+                threshold,
+            ),
         );
     }
 
