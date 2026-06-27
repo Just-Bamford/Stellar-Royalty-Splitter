@@ -28,7 +28,7 @@ export {
   getTransactionById,
 } from "./transactions.js";
 
-// Webhooks (#295, #401)
+// Webhooks (#295, #401, #428)
 export {
   registerWebhook,
   listWebhooks,
@@ -37,10 +37,14 @@ export {
   listDeadLetters,
   listAllPendingDeadLetters,
   markDeadLetterRetried,
+  deleteOldDeadLetters,
 } from "./webhooks.js";
 
 // Audit logging
 export { getAuditLog, addAuditLog } from "./audit.js";
+
+// Request nonce dedup (#421)
+export { recordNonceIfNew } from "./request-nonces.js";
 
 // Secondary royalties
 export {
@@ -51,6 +55,7 @@ export {
   recordSecondaryRoyaltyDistribution,
   getSecondaryRoyaltyDistributions,
   getRoyaltyStatistics,
+  applyLargestRemainder,
 } from "./secondary-royalties.js";
 
 // Analytics

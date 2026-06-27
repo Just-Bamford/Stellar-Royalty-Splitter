@@ -17,6 +17,8 @@ export const initializeSchema = z
     walletAddress: stellarAddress,
     collaborators: z.array(stellarAddress).min(1, "Collaborators array must be non-empty").max(20),
     shares: z.array(basisPoints).min(1).max(20),
+    // Issue #421: optional UUID for permanent per-contract request dedup.
+    nonce: z.string().uuid("nonce must be a valid UUID").optional(),
   })
   .refine((d) => d.collaborators.length === d.shares.length, {
     message: "collaborators and shares must be the same length",

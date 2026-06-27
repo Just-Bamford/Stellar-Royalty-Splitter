@@ -1,5 +1,5 @@
 /**
- * Deliver distribute-completion webhooks with retry logic and dead-letter queue (#295, #401).
+ * Deliver distribute-completion webhooks with retry logic and dead-letter queue (#295, #401, #428).
  */
 
 import {
@@ -7,6 +7,7 @@ import {
   enqueueDeadLetter,
   listAllPendingDeadLetters,
   markDeadLetterRetried,
+  deleteOldDeadLetters,
 } from "./database/webhooks.js";
 import logger from "./logger.js";
 
@@ -15,6 +16,9 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// #428: Maximum number of delivery attempts before a webhook is permanently
+// moved to the dead-letter queue and retrying stops.
+const WEBHOOK_MAX_ATTEMPTS = parsePositiveInt(process.env.WEBHOOK_MAX_ATTEMPTS, 3);
 const WEBHOOK_MAX_RETRIES = parsePositiveInt(process.env.WEBHOOK_MAX_RETRIES, 3);
 const WEBHOOK_RETRY_BASE_MS = parsePositiveInt(process.env.WEBHOOK_RETRY_BASE_MS, 1000);
 const WEBHOOK_TIMEOUT_MS = parsePositiveInt(process.env.WEBHOOK_TIMEOUT_MS, 10_000);
@@ -22,6 +26,8 @@ const RETRY_SCHEDULER_INTERVAL_MS = parsePositiveInt(
   process.env.WEBHOOK_RETRY_SCHEDULER_MS,
   5 * 60 * 1000, // 5 minutes
 );
+// #428: Dead-letter records older than this many days are purged on each scheduler tick.
+const DLQ_RETENTION_DAYS = parsePositiveInt(process.env.WEBHOOK_DLQ_RETENTION_DAYS, 30);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +57,8 @@ async function postWebhook(url, payload) {
   }
 }
 
-async function deliverWithRetry(url, payload) {
+// Exported so admin routes can manually retry individual DLQ entries (#428)
+export async function deliverWithRetry(url, payload) {
   for (let attempt = 1; attempt <= WEBHOOK_MAX_RETRIES; attempt++) {
     try {
       await postWebhook(url, payload);
@@ -134,21 +141,52 @@ export function deliverDistributeWebhooks(transaction) {
 
 /**
  * Retry scheduler: processes dead-letter queue entries every 5 minutes.
+ * #428: Stops retrying entries that have reached WEBHOOK_MAX_ATTEMPTS.
+ * #428: Purges DLQ records older than DLQ_RETENTION_DAYS days on each tick.
  * Returns the interval handle so callers can stop it (e.g. on shutdown).
  */
 export function startWebhookRetryScheduler() {
   const handle = setInterval(async () => {
+    // #428: Clean up stale dead-letter records first (>30 days by default)
+    try {
+      const cleaned = deleteOldDeadLetters(DLQ_RETENTION_DAYS);
+      if (cleaned > 0) {
+        logger.info("Webhook DLQ: purged old records", { count: cleaned, retentionDays: DLQ_RETENTION_DAYS });
+      }
+    } catch (err) {
+      logger.error("Webhook DLQ: error purging old records", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const pending = listAllPendingDeadLetters(50);
     if (pending.length === 0) return;
 
     logger.info("Webhook retry scheduler: processing dead letters", { count: pending.length });
 
     for (const entry of pending) {
+      // #428: Respect max_attempts — if this entry has already been retried the
+      // maximum number of times, log and skip rather than retrying forever.
+      if (entry.retryCount >= WEBHOOK_MAX_ATTEMPTS) {
+        logger.error("Webhook DLQ: max attempts reached, giving up", {
+          id: entry.id,
+          url: entry.url,
+          retryCount: entry.retryCount,
+          maxAttempts: WEBHOOK_MAX_ATTEMPTS,
+          lastError: entry.errorMessage,
+        });
+        // Mark as permanently failed (succeeded=false will increment retryCount
+        // one final time so it stays above the threshold and won't be retried again).
+        markDeadLetterRetried(entry.id, false, /* permanent */ true);
+        continue;
+      }
+
       let payload;
       try {
         payload = JSON.parse(entry.payload);
       } catch {
-        markDeadLetterRetried(entry.id, false);
+        logger.warn("Webhook DLQ: invalid payload JSON, marking as permanently failed", { id: entry.id });
+        markDeadLetterRetried(entry.id, false, /* permanent */ true);
         continue;
       }
 
@@ -166,8 +204,10 @@ export function startWebhookRetryScheduler() {
 }
 
 export const _config = {
+  WEBHOOK_MAX_ATTEMPTS,
   WEBHOOK_MAX_RETRIES,
   WEBHOOK_RETRY_BASE_MS,
   WEBHOOK_TIMEOUT_MS,
   RETRY_SCHEDULER_INTERVAL_MS,
+  DLQ_RETENTION_DAYS,
 };

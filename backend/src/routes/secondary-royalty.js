@@ -18,6 +18,7 @@ import {
   markSalesDistributed,
   countSecondarySales,
   addAuditLog,
+  applyLargestRemainder,
 } from "../database/index.js";
 import {
   validate,
@@ -216,12 +217,16 @@ secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
 
 /**
  * POST /api/secondary-royalty/distribute
- * Body: { contractId, walletAddress, tokenId }
+ * Body: { contractId, walletAddress, tokenId, collaborators? }
+ * `collaborators` is an optional array of { address, basisPoints } objects.
+ * When provided, the total royalty pool is split using the largest-remainder
+ * algorithm (#427) so that every lamport is accounted for and dust is
+ * deterministically allocated to collaborators with the largest fractional share.
  * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties
  */
 secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), async (req, res, next) => {
   try {
-    const { contractId, walletAddress, tokenId } = req.body;
+    const { contractId, walletAddress, tokenId, collaborators } = req.body;
 
     // Get pending (undistributed) secondary sales
     const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
@@ -230,10 +235,45 @@ secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), 
       return sendError(res, 400, "bad_request", "No pending secondary royalties to distribute.");
     }
 
-    // Calculate total royalties
+    // Calculate total royalties (BigInt for precision)
     const totalRoyalties = pendingSales.reduce((sum, sale) => {
       return sum + BigInt(sale.royaltyAmount);
     }, 0n);
+
+    // ---------------------------------------------------------------------------
+    // #427: Apply largest-remainder rounding when collaborator shares are provided
+    // ---------------------------------------------------------------------------
+    let roundingAllocations = null;
+    let totalDustAllocated = 0n;
+
+    if (Array.isArray(collaborators) && collaborators.length > 0) {
+      // Validate that basis points sum to exactly 10000
+      const bpSum = collaborators.reduce((s, c) => s + (c.basisPoints ?? 0), 0);
+      if (bpSum !== 10000) {
+        return sendError(
+          res,
+          400,
+          "invalid_collaborators",
+          `collaborators basisPoints must sum to 10000, got ${bpSum}.`
+        );
+      }
+
+      // Apply largest-remainder algorithm — guarantees SUM === totalRoyalties
+      roundingAllocations = applyLargestRemainder(totalRoyalties, collaborators);
+      totalDustAllocated = roundingAllocations.reduce((s, a) => s + a.dustReceived, 0n);
+
+      // Log the rounding decisions for debugging (#427 requirement)
+      if (totalDustAllocated > 0n) {
+        const dustRecipients = roundingAllocations
+          .filter((a) => a.dustReceived > 0n)
+          .map((a) => ({ address: a.address, dust: a.dustReceived.toString() }));
+        // logger is not imported in this file; use console-style log via audit
+        addAuditLog(contractId, "secondary_distribution_dust_allocated", walletAddress, {
+          totalDust: totalDustAllocated.toString(),
+          dustRecipients,
+        });
+      }
+    }
 
     const transactionId = recordTransaction(contractId, "secondary_distribute", walletAddress, {
       totalRoyalties: totalRoyalties.toString(),
@@ -248,10 +288,20 @@ secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), 
     // Mark sales as distributed
     markSalesDistributed(pendingSales.map((s) => s.id));
 
+    // Record the distribution, including dust for analytics (#427)
+    recordSecondaryRoyaltyDistribution(
+      transactionId,
+      contractId,
+      totalRoyalties.toString(),
+      pendingSales.length,
+      totalDustAllocated
+    );
+
     addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
       transactionId,
       numberOfSales: pendingSales.length,
       totalRoyalties: totalRoyalties.toString(),
+      dustAllocated: totalDustAllocated.toString(),
     });
 
     res.json({
@@ -259,6 +309,14 @@ secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), 
       transactionId,
       numberOfSales: pendingSales.length,
       totalRoyalties: totalRoyalties.toString(),
+      dustAllocated: totalDustAllocated.toString(),
+      ...(roundingAllocations && {
+        allocations: roundingAllocations.map((a) => ({
+          address: a.address,
+          amount: a.amount.toString(),
+          dustReceived: a.dustReceived.toString(),
+        })),
+      }),
     });
   } catch (err) {
     next(err);

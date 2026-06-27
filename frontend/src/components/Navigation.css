@@ -105,6 +105,30 @@
   flex-shrink: 0;
 }
 
+/* Onboarding tour restart — issue #419 */
+.tour-restart-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  min-height: 38px;
+  border-radius: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-inverse);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(5px);
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.tour-restart-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 /* Network toggle — issue #231 */
 .network-toggle {
   display: flex;
@@ -331,7 +355,8 @@
   }
 
   .network-toggle,
-  .wallet-status {
+  .wallet-status,
+  .tour-restart-btn {
     font-size: 0.78rem;
     padding: 0.4rem 0.7rem;
   }
@@ -352,7 +377,8 @@
   }
 
   .network-toggle,
-  .wallet-status {
+  .wallet-status,
+  .tour-restart-btn {
     font-size: 0.75rem;
     padding: 0.35rem 0.6rem;
   }

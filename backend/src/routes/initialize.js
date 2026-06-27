@@ -15,7 +15,8 @@ import {
 } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
 import { createRequestLogger } from "../logger.js";
-import { invalidateCollaboratorsCache } from "./collaborators.js";
+import { recordNonceIfNew } from "../database/index.js";
+import { sendError } from "../error-response.js";
 
 export const initializeRouter = Router();
 
@@ -38,8 +39,18 @@ initializeRouter.post(
   async (req, res, next) => {
     const log = createRequestLogger(req);
     try {
-      const { contractId, walletAddress, collaborators, shares } = req.body;
+      const { contractId, walletAddress, collaborators, shares, nonce } = req.body;
       if (!(await ensureNotInitialized(contractId, res, log))) return;
+
+      if (nonce && !recordNonceIfNew(contractId, nonce)) {
+        log.warn("duplicate initialize nonce rejected", { contractId, nonce });
+        return sendError(
+          res,
+          409,
+          "duplicate_nonce",
+          "A request with this nonce has already been processed for this contract."
+        );
+      }
 
       log.info("initialize requested", {
         contractId,

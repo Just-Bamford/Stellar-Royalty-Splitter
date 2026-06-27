@@ -27,6 +27,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction: jest.fn(() => 1),
   addAuditLog: jest.fn(),
+  recordNonceIfNew: jest.fn(() => true),
 }));
 
 const { initializeRouter } = await import("../src/routes/initialize.js");

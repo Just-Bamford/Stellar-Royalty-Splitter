@@ -16,6 +16,7 @@ import DistributeSecondaryRoyalties from "./components/DistributeSecondaryRoyalt
 import ResaleHistory from "./components/ResaleHistory";
 import { Skeleton } from "./components/Skeleton";
 import { CopyButton } from "./components/CopyButton";
+import { ContractAddress } from "./components/ContractAddress";
 import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 
@@ -43,6 +44,7 @@ export default function App() {
   );
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionToast, setSessionToast] = useState<string | null>(null);
+  const [tourTrigger, setTourTrigger] = useState(0);
 
   function handleWalletConnect(address: string) {
     setWalletAddress(address);
@@ -335,6 +337,7 @@ export default function App() {
         onPageChange={handlePageChange}
         walletAddress={walletAddress}
         onDisconnect={handleDisconnect}
+        onStartTour={() => setTourTrigger((n) => n + 1)}
       />
 
       <div className="app-content">
@@ -364,6 +367,9 @@ export default function App() {
             </div>
             {contractIdError && (
               <p className="contract-input-error">{contractIdError}</p>
+            )}
+            {contractIdValid && (
+              <ContractAddress address={contractId} label="contract ID" />
             )}
             {contractIdValid && contractInitialized !== null && (
               <p className={`contract-status ${contractInitialized ? "contract-status--ok" : "contract-status--warn"}`}>
@@ -428,7 +434,11 @@ export default function App() {
         <div className="app-main">{renderPage()}</div>
       </div>
 
-      <OnboardingWalkthrough />
+      <OnboardingWalkthrough
+        currentPage={currentPage}
+        onPageChange={handlePageChange}
+        restartSignal={tourTrigger}
+      />
     </div>
   );
 }

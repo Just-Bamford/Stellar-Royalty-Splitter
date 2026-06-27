@@ -13,6 +13,7 @@ await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
   registerWebhook: jest.fn(),
   listDeadLetters: jest.fn(),
   deleteWebhook: jest.fn(),
+  deleteOldDeadLetters: jest.fn(() => 0),
 }));
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -89,10 +90,9 @@ describe("Webhook dead-letter queue (#401)", () => {
     listAllPendingDeadLetters.mockReturnValue([entry]);
     global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
 
-    const { startWebhookRetryScheduler } = await import("../src/webhook-delivery.js");
-
-    // Manually invoke the scheduler tick by reducing interval
+    // Set env var BEFORE importing so the constant is evaluated with the right value
     process.env.WEBHOOK_RETRY_SCHEDULER_MS = "50";
+    const { startWebhookRetryScheduler } = await import("../src/webhook-delivery.js");
     const handle = startWebhookRetryScheduler();
 
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -116,12 +116,14 @@ describe("Webhook dead-letter queue (#401)", () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 });
 
     process.env.WEBHOOK_RETRY_SCHEDULER_MS = "50";
+    process.env.WEBHOOK_RETRY_BASE_MS = "10"; // fast backoff so 3 retries complete quickly
     const { startWebhookRetryScheduler } = await import("../src/webhook-delivery.js");
     const handle = startWebhookRetryScheduler();
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     clearInterval(handle);
     delete process.env.WEBHOOK_RETRY_SCHEDULER_MS;
+    delete process.env.WEBHOOK_RETRY_BASE_MS;
 
     expect(markDeadLetterRetried).toHaveBeenCalledWith(11, false);
   }, 5_000);

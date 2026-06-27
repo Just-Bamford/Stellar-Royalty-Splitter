@@ -685,7 +685,7 @@ impl RoyaltySplitter {
         );
     }
 
-    /// Transfer admin rights to a new address (single-admin mode only).
+        /// Transfer admin rights to a new address (single-admin mode only).
     ///
     /// Immediate single-step transfer — the new admin does NOT need to confirm.
     /// Disabled when multi-sig is active; use `propose_admin_transfer` instead.
@@ -718,6 +718,7 @@ impl RoyaltySplitter {
         let previous_admin = admin.clone();
         storage::instance_set(&env, &StorageKey::Admin, &new_admin);
 
+        // #399: Emit structured event for backend cache invalidation
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("admin_xfr")),
             (EVENT_VERSION, env.ledger().sequence(), previous_admin, new_admin),
@@ -797,6 +798,7 @@ impl RoyaltySplitter {
         env.storage().instance().remove(&StorageKey::PendingAdmin);
         env.storage().instance().remove(&StorageKey::PendingAdminTimestamp);
 
+        // #399: Emit structured event for backend cache invalidation
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("adm_acc")),
             (EVENT_VERSION, env.ledger().sequence(), previous_admin, pending),

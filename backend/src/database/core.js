@@ -59,6 +59,35 @@ export function initializeDatabase() {
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
+      // Issue #427: track dust allocated per secondary-royalty distribution round
+      // Issue #428: add max_attempts to webhooks; add cleanup index on DLQ
+      version: 7,
+      sql: `
+        -- #427: dust_allocated column on secondary_royalty_distributions
+        ALTER TABLE secondary_royalty_distributions ADD COLUMN dustAllocated TEXT NOT NULL DEFAULT '0';
+
+        -- #428: max_attempts per webhook row (0 = unlimited / legacy)
+        ALTER TABLE webhooks ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3;
+
+        -- #428: createdAt index on dead_letters for efficient 30-day cleanup
+        CREATE INDEX IF NOT EXISTS idx_dead_letters_createdAt ON webhook_dead_letters(createdAt);
+      `,
+    },
+    {
+      // Issue #421: permanent per-contract nonce dedup for /api/v1/initialize.
+      version: 6,
+      sql: `
+        CREATE TABLE IF NOT EXISTS request_nonces (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          nonce TEXT NOT NULL,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(contractId, nonce)
+        );
+        CREATE INDEX IF NOT EXISTS idx_request_nonces_contractId ON request_nonces(contractId);
+      `,
+    },
+    {
       version: 5,
       sql: `
         -- Issue #401: Dead-letter queue for failed webhook deliveries

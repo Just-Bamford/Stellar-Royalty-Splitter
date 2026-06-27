@@ -6,6 +6,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { NetworkProvider } from "./context/NetworkContext";
 import { TransactionProvider } from "./context/TransactionContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import "./modern-styles.css";
 import "./index.css";
 
@@ -16,7 +17,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <NetworkProvider>
           <SettingsProvider>
             <TransactionProvider>
-              <App />
+              <NotificationProvider>
+                <App />
+              </NotificationProvider>
             </TransactionProvider>
           </SettingsProvider>
         </NetworkProvider>

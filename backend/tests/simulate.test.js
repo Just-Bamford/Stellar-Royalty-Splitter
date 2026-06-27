@@ -86,6 +86,7 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
   initializeDatabase: jest.fn(),
   recordTransaction: jest.fn(() => "tx-456"),
+  recordNonceIfNew: jest.fn(() => true),
 }));
 
 const { default: app } = await import("./app.js");

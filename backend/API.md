@@ -74,11 +74,32 @@ Invalid or missing signatures return `401`.
 
 Build an unsigned `initialize` transaction XDR.
 
-**Body:** `{ contractId, walletAddress, collaborators, shares }`
+**Body:** `{ contractId, walletAddress, collaborators, shares, nonce? }`
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `nonce` | string (optional) | UUID v4. When provided, permanently deduplicates this request per contract (#421) — see below. |
 
 **Response:** `{ xdr, transactionId }`
 
 Initialize requests are rejected before contract processing when the request body is too large or when the serialized `collaborators` array exceeds the initialize payload guard.
+
+**Request deduplication by nonce (#421):**
+
+`nonce` is distinct from the `Idempotency-Key` header used on `/distribute`:
+
+- **`Idempotency-Key`** (see Distribute below) caches the *response* for a TTL window (default 24h) and *replays* it on a repeated request with the same key.
+- **`nonce`** is *permanently* recorded per `(contractId, nonce)` pair. A second request reusing the same nonce for the same contract is rejected outright — it is never re-processed and the original response is never replayed. This lets a client distinguish an intentional retry (reuse a nonce on purpose to confirm rejection) from an accidental duplicate submission, without relying on a cache TTL.
+
+If `(contractId, nonce)` has already been seen, the request is rejected before any transaction is built or recorded:
+
+**Response:** `409 Conflict`
+
+```json
+{ "error": "A request with this nonce has already been processed for this contract." }
+```
+
+The same `nonce` value may be reused across *different* contracts — the uniqueness constraint is scoped to `(contractId, nonce)`, not `nonce` alone. Generate a nonce on the frontend with `crypto.randomUUID()` (see `frontend/src/lib/request-nonce.ts`).
 
 **Oversized payload response:** `413 Payload Too Large`
 

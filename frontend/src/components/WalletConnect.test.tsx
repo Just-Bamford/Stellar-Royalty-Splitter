@@ -44,6 +44,50 @@ describe("WalletConnect", () => {
     expect(localStorage.getItem("freighter_connected")).toBeNull();
   });
 
+  test("retries a transient failure, shows Reconnecting…, then connects and persists (#412)", async () => {
+    const onConnect = vi.fn();
+    let resolveSecond: (v: { address: string }) => void = () => {};
+    const second = new Promise<{ address: string }>((r) => {
+      resolveSecond = r;
+    });
+    const requestAccess = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("rpc timeout"))
+      .mockReturnValueOnce(second);
+    (window as any).freighter = { requestAccess };
+
+    render(
+      <WalletConnect walletAddress={null} onConnect={onConnect} retryBaseDelayMs={5} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Connect Freighter/i }));
+
+    // Reconnecting state appears after the first failure schedules a retry
+    // (shown both on the button and in the status line).
+    expect((await screen.findAllByText(/Reconnecting/i)).length).toBeGreaterThan(0);
+
+    resolveSecond({ address: VALID_WALLET });
+
+    await waitFor(() => expect(onConnect).toHaveBeenCalledWith(VALID_WALLET));
+    expect(requestAccess).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem("lastWalletAddress")).toBe(VALID_WALLET);
+    expect(localStorage.getItem("freighter_connected")).toBe("true");
+  });
+
+  test("shows an error after exhausting all retries (#412)", async () => {
+    const onConnect = vi.fn();
+    const requestAccess = vi.fn().mockRejectedValue(new Error("rpc timeout"));
+    (window as any).freighter = { requestAccess };
+
+    render(
+      <WalletConnect walletAddress={null} onConnect={onConnect} retryBaseDelayMs={1} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Connect Freighter/i }));
+
+    expect(await screen.findByText(/Could not connect after 4 attempts/i)).toBeInTheDocument();
+    expect(requestAccess).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
+    expect(onConnect).not.toHaveBeenCalled();
+  });
+
   test("copies the connected wallet address to clipboard", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     (navigator as any).clipboard = { writeText };

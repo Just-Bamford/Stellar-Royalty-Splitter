@@ -27,6 +27,11 @@ import { initializeSigningKey } from "./signing-key.js";
 import { sendError } from "./error-response.js";
 import { verifyRequestSignatureMiddleware } from "./request-signing.js";
 
+// #399: Cache and event listener imports
+import { getCacheManager } from "./cache.js";
+import { AdminEventListener } from "./events/adminEventListener.js";
+import { getConfiguredContractId } from "./stellar.js";
+
 // Initialize database on startup
 initializeDatabase();
 initializeSigningKey();
@@ -228,11 +233,45 @@ const server = app.listen(PORT, () => logger.info(`API listening on http://local
 server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS ?? "35000");
 server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS ?? "40000");
 
-const handleShutdown = createGracefulShutdownHandler({
+// #399: Initialize cache manager and admin event listener
+const contractId = getConfiguredContractId();
+let adminEventListener = null;
+
+if (contractId) {
+  try {
+    const cache = getCacheManager();
+    logger.info("[Startup] Cache manager initialized");
+
+    // Start event listener for admin transfer events
+    const { getSorobanRpcClient } = await import("./stellar.js");
+    const sorobanRpc = getSorobanRpcClient();
+    adminEventListener = new AdminEventListener(sorobanRpc, contractId);
+    adminEventListener.start();
+    logger.info("[Startup] Admin event listener started", { contractId });
+  } catch (err) {
+    logger.error("[Startup] Failed to initialize cache/event listener", {
+      error: err.message,
+      contractId,
+    });
+  }
+}
+
+// Graceful shutdown — include event listener and cache cleanup
+const originalShutdown = createGracefulShutdownHandler({
   server,
   closeDatabase,
   logger,
 });
+
+const handleShutdown = (signal) => {
+  logger.info(`[Shutdown] ${signal} received, cleaning up...`);
+  if (adminEventListener) {
+    adminEventListener.stop();
+  }
+  const cache = getCacheManager();
+  cache.disconnect().catch(() => {});
+  originalShutdown(signal);
+};
 
 process.once("SIGTERM", () => handleShutdown("SIGTERM"));
 process.once("SIGINT", () => handleShutdown("SIGINT"));

@@ -18,6 +18,7 @@ const recordTransaction = jest.fn(() => "tx-456");
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction,
   addAuditLog: jest.fn(),
+  recordNonceIfNew: jest.fn(() => true),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
 }));
