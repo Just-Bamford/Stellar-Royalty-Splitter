@@ -59,6 +59,14 @@ export function initializeDatabase() {
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
+      // Issue #460: composite index on secondary_sales for distribution query performance
+      version: 8,
+      sql: `
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_distributed
+        ON secondary_sales(contractId, distributed, timestamp DESC);
+      `,
+    },
+    {
       // Issue #427: track dust allocated per secondary-royalty distribution round
       // Issue #428: add max_attempts to webhooks; add cleanup index on DLQ
       version: 7,
@@ -263,6 +271,7 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_contractId ON secondary_sales(contractId);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_nftId ON secondary_sales(nftId);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_timestamp ON secondary_sales(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_secondary_sales_distributed ON secondary_sales(contractId, distributed, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contractId ON secondary_royalty_distributions(contractId);
     CREATE INDEX IF NOT EXISTS idx_audit_contractId ON audit_log(contractId);
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);

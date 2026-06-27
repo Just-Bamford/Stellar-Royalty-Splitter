@@ -9,6 +9,7 @@ import {
   server,
 } from "../stellar.js";
 import {
+  db,
   recordTransaction,
   recordSecondarySale,
   recordSecondaryRoyaltyDistribution,
@@ -20,6 +21,7 @@ import {
   addAuditLog,
   applyLargestRemainder,
 } from "../database/index.js";
+import logger from "../logger.js";
 import {
   validate,
   recordSecondarySaleSchema,
@@ -107,26 +109,34 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
       return sendError(res, 400, "bad_request", "Calculated royalty amount is zero.");
     }
 
-    const transactionId = recordTransaction(contractId, "secondary_royalty", walletAddress, {
-      salePrice: salePrice.toString(),
-      nftId,
-      saleToken,
-      royaltyRate: onChainRate,
-    });
-
+    let transactionId;
     try {
-      recordSecondarySale(
-        contractId,
-        nftId,
-        previousOwner,
-        newOwner,
-        salePrice,
-        saleToken,
-        royaltyAmount,
-        onChainRate
-      );
+      const insertRecord = db.transaction(() => {
+        transactionId = recordTransaction(contractId, "secondary_royalty", walletAddress, {
+          salePrice: salePrice.toString(),
+          nftId,
+          saleToken,
+          royaltyRate: onChainRate,
+        });
+        recordSecondarySale(
+          contractId,
+          nftId,
+          previousOwner,
+          newOwner,
+          salePrice,
+          saleToken,
+          royaltyAmount,
+          onChainRate
+        );
+      });
+      insertRecord();
     } catch (err) {
-      if (err.code === "SQLITE_CONSTRAINT_UNIQUE") {
+      if (err.code && err.code.startsWith("SQLITE_CONSTRAINT")) {
+        logger.warn("SQLite constraint violation recording secondary sale", {
+          code: err.code,
+          contractId,
+          nftId,
+        });
         return sendError(res, 409, "conflict", "This sale has already been recorded.");
       }
       throw err;
