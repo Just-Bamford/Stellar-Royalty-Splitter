@@ -530,3 +530,71 @@ Hot-reload the server signing key without redeploying the backend (#293). The in
 | `RATE_LIMIT_ADMIN_MAX` | `5` | Per-IP rate limit for admin routes (per minute) |
 
 Key rotation events are written to structured logs (`signing_key_rotated`) with previous and new **public** keys only — secret material is never logged.
+
+## Admin — API keys & per-key rate limiting (#420)
+
+Per-IP rate limiting (`generalLimiter`, `writeLimiter`, etc. — see Operational configuration) is shared across every client behind the same IP, so a single bad actor can exhaust another tenant's quota, and there's no way to give a programmatic/API-key client its own independent quota. API keys solve this: each key gets its own sliding-window rate limit, tracked separately from the IP-based limiters (both apply — the API-key limit is additive, not a replacement).
+
+### `POST /admin/generate-key`
+
+Issue a new API key. **The raw key is only ever returned in this response** — only its SHA-256 hash is persisted, so it can never be retrieved again. If it's lost, revoke it and generate a new one.
+
+**Authentication:** `Authorization: Bearer <ADMIN_ROTATE_TOKEN>` (same token as `/admin/rotate-key`)
+
+**Body (JSON):** `{ "label"?: string }` (max 100 characters)
+
+**Response:**
+
+```json
+{
+  "id": 1,
+  "apiKey": "srs_9f2c...",
+  "label": "ci-bot",
+  "createdAt": "2026-05-30T12:00:00.000Z"
+}
+```
+
+### `GET /admin/keys`
+
+List all API keys. Never includes the raw key or its hash.
+
+**Authentication:** `Authorization: Bearer <ADMIN_ROTATE_TOKEN>`
+
+**Response:**
+
+```json
+{
+  "keys": [
+    { "id": 1, "label": "ci-bot", "createdAt": "2026-05-30T12:00:00.000Z", "revokedAt": null, "lastUsedAt": "2026-05-30T12:05:00.000Z" }
+  ]
+}
+```
+
+### `POST /admin/keys/:id/revoke`
+
+Revoke a key by id. Revoked keys are rejected immediately on their next request.
+
+**Authentication:** `Authorization: Bearer <ADMIN_ROTATE_TOKEN>`
+
+**Response:** `{ "success": true, "id": 1 }`, or `404` if the id doesn't exist or is already revoked.
+
+### Using an API key
+
+Send the raw key on the `X-API-Key` request header on any `/api/v1/*` call. Every response (success, 401, or 429) includes:
+
+| Header | Meaning |
+| ------ | ------- |
+| `X-RateLimit-Limit` | Max requests allowed per window for this key (`API_KEY_RATE_LIMIT_MAX`) |
+| `X-RateLimit-Remaining` | Requests remaining in the current sliding window |
+| `X-RateLimit-Reset` | Unix seconds when the oldest counted request falls out of the window |
+
+An unknown or revoked key returns `401 invalid_api_key`. Exceeding the limit returns `429 too_many_requests` (still with the three headers above, `X-RateLimit-Remaining: 0`). Requests with no `X-API-Key` header are unaffected — they continue to be limited only by the per-IP limiters.
+
+The limiter uses a true sliding window (a per-key timestamp log, not a fixed-window approximation): the oldest entries are dropped as the window moves rather than the count resetting all at once at a fixed boundary.
+
+**Configuration:**
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `API_KEY_RATE_LIMIT_WINDOW_MS` | `60000` (1 minute) | Sliding window size |
+| `API_KEY_RATE_LIMIT_MAX` | `60` | Max requests per key per window |

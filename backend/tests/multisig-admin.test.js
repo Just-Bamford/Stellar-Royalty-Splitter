@@ -16,6 +16,9 @@ await jest.unstable_mockModule("../src/stellar.js", () => stellarImport);
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 5),
+  createApiKey: jest.fn(),
+  listApiKeys: jest.fn(() => []),
+  revokeApiKey: jest.fn(() => false),
 }));
 
 const { adminRouter } = await import("../src/routes/admin.js");
