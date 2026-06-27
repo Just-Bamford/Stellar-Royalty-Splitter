@@ -1,7 +1,7 @@
 /** Commit-reveal hashing for initialize (#403) — must match on-chain contract. */
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  const digest = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
   return new Uint8Array(digest);
 }
 
@@ -56,7 +56,7 @@ export async function hashShares(shares: number[], salt: Uint8Array): Promise<Ui
   const chunks: Uint8Array[] = [salt];
   for (const share of shares) {
     const buf = new Uint8Array(4);
-    new DataView(buf.buffer).setUint32(0, share, false);
+    new DataView(buf.buffer as ArrayBuffer).setUint32(0, share, false);
     chunks.push(buf);
   }
   return sha256(concatBytes(chunks));

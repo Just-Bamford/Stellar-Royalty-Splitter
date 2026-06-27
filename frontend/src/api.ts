@@ -1,6 +1,5 @@
 // Thin client that talks to the Express backend
 
-import { extractContractError } from "./lib/contract-errors";
 import { signWriteRequest } from "./lib/request-signing";
 
 const BASE = "/api/v1";
@@ -59,40 +58,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   throw new Error(getErrorMessage(data, res.status));
-}
-
-// #279: surface a structured `code + message + details` shape from
-// the backend's error response instead of just `data.error`. The
-// caller's `catch (e)` block can call `extractContractError(e)` to
-// pull the same fields back out and the toast surfaces the real
-// failure reason (`Caller is not the contract admin (code 2)`)
-// rather than a generic "transaction failed".
-export class BackendApiError extends Error {
-  code: string | number | null;
-  details?: string;
-  status: number;
-  constructor(
-    status: number,
-    code: string | number | null,
-    message: string,
-    details?: string,
-  ) {
-    super(message);
-    this.name = "BackendApiError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
-
-function readErrorBody(status: number, data: unknown): BackendApiError {
-  const parsed = extractContractError(data ?? { error: "Request failed" });
-  return new BackendApiError(
-    status,
-    parsed.code,
-    parsed.message,
-    parsed.details,
-  );
 }
 
 async function post<T>(
@@ -241,6 +206,7 @@ export const api = {
     contractId: string;
     walletAddress: string;
     tokenId: string;
+    amount: number;
   }) =>
     post<{ xdr: string; transactionId: number }>(
       "/distribute",

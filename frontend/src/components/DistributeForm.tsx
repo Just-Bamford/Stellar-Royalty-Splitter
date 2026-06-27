@@ -8,6 +8,7 @@ import { useTransactionPolling } from "../hooks/useTransactionPolling";
 import FormStatus from "./FormStatus";
 import TransactionStatusBadge from "./TransactionStatusBadge";
 import { useFormStatus } from "../hooks/useFormStatus";
+import "./DistributeForm.css";
 
 interface Props {
   contractId: string;
@@ -23,6 +24,15 @@ interface CollaboratorShare {
 interface DistributionDraft {
   tokenId: string;
   amount: string;
+}
+
+interface OptimisticDistribution {
+  tokenId: string;
+  amount: number;
+  recipientCount: number;
+  phase: "pending" | "signing" | "confirming" | "confirmed";
+  transactionId: number | null;
+  txHash: string | null;
 }
 
 const DRAFT_KEY_PREFIX = "srs_distribute_draft";
@@ -72,6 +82,7 @@ export default function DistributeForm({
   const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState<DistributionDraft | null>(null);
   const [draftDecisionMade, setDraftDecisionMade] = useState(false);
+  const [optimisticDistribution, setOptimisticDistribution] = useState<OptimisticDistribution | null>(null);
   const { status, setStatus, clearStatus } = useFormStatus();
 
   // Use TransactionContext's in-flight flag as the primary loading gate (#391)
@@ -197,6 +208,16 @@ export default function DistributeForm({
 
     // #391: Begin optimistic transaction state
     beginTransaction();
+    setOptimisticDistribution({
+      tokenId,
+      amount: parsedAmount,
+      recipientCount: collaborators.length,
+      phase: "pending",
+      transactionId: null,
+      txHash: null,
+    });
+    setStatus("info", "Distribution submitted. Preparing the transaction...");
+    updatePhase("building", { label: "Distribution queued" });
 
     try {
       const res = await api.distribute({
@@ -207,11 +228,30 @@ export default function DistributeForm({
       });
 
       // #391: Phase 2 — signing
+      setOptimisticDistribution((prev) =>
+        prev
+          ? {
+              ...prev,
+              phase: "signing",
+              transactionId: res.transactionId,
+            }
+          : prev,
+      );
       updatePhase("signing", { transactionId: res.transactionId });
 
       const hash = await signAndSubmitTransaction(res.xdr, network);
 
       // #391/#414: Phase 3 — confirming, with countdown + real-time polling.
+      setOptimisticDistribution((prev) =>
+        prev
+          ? {
+              ...prev,
+              phase: "confirming",
+              transactionId: res.transactionId,
+              txHash: hash,
+            }
+          : prev,
+      );
       updatePhase("confirming", { txHash: hash });
 
       // Kick off server-side settlement (Horizon polling + webhooks). We don't
@@ -236,6 +276,14 @@ export default function DistributeForm({
       if (outcome === "confirmed") {
         // #391: Phase 4 — confirmed
         updatePhase("confirmed");
+        setOptimisticDistribution((prev) =>
+          prev
+            ? {
+                ...prev,
+                phase: "confirmed",
+              }
+            : prev,
+        );
         setStatus("ok", "Distributed successfully.");
         localStorage.removeItem(draftKey);
         setTokenId("");
@@ -245,6 +293,7 @@ export default function DistributeForm({
       }
 
       if (outcome === "timeout") {
+        setOptimisticDistribution(null);
         updatePhase("timeout", {
           error: "Confirmation timed out. The transaction may still settle.",
         });
@@ -256,6 +305,7 @@ export default function DistributeForm({
       }
 
       // outcome === "failed"
+      setOptimisticDistribution(null);
       updatePhase("failed", { error: "Transaction failed to confirm." });
       setStatus("error", "Transaction failed to confirm.");
     } catch (e: unknown) {
@@ -265,6 +315,7 @@ export default function DistributeForm({
         msg.toLowerCase().includes("timed out");
 
       // #391: Handle timeout scenario gracefully
+      setOptimisticDistribution(null);
       updatePhase(isTimeout ? "timeout" : "failed", { error: msg });
       setStatus("error", msg);
     }
@@ -291,6 +342,7 @@ export default function DistributeForm({
     setContractBalance(null);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
+    setOptimisticDistribution(null);
     localStorage.removeItem(draftKey);
     clearStatus();
     resetTx();
@@ -305,6 +357,37 @@ export default function DistributeForm({
       }}
     >
       <span className="badge">Distribute</span>
+
+      {optimisticDistribution && (
+        <div
+          className={`distribution-optimistic distribution-optimistic--${optimisticDistribution.phase}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid="distribution-optimistic"
+          data-phase={optimisticDistribution.phase}
+        >
+          <div className="distribution-optimistic__row">
+            <span className="distribution-optimistic__icon" aria-hidden="true">
+              {optimisticDistribution.phase === "confirmed" ? "✓" : "●"}
+            </span>
+            <strong>
+              {optimisticDistribution.phase === "confirmed"
+                ? "Distribution confirmed"
+                : optimisticDistribution.phase === "confirming"
+                  ? "Waiting for confirmation"
+                  : optimisticDistribution.phase === "signing"
+                    ? "Signing transaction"
+                    : "Distribution queued"}
+            </strong>
+          </div>
+          <div className="distribution-optimistic__meta">
+            <span>{formatXlmAmount(optimisticDistribution.amount)} XLM</span>
+            <span>{optimisticDistribution.recipientCount} recipients</span>
+            <span>{shortAddress(optimisticDistribution.tokenId)}</span>
+          </div>
+        </div>
+      )}
 
       {draftPrompt && (
         <div className="restore-prompt" role="status">

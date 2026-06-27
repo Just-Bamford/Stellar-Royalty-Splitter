@@ -3,6 +3,7 @@
  * Signs write requests with the connected wallet via Freighter or SDK Keypair.
  */
 import { Keypair } from "@stellar/stellar-sdk";
+import { Buffer } from "buffer";
 
 const SIGNING_PATH_PREFIX = "/api/v1";
 
