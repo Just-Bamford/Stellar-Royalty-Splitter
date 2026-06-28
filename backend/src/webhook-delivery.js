@@ -29,6 +29,19 @@ const RETRY_SCHEDULER_INTERVAL_MS = parsePositiveInt(
 // #428: Dead-letter records older than this many days are purged on each scheduler tick.
 const DLQ_RETENTION_DAYS = parsePositiveInt(process.env.WEBHOOK_DLQ_RETENTION_DAYS, 30);
 
+// #464: Delivery metrics — cumulative counters since process start.
+const _metrics = { successCount: 0, failureCount: 0, totalAttempts: 0 };
+
+export function getDeliveryMetrics() {
+  return { ..._metrics };
+}
+
+export function _resetDeliveryMetrics() {
+  _metrics.successCount = 0;
+  _metrics.failureCount = 0;
+  _metrics.totalAttempts = 0;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -60,8 +73,10 @@ async function postWebhook(url, payload) {
 // Exported so admin routes can manually retry individual DLQ entries (#428)
 export async function deliverWithRetry(url, payload) {
   for (let attempt = 1; attempt <= WEBHOOK_MAX_RETRIES; attempt++) {
+    _metrics.totalAttempts++;
     try {
       await postWebhook(url, payload);
+      _metrics.successCount++;
       logger.info("Webhook delivered", { url, attempt });
       return { success: true };
     } catch (error) {
@@ -74,6 +89,7 @@ export async function deliverWithRetry(url, payload) {
       });
 
       if (isLastAttempt) {
+        _metrics.failureCount++;
         const message = error instanceof Error ? error.message : String(error);
         logger.error("Webhook delivery exhausted retries", { url });
         return { success: false, error: message };
@@ -83,6 +99,7 @@ export async function deliverWithRetry(url, payload) {
       await sleep(delay);
     }
   }
+  _metrics.failureCount++;
   return { success: false, error: "Unknown failure" };
 }
 
