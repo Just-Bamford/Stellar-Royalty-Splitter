@@ -70,6 +70,36 @@ pub enum StorageKey {
     DefaultRecipients,
     RoyaltyRateHistory,
     DistributionHistory,
+    // Batch queue storage
+    BatchQueue,
+    BatchWindow,
+    BatchRetryCount,
+    BatchMetrics,
+}
+
+/// Secondary royalty batch entry for queueing multiple distributions
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchEntry {
+    pub batch_id: u32,
+    pub token: Address,
+    pub total_amount: i128,
+    pub created_at: u64,
+    pub processed_at: u64,
+    pub retry_count: u32,
+    pub status: u32, // 0: pending, 1: processing, 2: completed, 3: failed
+}
+
+/// Batch metrics for monitoring efficiency and costs
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchMetrics {
+    pub total_batches: u32,
+    pub total_distributed: i128,
+    pub average_batch_size: i128,
+    pub total_gas_saved: i128, // Estimated stroops saved vs individual transactions
+    pub last_batch_timestamp: u64,
+}
 }
 
 /// Maximum number of rate-change entries kept in history.
@@ -95,6 +125,15 @@ pub use storage::MIN_TTL;
 
 pub const REVEAL_DELAY_LEDGERS: u32 = 1;
 
+/// Time window for batching secondary royalties (in seconds).
+/// Default: 5 minutes = 300 seconds. Multiple royalties within this window batch together.
+pub const BATCH_WINDOW_SECONDS: u64 = 300;
+
+/// Maximum batch size to prevent unbounded queues (number of entries per batch).
+pub const MAX_BATCH_SIZE: u32 = 50;
+
+/// Maximum retry attempts before failing a batch.
+pub const MAX_BATCH_RETRIES: u32 = 3;
 /// On-chain contract version in [semantic versioning](https://semver.org/) format
 /// (`MAJOR.MINOR.PATCH`, e.g. `"0.1.0"`).
 ///
@@ -197,6 +236,86 @@ impl RoyaltySplitter {
 }
 
 impl RoyaltySplitter {
+        /// Initialize or retrieve the batch queue from persistent storage.
+        fn get_batch_queue(env: &Env) -> Vec<BatchEntry> {
+            storage::persistent_get::<Vec<BatchEntry>>(env, &StorageKey::BatchQueue)
+                .unwrap_or_else(|| Vec::new(env))
+        }
+
+        /// Store the batch queue to persistent storage.
+        fn put_batch_queue(env: &Env, queue: &Vec<BatchEntry>) {
+            storage::persistent_set(env, &StorageKey::BatchQueue, queue);
+        }
+
+        /// Get the current batch window timestamp (when the current batch expires).
+        fn get_batch_window(env: &Env) -> u64 {
+            env.storage()
+                .instance()
+                .get(&StorageKey::BatchWindow)
+                .unwrap_or(0)
+        }
+
+        /// Set the batch window expiration timestamp.
+        fn set_batch_window(env: &Env, timestamp: u64) {
+            storage::instance_set(env, &StorageKey::BatchWindow, &timestamp);
+        }
+
+        /// Get the retry count for a batch (by batch_id).
+        fn get_batch_retry_count(env: &Env, batch_id: u32) -> u32 {
+            let key = format!("batch_retry_{}", batch_id);
+            env.storage()
+                .instance()
+                .get::<String, u32>(&String::from_str(env, &key))
+                .unwrap_or(0)
+        }
+
+        /// Increment retry count for a batch.
+        fn increment_batch_retry(env: &Env, batch_id: u32) {
+            let key = format!("batch_retry_{}", batch_id);
+            let current = Self::get_batch_retry_count(env, batch_id);
+            let next = current
+                .checked_add(1)
+                .unwrap_or_else(|| Self::fail(env, ContractError::ArithmeticOverflow));
+            env.storage()
+                .instance()
+                .set(&String::from_str(env, &key), &next);
+        }
+
+        /// Get or initialize batch metrics.
+        fn get_batch_metrics(env: &Env) -> BatchMetrics {
+            env.storage()
+                .instance()
+                .get(&StorageKey::BatchMetrics)
+                .unwrap_or(BatchMetrics {
+                    total_batches: 0,
+                    total_distributed: 0,
+                    average_batch_size: 0,
+                    total_gas_saved: 0,
+                    last_batch_timestamp: 0,
+                })
+        }
+
+        /// Update batch metrics after successful distribution.
+        fn update_batch_metrics(env: &Env, batch_size: i128, gas_saved: i128) {
+            let mut metrics = Self::get_batch_metrics(env);
+            metrics.total_batches = metrics
+                .total_batches
+                .checked_add(1)
+                .unwrap_or_else(|| Self::fail(env, ContractError::ArithmeticOverflow));
+            metrics.total_distributed = metrics
+                .total_distributed
+                .checked_add(batch_size)
+                .unwrap_or_else(|| Self::fail(env, ContractError::ArithmeticOverflow));
+            // Update average_batch_size = total_distributed / total_batches
+            metrics.average_batch_size = metrics.total_distributed / metrics.total_batches as i128;
+            metrics.total_gas_saved = metrics
+                .total_gas_saved
+                .checked_add(gas_saved)
+                .unwrap_or_else(|| Self::fail(env, ContractError::ArithmeticOverflow));
+            metrics.last_batch_timestamp = env.ledger().timestamp();
+            storage::instance_set(env, &StorageKey::BatchMetrics, &metrics);
+        }
+
     fn check_admin_auth(env: &Env, message: &str) {
         let admin_list: Option<Vec<Address>> =
             env.storage().instance().get(&StorageKey::AdminList);
@@ -1555,6 +1674,279 @@ impl RoyaltySplitter {
 
 #[contractimpl]
 impl RoyaltySplitter {
+        /// Queue a secondary royalty for batch processing.
+        ///
+        /// This method accumulates secondary royalties into time-windowed batches.
+        /// Instead of immediately distributing to all collaborators (which creates many transfers),
+        /// multiple royalties are grouped by a 5-minute window and distributed in a single transaction.
+        ///
+        /// # Arguments
+        /// * `token` - The token address for the royalty
+        /// * `amount` - Amount to add to the queue
+        ///
+        /// # Authorization
+        /// Requires admin signature.
+        ///
+        /// # Batching Behavior
+        /// - Royalties within a 5-minute window are combined into one batch
+        /// - When the window expires, the batch is ready for processing
+        /// - Maximum 50 entries per batch to prevent unbounded queues
+        /// - If batch is full, a new window starts for excess entries
+        ///
+        /// # Events
+        /// Publishes ("royalty", "batch_queued") event with batch details.
+        pub fn queue_batch_secondary_royalty(env: Env, token: Address, amount: i128) {
+            storage::extend_instance_ttl(&env);
+
+            Self::check_admin_auth(&env, auth::msg::DISTRIBUTE_SECONDARY_ADMIN);
+
+            if env
+                .storage()
+                .instance()
+                .get::<StorageKey, bool>(&StorageKey::Paused)
+                .unwrap_or(false)
+            {
+                Self::fail(&env, ContractError::ContractPaused);
+            }
+
+            if amount <= 0 {
+                Self::fail(&env, ContractError::AmountNotPositive);
+            }
+
+            let current_time = env.ledger().timestamp();
+            let current_window = Self::get_batch_window(&env);
+            let mut queue = Self::get_batch_queue(&env);
+
+            // Determine if we need a new batch window
+            let window_start = if current_window == 0 || current_time >= current_window {
+                // Start a new window
+                let new_window = current_time + BATCH_WINDOW_SECONDS;
+                Self::set_batch_window(&env, new_window);
+                current_time
+            } else {
+                // Use existing window
+                current_window - BATCH_WINDOW_SECONDS
+            };
+
+            // Check if we need to start a new batch (size limit reached)
+            let batch_id = if queue.len() == 0 {
+                1
+            } else {
+                let last_batch = queue.get(queue.len() - 1).unwrap();
+                if last_batch.status < 2 && queue.len() as u32 >= MAX_BATCH_SIZE {
+                    last_batch.batch_id + 1
+                } else if last_batch.status < 2 {
+                    last_batch.batch_id
+                } else {
+                    last_batch.batch_id + 1
+                }
+            };
+
+            // Add entry to queue or merge with existing batch in window
+            let entry = BatchEntry {
+                batch_id,
+                token: token.clone(),
+                total_amount: amount,
+                created_at: current_time,
+                processed_at: 0,
+                retry_count: 0,
+                status: 0, // pending
+            };
+
+            queue.push_back(entry);
+            Self::put_batch_queue(&env, &queue);
+
+            env.events().publish(
+                (symbol_short!("royalty"), symbol_short!("bq_add")),
+                (EVENT_VERSION, env.ledger().sequence(), batch_id, amount),
+            );
+        }
+
+        /// Process all pending batches in the queue.
+        ///
+        /// This executes queued batches that have reached their time-window expiration.
+        /// Each batch is distributed in a single transaction to all collaborators.
+        ///
+        /// # Authorization
+        /// Requires admin signature.
+        ///
+        /// # Processing Logic
+        /// 1. Finds all expired batches (window timestamp passed)
+        /// 2. For each expired batch:
+        ///    - Sums all entries in the batch
+        ///    - Distributes proportionally to collaborators
+        ///    - Marks batch as completed (status: 2)
+        /// 3. Retries failed batches up to MAX_BATCH_RETRIES times
+        /// 4. Updates batch metrics with gas savings
+        ///
+        /// # Events
+        /// Publishes ("royalty", "batch_processed") for each completed batch.
+        ///
+        /// # Panics
+        /// * `"contract paused"` — while contract is paused
+        /// * `"invalid share total"` — share map does not total 10,000
+        pub fn process_batch_queue(env: Env) {
+            storage::extend_instance_ttl(&env);
+
+            Self::check_admin_auth(&env, auth::msg::DISTRIBUTE_SECONDARY_ADMIN);
+
+            if env
+                .storage()
+                .instance()
+                .get::<StorageKey, bool>(&StorageKey::Paused)
+                .unwrap_or(false)
+            {
+                Self::fail(&env, ContractError::ContractPaused);
+            }
+
+            if Self::get_total_shares(env.clone()) != 10_000 {
+                Self::fail(&env, ContractError::InvalidShareTotal);
+            }
+
+            let current_time = env.ledger().timestamp();
+            let mut queue = Self::get_batch_queue(&env);
+
+            // Process expired batches
+            let mut processed_count = 0;
+            for i in 0..queue.len() {
+                let entry = queue.get(i).unwrap();
+
+                // Skip non-pending batches
+                if entry.status != 0 {
+                    continue;
+                }
+
+                // Check if batch window has expired
+                if entry.created_at + BATCH_WINDOW_SECONDS > current_time {
+                    continue; // Not yet expired
+                }
+
+                // Process this batch
+                let batch_result = Self::process_single_batch(&env, &entry);
+
+                if batch_result {
+                    // Mark batch as completed
+                    let mut updated = entry.clone();
+                    updated.status = 2; // completed
+                    updated.processed_at = current_time;
+                    queue.set(i, updated.clone());
+
+                    // Update metrics (estimate gas savings: ~5000 stroops per additional transfer saved)
+                    let estimated_saves = 5000;
+                    Self::update_batch_metrics(&env, entry.total_amount, estimated_saves);
+
+                    env.events().publish(
+                        (symbol_short!("royalty"), symbol_short!("batch_done")),
+                        (EVENT_VERSION, env.ledger().sequence(), entry.batch_id, entry.total_amount),
+                    );
+
+                    processed_count += 1;
+                } else {
+                    // Retry or fail
+                    let retry_count = Self::get_batch_retry_count(&env, entry.batch_id);
+                    if retry_count < MAX_BATCH_RETRIES {
+                        Self::increment_batch_retry(&env, entry.batch_id);
+                        // Keep status as 0 (pending) for retry
+                        env.events().publish(
+                            (symbol_short!("royalty"), symbol_short!("batch_retry")),
+                            (EVENT_VERSION, env.ledger().sequence(), entry.batch_id, retry_count + 1),
+                        );
+                    } else {
+                        // Mark as failed
+                        let mut updated = entry.clone();
+                        updated.status = 3; // failed
+                        updated.processed_at = current_time;
+                        queue.set(i, updated.clone());
+
+                        env.events().publish(
+                            (symbol_short!("royalty"), symbol_short!("batch_fail")),
+                            (EVENT_VERSION, env.ledger().sequence(), entry.batch_id),
+                        );
+                    }
+                }
+            }
+
+            Self::put_batch_queue(&env, &queue);
+
+            env.events().publish(
+                (symbol_short!("royalty"), symbol_short!("batch_proc")),
+                (EVENT_VERSION, env.ledger().sequence(), processed_count),
+            );
+        }
+
+        /// Helper: Process a single batch and distribute to collaborators.
+        /// Returns true if successful, false otherwise.
+        fn process_single_batch(env: &Env, entry: &BatchEntry) -> bool {
+            // Verify token balance
+            let token_client = token::Client::new(env, &entry.token);
+            let balance = token_client.balance(&env.current_contract_address());
+
+            if entry.total_amount > balance {
+                return false; // Insufficient balance
+            }
+
+            // Collaborators and ShareMap from persistent storage
+            let collaborators: Vec<Address> =
+                storage::persistent_get::<Vec<Address>>(env, &StorageKey::Collaborators)
+                    .unwrap_or_else(|| return false);
+
+            let share_map: Map<Address, u32> =
+                storage::persistent_get::<Map<Address, u32>>(env, &StorageKey::ShareMap)
+                    .unwrap_or_else(|| return false);
+
+            // Perform distributions
+            let n = collaborators.len();
+            let mut payouts: Vec<(Address, i128)> = Vec::new(env);
+            let mut total_calculated: i128 = 0;
+
+            for i in 0..(n - 1) {
+                let addr = collaborators.get(i).unwrap();
+                let share = share_map.get(addr.clone()).unwrap_or(0);
+                let payout = Self::checked_bps_amount(env, entry.total_amount, share);
+                payouts.push_back((addr, payout));
+                total_calculated = total_calculated
+                    .checked_add(payout)
+                    .unwrap_or_else(|| return false);
+            }
+
+            // Last collaborator receives remainder
+            let last = collaborators.get(n - 1).unwrap();
+            let last_payout = entry
+                .total_amount
+                .checked_sub(total_calculated)
+                .unwrap_or_else(|| return false);
+            payouts.push_back((last, last_payout));
+
+            // Execute transfers
+            for (addr, payout) in payouts.iter() {
+                token_client.transfer(&env.current_contract_address(), &addr, &payout);
+                env.events().publish(
+                    (symbol_short!("batch_xfer"),),
+                    (EVENT_VERSION, env.ledger().sequence(), addr, payout),
+                );
+            }
+
+            true
+        }
+
+        /// Get the current batch queue (for querying pending batches).
+        ///
+        /// # Returns
+        /// Vec of BatchEntry structs containing all queued batches.
+        pub fn get_batch_queue_status(env: Env) -> Vec<BatchEntry> {
+            storage::extend_instance_ttl(&env);
+            Self::get_batch_queue(&env)
+        }
+
+        /// Get batch processing metrics.
+        ///
+        /// # Returns
+        /// BatchMetrics struct with total batches, distributed amount, and gas savings.
+        pub fn get_batch_metrics(env: Env) -> BatchMetrics {
+            storage::extend_instance_ttl(&env);
+            Self::get_batch_metrics(&env)
+        }
+
     /// Calculate and return the royalty amount for a given secondary sale price.
     ///
     /// This is a pure read function — it does not transfer tokens or modify state.
