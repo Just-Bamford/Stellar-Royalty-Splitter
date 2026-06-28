@@ -85,6 +85,7 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
   initializeDatabase: jest.fn(),
+  lookupCollaborators: jest.fn(() => []),
   recordTransaction: jest.fn(() => "tx-456"),
 }));
 

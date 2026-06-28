@@ -48,6 +48,7 @@ initializeRouter.post("/", validate(initializeSchema), async (req, res, next) =>
       auditAction: "contract_initialized",
       auditMetadata: {
         collaboratorCount: collaborators.length,
+        collaborators,
         shares,
       },
       transactionMetadata: {

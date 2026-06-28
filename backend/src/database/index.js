@@ -20,6 +20,9 @@ export {
 // Audit logging
 export { getAuditLog, addAuditLog } from "./audit.js";
 
+// Collaborator lookup
+export { lookupCollaborators } from "./collaborator-lookup.js";
+
 // Secondary royalties
 export {
   recordSecondarySale,

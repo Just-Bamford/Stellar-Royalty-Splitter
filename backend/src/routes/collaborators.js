@@ -3,6 +3,7 @@ import StellarSdk from "@stellar/stellar-sdk";
 import { server, networkPassphrase } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
+import { lookupCollaborators } from "../database/index.js";
 
 const {
   Address,
@@ -14,6 +15,15 @@ const {
 } = StellarSdk;
 
 export const collaboratorsRouter = Router();
+
+/**
+ * GET /api/collaborators/lookup?q=G...&limit=10
+ * Returns collaborator address suggestions from previous initialize and payout history.
+ */
+collaboratorsRouter.get("/lookup", (req, res) => {
+  const suggestions = lookupCollaborators(req.query.q, req.query.limit);
+  res.json({ suggestions });
+});
 
 /**
  * GET /api/collaborators/:contractId
