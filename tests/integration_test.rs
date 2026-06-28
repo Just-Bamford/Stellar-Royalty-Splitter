@@ -423,7 +423,8 @@ fn test_set_royalty_rate_emits_event() {
     assert!(found, "rate_set event not emitted");
 }
 
-/// Events — distribute_secondary_royalties emits a ("royalty", "sec_dist") event.
+/// Events — distribute_secondary_royalties emits a ("royalty", "sec_dist") event
+/// with success/failure counters (#463).
 #[test]
 fn test_distribute_secondary_royalties_emits_event() {
     let env = Env::default();
@@ -445,6 +446,8 @@ fn test_distribute_secondary_royalties_emits_event() {
     client.record_secondary_royalty(&token, &admin, &pool_amount);
     client.distribute_secondary_royalties();
 
+    // #463: Verify sec_dist summary event includes success/failure counters.
+    // 2 collaborators → success_count=2, failure_count=0, dust=0
     let events = env.events().all();
     let found = events.iter().any(|(cid, topics, data)| {
         cid == contract_id
@@ -454,9 +457,209 @@ fn test_distribute_secondary_royalties_emits_event() {
                     symbol_short!("royalty").into_val(&env),
                     symbol_short!("sec_dist").into_val(&env),
                 ]
-            && val_eq(&env, data, (token.clone(), pool_amount))
+            && val_eq(
+                &env,
+                data,
+                (
+                    stellar_royalty_splitter::EVENT_VERSION,
+                    env.ledger().sequence(),
+                    token.clone(),
+                    pool_amount,
+                    0i128,
+                    2u32,
+                    0u32,
+                ),
+            )
     });
-    assert!(found, "sec_dist event not emitted");
+    assert!(found, "sec_dist event not emitted with correct counters");
+}
+
+/// #463: SecondaryDistributionFailed event is emitted for each recipient that
+/// cannot be paid when pool > contract balance.
+#[test]
+fn test_secondary_distribution_failure_events_emitted() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pool_amount: i128 = 100;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+
+    // Artificially inflate the secondary pool so it exceeds the actual balance,
+    // triggering per-recipient failure events for the second collaborator.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&StorageKey::SecondaryPool, &200_i128);
+    });
+
+    let result = client.try_distribute_secondary_royalties();
+    assert!(result.is_err(), "should fail when pool exceeds balance");
+
+    // At least one SecondaryDistributionFailed event should have been emitted.
+    let events = env.events().all();
+    let failure_events: Vec<_> = events
+        .iter()
+        .filter(|(cid, topics, _)| {
+            *cid == contract_id
+                && *topics
+                    == vec![
+                        &env,
+                        symbol_short!("royalty").into_val(&env),
+                        symbol_short!("sec_fail").into_val(&env),
+                    ]
+        })
+        .collect();
+    assert!(
+        !failure_events.is_empty(),
+        "SecondaryDistributionFailed event must be emitted for failing recipients"
+    );
+}
+
+/// #463: Rollback strategy — when distribution fails, the secondary pool value
+/// must NOT be modified (all state changes rolled back).
+#[test]
+fn test_secondary_distribution_rollback_on_failure() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pool_amount: i128 = 50;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+
+    // Inflate pool beyond balance.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&StorageKey::SecondaryPool, &500_i128);
+    });
+
+    let _ = client.try_distribute_secondary_royalties();
+
+    // Pool must remain at the inflated value (state was rolled back).
+    let pool_after: i128 = env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .get(&StorageKey::SecondaryPool)
+            .unwrap_or(0)
+    });
+    assert_eq!(pool_after, 500, "pool should be unchanged after rollback");
+}
+
+/// #463: Success counters are accurate — all collaborators successfully paid
+/// means success_count equals the number of collaborators and failure_count is 0.
+#[test]
+fn test_secondary_distribution_success_counters() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let c = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone(), c.clone()],
+        &vec![&env, 5000_u32, 3000_u32, 2000_u32],
+    );
+
+    let pool_amount: i128 = 1000;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+    client.distribute_secondary_royalties();
+
+    // Verify the summary event shows 3 successes and 0 failures.
+    let events = env.events().all();
+    let found = events.iter().any(|(cid, topics, data)| {
+        cid == contract_id
+            && *topics
+                == vec![
+                    &env,
+                    symbol_short!("royalty").into_val(&env),
+                    symbol_short!("sec_dist").into_val(&env),
+                ]
+            && val_eq(
+                &env,
+                data,
+                (
+                    stellar_royalty_splitter::EVENT_VERSION,
+                    env.ledger().sequence(),
+                    token.clone(),
+                    pool_amount,
+                    0i128,
+                    3u32,
+                    0u32,
+                ),
+            )
+    });
+    assert!(found, "success counters (3/0) not found in sec_dist event");
+}
+
+/// #463: No SecondaryDistributionFailed events are emitted when all recipients
+/// are paid successfully.
+#[test]
+fn test_no_failure_events_on_successful_distribution() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pool_amount: i128 = 200;
+    mint(&env, &token, &admin, pool_amount);
+    client.record_secondary_royalty(&token, &admin, &pool_amount);
+    client.distribute_secondary_royalties();
+
+    // No sec_fail events should be present.
+    let events = env.events().all();
+    let failure_events: Vec<_> = events
+        .iter()
+        .filter(|(cid, topics, _)| {
+            *cid == contract_id
+                && *topics
+                    == vec![
+                        &env,
+                        symbol_short!("royalty").into_val(&env),
+                        symbol_short!("sec_fail").into_val(&env),
+                    ]
+        })
+        .collect();
+    assert!(
+        failure_events.is_empty(),
+        "no failure events should be emitted on successful distribution"
+    );
 }
 
 #[test]
