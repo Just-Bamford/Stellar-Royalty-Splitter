@@ -349,3 +349,16 @@ export function validateRoyaltySplitMiddleware(req, res, next) {
 
 export const validateRoyaltySplitPayload = validateRoyaltySplitMiddleware;
 export const validateRoyaltySplit = validateRoyaltySplitMiddleware;
+
+export const assignRoleSchema = z.object({
+  contractId: contractAddress.nullable().optional(),
+  walletAddress: stellarAddress,
+  role: z.enum(["viewer", "operator", "admin"]),
+});
+
+export const batchDistributeSchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  tokenIds: z.array(contractAddress).min(1, "At least one token is required").max(10, "Cannot batch more than 10 tokens"),
+});
+

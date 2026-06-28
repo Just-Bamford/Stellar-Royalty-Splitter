@@ -183,6 +183,7 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
     req.body &&
     typeof req.body === "object" &&
     "walletAddress" in req.body &&
+    !req.originalUrl.includes("/assign-role") &&
     !safeEqual(req.body.walletAddress, walletAddress)
   ) {
     return sendError(

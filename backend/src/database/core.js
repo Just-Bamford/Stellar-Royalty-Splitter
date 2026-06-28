@@ -59,6 +59,22 @@ export function initializeDatabase() {
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
+      // Issue #492: RBAC roles assignment database table
+      version: 9,
+      sql: `
+        CREATE TABLE IF NOT EXISTS user_roles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT,
+          walletAddress TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('viewer', 'operator', 'admin')),
+          assignedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          assignedBy TEXT,
+          UNIQUE(contractId, walletAddress)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_roles_walletAddress ON user_roles(walletAddress);
+      `,
+    },
+    {
       // Issue #462: composite index for single-query royalty statistics
       version: 8,
       sql: `

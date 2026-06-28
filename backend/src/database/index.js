@@ -62,6 +62,14 @@ export {
 // Analytics
 export { getAnalyticsData } from "./analytics.js";
 
+// RBAC Roles
+export {
+  dbGetUserRole,
+  dbAssignUserRole,
+  dbHasAnyRoles,
+} from "./roles.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
+
