@@ -78,7 +78,7 @@ describe("network timeout scenarios (AbortController)", () => {
             return;
           }
           init?.signal?.addEventListener("abort", () => {
-            c2Rejected = true;
+            if (init.signal === c2.signal) c2Rejected = true;
             reject(abortError);
           });
           // Simulate a response after a tick when not aborted
@@ -88,10 +88,12 @@ describe("network timeout scenarios (AbortController)", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const req1 = fetch("/api/v1/a", { signal: c1.signal });
+    const req2 = fetch("/api/v1/b", { signal: c2.signal });
     c1.abort();
 
     await expect(req1).rejects.toMatchObject({ name: "AbortError" });
     expect(c2Rejected).toBe(false);
+    await expect(req2).resolves.toMatchObject({ ok: true });
     c2.abort();
   });
 

@@ -49,8 +49,10 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   retryBuildTx: jest.fn(),
   isContractInitialized: jest.fn(),
+  getNetworkLabel: jest.fn(() => "Testnet"),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
@@ -62,10 +64,12 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 }));
 
 const { default: app } = await import("./app.js");
+const { _resetCollaboratorsCache } = await import("../src/routes/collaborators.js");
 const { SorobanRpc } = await import("@stellar/stellar-sdk");
 
 describe("GET /api/v1/collaborators/:contractId", () => {
   beforeEach(() => {
+    _resetCollaboratorsCache();
     mockSimulate.mockReset();
     mockIsSimError.mockReset();
     mockIsSimError.mockReturnValue(false);

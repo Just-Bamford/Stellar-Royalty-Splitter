@@ -5,12 +5,22 @@ const checkHorizonConnectivity = jest.fn();
 const checkContractDeploymentStatus = jest.fn();
 const getConfiguredContractId = jest.fn();
 const getNetworkLabel = jest.fn(() => "Testnet");
+const checkAllHorizonEndpoints = jest.fn(() => []);
+const checkAllRpcEndpoints = jest.fn(() => []);
+const getCurrentHorizonUrl = jest.fn(() => "https://horizon-testnet.stellar.org");
+const getCurrentRpcUrl = jest.fn(() => "https://soroban-testnet.stellar.org");
+const getContractAdmin = jest.fn(() => "GADMIN");
 
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   checkHorizonConnectivity,
   checkContractDeploymentStatus,
   getConfiguredContractId,
   getNetworkLabel,
+  checkAllHorizonEndpoints,
+  checkAllRpcEndpoints,
+  getCurrentHorizonUrl,
+  getCurrentRpcUrl,
+  getContractAdmin,
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -18,6 +28,18 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 2),
+}));
+
+await jest.unstable_mockModule("../src/cache.js", () => ({
+  getCacheManager: jest.fn(() => ({
+    verifyAdminConsistency: jest.fn(async (fetchLiveAdmin) => ({
+      consistent: true,
+      cachedAdmin: "GADMIN",
+      liveAdmin: await fetchLiveAdmin(),
+      elapsedMs: 1,
+    })),
+    invalidateAdmin: jest.fn(),
+  })),
 }));
 
 const { clearHealthCache } = await import("../src/routes/health.js");
