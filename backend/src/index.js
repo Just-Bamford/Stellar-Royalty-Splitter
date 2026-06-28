@@ -29,6 +29,7 @@ import { verifyRequestSignatureMiddleware } from "./request-signing.js";
 import { apiKeyRateLimiter } from "./api-key-rate-limit.js";
 import { createLegacyApiRedirectMiddleware } from "./legacy-api-redirect.js";
 
+import { batchQueueRouter } from "./routes/batch-queue.js";
 // #399: Cache and event listener imports
 import { getCacheManager } from "./cache.js";
 import { AdminEventListener } from "./events/adminEventListener.js";
@@ -206,6 +207,11 @@ app.use("/api/v1/health", healthRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 
+// Apply batch queue rate limiting
+app.use("/api/v1/batch-queue", writeLimiter);
+
+// Register batch queue router
+app.use("/api/v1/batch-queue", batchQueueRouter);
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const adminLimiter = rateLimit({
   windowMs: 60_000,

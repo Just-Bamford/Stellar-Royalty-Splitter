@@ -58,6 +58,42 @@ export function initializeDatabase() {
       version: 1,
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
+        {
+          // Batch queue for secondary royalty distribution batching
+          // Issue: Multiple secondary royalty distributions create separate transactions,
+          // causing network spam and accumulated gas costs.
+          // Solution: Batch distributions into time-windowed groups (5-minute batches)
+          // processed in single transactions.
+          version: 8,
+          sql: `
+            -- Batch queue for tracking queued distributions
+            CREATE TABLE IF NOT EXISTS batch_queue (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              contractId TEXT NOT NULL,
+              batchId INTEGER NOT NULL,
+              token TEXT NOT NULL,
+              totalAmount TEXT NOT NULL,
+              status INTEGER NOT NULL DEFAULT 0,
+              retryCount INTEGER NOT NULL DEFAULT 0,
+              createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+              processedAt DATETIME
+            );
+        
+            -- Index for efficient batch lookups and cleanup
+            CREATE INDEX IF NOT EXISTS idx_batch_queue_contractId ON batch_queue(contractId);
+            CREATE INDEX IF NOT EXISTS idx_batch_queue_status ON batch_queue(status);
+            CREATE INDEX IF NOT EXISTS idx_batch_queue_batchId ON batch_queue(contractId, batchId);
+            CREATE INDEX IF NOT EXISTS idx_batch_queue_createdAt ON batch_queue(createdAt);
+        
+            -- Update secondary_royalty_distributions to support batch tracking
+            ALTER TABLE secondary_royalty_distributions ADD COLUMN batchId INTEGER;
+            ALTER TABLE secondary_royalty_distributions ADD COLUMN collaborators TEXT;
+            ALTER TABLE secondary_royalty_distributions ADD COLUMN dustAllocated TEXT DEFAULT '0';
+        
+            -- Create index for efficient batch distribution lookups
+            CREATE INDEX IF NOT EXISTS idx_sec_dist_batchId ON secondary_royalty_distributions(batchId);
+          `,
+        },
     {
       // Issue #427: track dust allocated per secondary-royalty distribution round
       // Issue #428: add max_attempts to webhooks; add cleanup index on DLQ

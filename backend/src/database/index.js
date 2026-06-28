@@ -62,6 +62,19 @@ export {
 // Analytics
 export { getAnalyticsData } from "./analytics.js";
 
+// Batch queue management
+export {
+  queueBatchEntry,
+  getPendingBatches,
+  getBatchHistory,
+  updateBatchStatus,
+  getBatchMetrics,
+  getRetryStats,
+  cleanupOldBatches,
+  commitBatchDistribution,
+  getBatchDistributions,
+  getBatchEfficiencyMetrics,
+} from "./batch-queue.js";
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
