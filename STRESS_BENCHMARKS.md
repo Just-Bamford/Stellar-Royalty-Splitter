@@ -27,3 +27,26 @@ measure CPU usage with `env.budget()` and assert the contract stays below
 - For mainnet readiness, re-run the stress suite against a Soroban-compatible
   local or staging network before deployment.
 
+## Validation Checklist
+
+Use this checklist when reviewing a release candidate:
+
+1. Run `cargo test --test stress_tests`.
+2. Confirm all five stress scenarios pass.
+3. Record the CPU instruction totals printed by the test harness or CI logs.
+4. Verify each large batch stays below the 1M CPU guard.
+5. Re-run the same scenarios on a Soroban-compatible staging or mainnet-fork
+   environment before deployment.
+
+## Scenario Summary
+
+- `test_override_distribution_with_100_plus_recipients`: 120 recipients, one
+  large batch, measures CPU usage.
+- `test_repeated_large_batches_same_contract`: 100 recipients, 5 repeated
+  distributions on the same contract.
+- `test_large_amount_distribution_with_100_recipients`: 100 recipients, very
+  large token amount, checks rounding and overflow safety.
+- `test_large_batch_scale_is_reasonable`: compares 100 vs 120 recipients to
+  confirm scaling behavior.
+- `test_repeated_batches_do_not_leave_residual_balance`: 150 recipients, 3
+  repeated batches, ensures no contract-side balance residue remains.
