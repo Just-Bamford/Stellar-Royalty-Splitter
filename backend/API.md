@@ -5,6 +5,27 @@ Base URL: `http://localhost:3001` (default)
 All JSON POST bodies must use `Content-Type: application/json`.
 JSON request bodies are limited to `10kb`; oversized requests return `413 Payload Too Large`.
 
+## Standardized Error Response Format (#227)
+
+All API routes consistently return structured error responses matching the standardized shape:
+
+```json
+{
+  "status": 400,
+  "code": "bad_request",
+  "message": "Human-readable error description",
+  "error": "Human-readable error description",
+  "timestamp": "2026-06-26T14:00:00.000Z"
+}
+```
+
+- `status`: The HTTP status code (integer)
+- `code`: Machine-readable snake_case error code (e.g. `bad_request`, `validation_error`, `conflict`, `payload_too_large`, `internal_server_error`)
+- `message`: Human-readable error message (string)
+- `error`: Maintained alongside `message` for 100% backward compatibility with legacy clients
+
+---
+
 ## Health
 
 ### `GET /api/v1/health`
@@ -74,6 +95,12 @@ Invalid or missing signatures return `401`.
 
 Build an unsigned `initialize` transaction XDR.
 
+**Body:** `{ contractId, walletAddress, collaborators, shares }` OR `{ contractId, walletAddress, recipients: [{ address, percentage }] }`
+
+**Validation Middleware (#228):**
+All initialize and royalty split payloads pass through request validation middleware before reaching contract processing. The middleware verifies that:
+- All recipient addresses are valid Stellar public keys (`G...`)
+- Revenue allocations sum to exactly `100%` (or `10,000` basis points)
 **Body:** `{ contractId, walletAddress, collaborators, shares, nonce? }`
 
 | Field | Type | Description |
@@ -82,7 +109,7 @@ Build an unsigned `initialize` transaction XDR.
 
 **Response:** `{ xdr, transactionId }`
 
-Initialize requests are rejected before contract processing when the request body is too large or when the serialized `collaborators` array exceeds the initialize payload guard.
+Initialize requests are rejected before contract processing when validation fails, when the request body is too large, or when the serialized `collaborators` array exceeds the initialize payload guard.
 
 **Request deduplication by nonce (#421):**
 
@@ -613,3 +640,181 @@ The limiter uses a true sliding window (a per-key timestamp log, not a fixed-win
 | -------- | ------- | ------- |
 | `API_KEY_RATE_LIMIT_WINDOW_MS` | `60000` (1 minute) | Sliding window size |
 | `API_KEY_RATE_LIMIT_MAX` | `60` | Max requests per key per window |
+
+## Error Reference (#470)
+
+All error responses share a common envelope:
+
+```json
+{
+  "status": 400,
+  "code": "validation_error",
+  "message": "Human-readable description of what went wrong.",
+  "error": "Human-readable description of what went wrong.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+`code` is a machine-readable string clients can switch on. `message` and `error` carry the same value and are both present for backwards compatibility.
+
+### Error code enum
+
+| Code | HTTP status | Meaning |
+| ---- | ----------- | ------- |
+| `bad_request` | 400 | The request body or parameters are malformed or logically invalid. |
+| `validation_error` | 400 | Schema validation failed; a `details` array is included with per-field errors. |
+| `invalid_idempotency_key` | 400 | `Idempotency-Key` header value contains disallowed characters or exceeds 255 chars. |
+| `invalid_sale_price` | 400 | Secondary-royalty sale price is zero or negative. |
+| `invalid_royalty_rate` | 400 | Royalty rate is outside the allowed `0`–`10000` basis-point range. |
+| `invalid_collaborators` | 400 | Collaborator `basisPoints` values do not sum to exactly 10000. |
+| `invalid_query_parameter` | 400 | A query-string value (e.g. `startDate`, `endDate`) is invalid. |
+| `unauthorized` | 401 | Request signing verification failed or no valid session. |
+| `auth_error` | 401 | Authentication error (missing or invalid credentials). |
+| `invalid_api_key` | 401 | The `X-API-Key` header is missing, unknown, or revoked. |
+| `forbidden` | 403 | Authenticated but not permitted to perform this action. |
+| `not_found` | 404 | The requested resource does not exist. |
+| `method_not_allowed` | 405 | HTTP method not allowed on this endpoint. |
+| `conflict` | 409 | Duplicate request: the resource already exists or has already been processed. |
+| `gone` | 410 | The resource existed but has been permanently removed. |
+| `payload_too_large` | 413 | Request body exceeds the 10 KB limit. |
+| `unsupported_media_type` | 415 | `Content-Type` must be `application/json`. |
+| `unprocessable_entity` | 422 | Request is syntactically valid but semantically unprocessable. |
+| `too_many_requests` | 429 | Per-IP or per-API-key rate limit exceeded. |
+| `internal_server_error` | 500 | Unexpected server-side error. |
+| `database_error` | 500 | A database operation failed. |
+| `not_implemented` | 501 | Feature not yet implemented. |
+| `service_unavailable` | 503 | Stellar RPC or Horizon is unreachable. |
+| `gateway_timeout` | 504 | Stellar RPC or Horizon did not respond within the configured timeout. |
+| `contract_error` | 400/500 | The Soroban contract rejected the call or returned an unexpected error. |
+| `webhook_error` | 400/500 | Webhook registration or delivery operation failed. |
+
+### HTTP status code reference
+
+| Status | When it appears |
+| ------ | --------------- |
+| `200 OK` | Success. |
+| `400 Bad Request` | Validation failure, bad parameters, or domain-rule violation. |
+| `401 Unauthorized` | Missing or invalid authentication (signing headers, API key). |
+| `403 Forbidden` | Authenticated but not authorized. |
+| `404 Not Found` | Resource does not exist. |
+| `405 Method Not Allowed` | Wrong HTTP verb. |
+| `409 Conflict` | Duplicate request (nonce already used, sale already recorded, transaction already settled). |
+| `410 Gone` | Resource permanently removed. |
+| `413 Payload Too Large` | Body exceeds 10 KB. |
+| `415 Unsupported Media Type` | Missing or wrong `Content-Type`. |
+| `422 Unprocessable Entity` | Semantically invalid request. |
+| `429 Too Many Requests` | Rate limit hit (per-IP or per-API-key). |
+| `500 Internal Server Error` | Unhandled exception, database failure. |
+| `501 Not Implemented` | Feature not available. |
+| `503 Service Unavailable` | Stellar RPC / Horizon unreachable. |
+| `504 Gateway Timeout` | Stellar RPC / Horizon response timed out. |
+
+### Example error responses
+
+**Validation failure (400)**
+
+```json
+{
+  "status": 400,
+  "code": "validation_error",
+  "message": "walletAddress must be a valid Stellar address",
+  "error": "walletAddress must be a valid Stellar address",
+  "timestamp": "2026-06-01T12:00:00.000Z",
+  "details": [
+    { "field": "walletAddress", "message": "walletAddress must be a valid Stellar address", "constraint": null }
+  ]
+}
+```
+
+**Rate limit exceeded (429)**
+
+```json
+{
+  "status": 429,
+  "code": "too_many_requests",
+  "message": "Too many requests, please try again later.",
+  "error": "Too many requests, please try again later.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+Headers on a 429 from the API-key limiter:
+
+| Header | Meaning |
+| ------ | ------- |
+| `X-RateLimit-Limit` | Max requests per window for this key |
+| `X-RateLimit-Remaining` | Requests remaining (`0` on 429) |
+| `X-RateLimit-Reset` | Unix seconds when the window resets |
+
+**Invalid idempotency key (400)**
+
+```json
+{
+  "status": 400,
+  "code": "invalid_idempotency_key",
+  "message": "Invalid Idempotency-Key format. Must be 1-255 alphanumeric characters, hyphens, or underscores.",
+  "error": "Invalid Idempotency-Key format. Must be 1-255 alphanumeric characters, hyphens, or underscores.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+**Conflict — duplicate nonce (409)**
+
+```json
+{
+  "status": 409,
+  "code": "conflict",
+  "message": "A request with this nonce has already been processed for this contract.",
+  "error": "A request with this nonce has already been processed for this contract.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+**Stellar RPC timeout (504)**
+
+```json
+{
+  "status": 504,
+  "code": "gateway_timeout",
+  "message": "Soroban RPC timed out after 10000ms",
+  "error": "Soroban RPC timed out after 10000ms",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+**Service unavailable (503)**
+
+```json
+{
+  "status": 503,
+  "code": "service_unavailable",
+  "message": "Stellar RPC is currently unavailable",
+  "error": "Stellar RPC is currently unavailable",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+### Retry policy
+
+| Code / Status | Retry? | Strategy |
+| ------------- | ------ | -------- |
+| `validation_error` / 400 | No | Fix the request before retrying. |
+| `bad_request` / 400 | No | Fix the request before retrying. |
+| `unauthorized` / 401 | After re-auth | Re-authenticate (rotate key or reconnect wallet), then retry once. |
+| `forbidden` / 403 | No | Retrying will not change the outcome. |
+| `not_found` / 404 | No | The resource does not exist. |
+| `conflict` / 409 | No | The operation already completed or the resource already exists. |
+| `too_many_requests` / 429 | Yes | Wait until `X-RateLimit-Reset`, then retry with exponential backoff. |
+| `internal_server_error` / 500 | Yes | Retry up to 3 times with exponential backoff (e.g. 1 s, 2 s, 4 s). |
+| `service_unavailable` / 503 | Yes | Retry with backoff; the Stellar network may be temporarily degraded. |
+| `gateway_timeout` / 504 | Yes | Retry with backoff; use an `Idempotency-Key` to prevent duplicate submissions. |
+
+### Client error-handling guide
+
+1. **Always send `Content-Type: application/json`** on POST/PUT/DELETE requests.
+2. **Parse `code`**, not `status`, for programmatic error handling — HTTP status codes can overlap across error types.
+3. **Use `Idempotency-Key`** on `/distribute` and `/secondary-royalty/distribute` before any retry. Generate the key once (`crypto.randomUUID()`) and reuse it on each retry attempt so the server returns the cached first-success response instead of creating a duplicate transaction.
+4. **Do not retry 4xx errors** (except 429) — they indicate a request problem that retrying will not fix.
+5. **Back off exponentially** on 429, 500, 503, and 504 responses. Start with a 1-second delay and double on each retry, up to a maximum of 30 seconds.
+6. **Check `details`** on `validation_error` (400) — the array identifies which fields failed and why, enabling targeted error messages in the UI.
+7. **Re-authenticate on 401** — the signing session or API key may have expired or been revoked.

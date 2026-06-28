@@ -160,14 +160,14 @@ export function validateInitializePayloadSize(req, res, next) {
   const totalBodyBytes = getJsonByteLength(req.body);
 
   if (totalBodyBytes > INITIALIZE_PAYLOAD_LIMIT_BYTES) {
-    return res.status(413).json({ error: "Payload too large" });
+    return sendError(res, 413, "payload_too_large", "Payload too large");
   }
 
   if (Array.isArray(req.body?.collaborators)) {
     const collaboratorsBytes = getJsonByteLength(req.body.collaborators);
 
     if (collaboratorsBytes > INITIALIZE_COLLABORATORS_PAYLOAD_LIMIT_BYTES) {
-      return res.status(413).json({ error: "Collaborators payload too large" });
+      return sendError(res, 413, "payload_too_large", "Collaborators payload too large");
     }
   }
 
@@ -249,3 +249,103 @@ export function parsePagination(query, res) {
   }
   return result.data;
 }
+
+/**
+ * Royalty split payload schema & middleware (#228)
+ * Validates Stellar public keys and percentage sums before hitting contract layer.
+ */
+export const royaltySplitItemSchema = z.object({
+  address: stellarAddress,
+  percentage: z.number().min(0).max(100).optional(),
+  share: basisPoints.optional(),
+});
+
+export function validateRoyaltySplitMiddleware(req, res, next) {
+  const body = req.body || {};
+
+  let items = [];
+
+  if (Array.isArray(body.recipients) && typeof body.recipients[0] === "object" && body.recipients[0] !== null) {
+    items = body.recipients.map((r, idx) => ({
+      address: r.address ?? r.recipient ?? r.walletAddress ?? "",
+      percentage: typeof r.percentage === "number" ? r.percentage : (typeof r.share === "number" ? r.share / 100 : null),
+      share: typeof r.share === "number" ? r.share : (typeof r.percentage === "number" ? Math.round(r.percentage * 100) : null),
+      path: `recipients.${idx}`,
+    }));
+  } else if (Array.isArray(body.recipients) && typeof body.recipients[0] === "string") {
+    const shares = body.shares ?? body.percentages?.map((p) => Math.round(p * 100)) ?? [];
+    const percentages = body.percentages ?? body.shares?.map((s) => s / 100) ?? [];
+    if (body.recipients.length !== (body.percentages ?? body.shares ?? []).length) {
+      return sendError(res, 400, "validation_error", "Validation failed: recipients and percentages/shares arrays must be the same length");
+    }
+    items = body.recipients.map((addr, idx) => ({
+      address: addr,
+      percentage: percentages[idx],
+      share: shares[idx],
+      path: `recipients.${idx}`,
+    }));
+  } else if (Array.isArray(body.collaborators)) {
+    const shares = body.shares ?? body.percentages?.map((p) => Math.round(p * 100)) ?? [];
+    const percentages = body.percentages ?? body.shares?.map((s) => s / 100) ?? [];
+    if (body.collaborators.length !== (body.shares ?? body.percentages ?? []).length) {
+      return sendError(res, 400, "validation_error", "Validation failed: collaborators and shares/percentages arrays must be the same length");
+    }
+    items = body.collaborators.map((addr, idx) => ({
+      address: addr,
+      percentage: percentages[idx],
+      share: shares[idx],
+      path: `collaborators.${idx}`,
+    }));
+  } else {
+    return sendError(res, 400, "validation_error", "Validation failed: Missing royalty split payload (expected recipients or collaborators list)");
+  }
+
+  if (items.length === 0) {
+    return sendError(res, 400, "validation_error", "Validation failed: Recipients array must be non-empty");
+  }
+
+  if (items.length > 20) {
+    return sendError(res, 400, "validation_error", "Validation failed: Too many recipients (max 20)");
+  }
+
+  const issues = [];
+  for (const item of items) {
+    if (!item.address || typeof item.address !== "string" || !/^G[A-Z2-7]{55}$/.test(item.address)) {
+      issues.push({
+        field: `${item.path}.address`,
+        message: `Validation failed: Invalid Stellar address (${item.address || "empty"})`,
+      });
+    }
+    if (item.share === null || item.percentage === null || Number.isNaN(item.share) || item.share <= 0) {
+      issues.push({
+        field: `${item.path}.share`,
+        message: "Validation failed: Percentage or share must be a positive number",
+      });
+    }
+  }
+
+  if (issues.length > 0) {
+    return sendValidationError(res, issues);
+  }
+
+  const totalShares = items.reduce((acc, it) => acc + (it.share ?? 0), 0);
+  if (totalShares !== 10000) {
+    const actualPct = totalShares / 100;
+    return sendValidationError(res, [{
+      field: "shares",
+      message: `Validation failed: percentages must sum to exactly 100 (got ${actualPct}%, expected 100%)`,
+    }]);
+  }
+
+  req.body = {
+    ...body,
+    collaborators: items.map((i) => i.address),
+    shares: items.map((i) => i.share),
+    recipients: items.map((i) => ({ address: i.address, share: i.share, percentage: i.percentage })),
+  };
+
+  next();
+}
+
+export const validateRoyaltySplitPayload = validateRoyaltySplitMiddleware;
+export const validateRoyaltySplit = validateRoyaltySplitMiddleware;

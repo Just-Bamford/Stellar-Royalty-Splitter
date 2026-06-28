@@ -4,6 +4,8 @@
  */
 
 import { db, countWrite } from "./core.js";
+import { addAuditLog } from "./audit.js";
+import { recordTransaction } from "./transactions.js";
 
 // ---------------------------------------------------------------------------
 // Largest-remainder rounding algorithm (#427)
@@ -254,6 +256,71 @@ export function getSecondaryRoyaltyDistributions(contractId, limit = 50, offset 
 
   return stmt.all(contractId, limit, offset);
 }
+
+/**
+ * Atomically record a secondary distribution: insert the transaction row,
+ * mark all pending sales as distributed, insert the distribution record, and
+ * write the audit log entries — all inside a single SQLite transaction (#471).
+ *
+ * If any step throws, the entire transaction is rolled back, preventing
+ * orphaned pending-sale rows when the Stellar XDR is already built.
+ *
+ * @param {object} params
+ * @param {string}  params.contractId
+ * @param {string}  params.walletAddress
+ * @param {bigint}  params.totalRoyalties
+ * @param {number}  params.numberOfSales
+ * @param {number[]} params.pendingSaleIds
+ * @param {bigint}  params.totalDustAllocated
+ * @param {object|null} params.dustAuditData  — null when no dust was allocated
+ * @returns {number} transactionId
+ */
+export const commitSecondaryDistributionAtomic = db.transaction(
+  ({
+    contractId,
+    walletAddress,
+    totalRoyalties,
+    numberOfSales,
+    pendingSaleIds,
+    totalDustAllocated,
+    dustAuditData,
+  }) => {
+    const transactionId = recordTransaction(
+      contractId,
+      "secondary_distribute",
+      walletAddress,
+      { totalRoyalties: totalRoyalties.toString(), numberOfSales }
+    );
+
+    markSalesDistributed(pendingSaleIds);
+
+    recordSecondaryRoyaltyDistribution(
+      transactionId,
+      contractId,
+      totalRoyalties.toString(),
+      numberOfSales,
+      totalDustAllocated
+    );
+
+    if (dustAuditData) {
+      addAuditLog(
+        contractId,
+        "secondary_distribution_dust_allocated",
+        walletAddress,
+        dustAuditData
+      );
+    }
+
+    addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
+      transactionId,
+      numberOfSales,
+      totalRoyalties: totalRoyalties.toString(),
+      dustAllocated: totalDustAllocated.toString(),
+    });
+
+    return transactionId;
+  }
+);
 
 /**
  * Get royalty statistics for a contract.

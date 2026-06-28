@@ -56,6 +56,7 @@ export {
   getSecondaryRoyaltyDistributions,
   getRoyaltyStatistics,
   applyLargestRemainder,
+  commitSecondaryDistributionAtomic,
 } from "./secondary-royalties.js";
 
 // Analytics

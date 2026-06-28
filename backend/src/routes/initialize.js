@@ -12,6 +12,7 @@ import {
   commitInitializeSchema,
   revealInitializeSchema,
   validateInitializePayloadSize,
+  validateRoyaltySplitMiddleware,
 } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
 import { createRequestLogger } from "../logger.js";
@@ -24,9 +25,7 @@ async function ensureNotInitialized(contractId, res, log) {
   const alreadyInitialized = await isContractInitialized(contractId);
   if (alreadyInitialized) {
     log?.warn("contract already initialized", { contractId });
-    res.status(409).json({
-      error: "Contract is already initialized. Cannot re-initialize an existing contract.",
-    });
+    sendError(res, 409, "conflict", "Contract is already initialized. Cannot re-initialize an existing contract.");
     return false;
   }
   return true;
@@ -35,6 +34,7 @@ async function ensureNotInitialized(contractId, res, log) {
 initializeRouter.post(
   "/",
   validateInitializePayloadSize,
+  validateRoyaltySplitMiddleware,
   validate(initializeSchema),
   async (req, res, next) => {
     const log = createRequestLogger(req);
@@ -80,7 +80,7 @@ initializeRouter.post(
         error: err.message ?? String(err),
         status: err.status,
       });
-      if (err.status) return res.status(err.status).json({ error: err.message });
+      if (err.status) return sendError(res, err.status, undefined, err.message);
       next(err);
     }
   }
@@ -112,7 +112,7 @@ initializeRouter.post("/commit", validate(commitInitializeSchema), async (req, r
 
     res.json({ xdr, transactionId, phase: "commit" });
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.status) return sendError(res, err.status, undefined, err.message);
     next(err);
   }
 });
@@ -146,7 +146,7 @@ initializeRouter.post(
       invalidateCollaboratorsCache(contractId);
       res.json({ xdr, transactionId, phase: "reveal" });
     } catch (err) {
-      if (err.status) return res.status(err.status).json({ error: err.message });
+      if (err.status) return sendError(res, err.status, undefined, err.message);
       next(err);
     }
   }

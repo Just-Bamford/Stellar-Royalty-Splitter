@@ -6089,3 +6089,334 @@ fn test_snapshot_last_distribution_timestamp_after_distribute() {
         );
     });
 }
+
+// ── Issue #468: secondary royalty logic tests ─────────────────────────────────
+
+/// Distributing with an empty secondary pool returns the typed NoSecondaryRoyalties error.
+#[test]
+fn test_secondary_royalty_empty_pool_returns_typed_error() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // No record_secondary_royalty called — pool is empty.
+    let result = client.try_distribute_secondary_royalties();
+    assert_eq!(result, Err(Ok(ContractError::NoSecondaryRoyalties)));
+}
+
+/// Multiple record_secondary_royalty calls accumulate into the pool.
+#[test]
+fn test_secondary_royalty_multiple_contributions_accumulate() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    mint(&env, &token, &admin, 300);
+    client.record_secondary_royalty(&token, &admin, &100_i128);
+    client.record_secondary_royalty(&token, &admin, &200_i128);
+
+    assert_eq!(client.get_secondary_pool(), 300);
+}
+
+/// Exact three-way split: pool=10 with 5000/3000/2000 shares → each recipient
+/// gets 5/3/2 stroops with zero rounding dust.
+#[test]
+fn test_secondary_royalty_exact_three_way_split() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let c = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone(), c.clone()],
+        &vec![&env, 5000_u32, 3000_u32, 2000_u32],
+    );
+
+    let pool: i128 = 10;
+    mint(&env, &token, &admin, pool);
+    client.record_secondary_royalty(&token, &admin, &pool);
+    client.distribute_secondary_royalties();
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&admin), 5, "admin should receive 5");
+    assert_eq!(token_client.balance(&b), 3, "b should receive 3");
+    assert_eq!(token_client.balance(&c), 2, "c (last) should receive 2");
+}
+
+/// With an odd pool (7 stroops) split 50/50, the last recipient absorbs the
+/// integer-division dust: first gets 3, last gets 4.
+#[test]
+fn test_secondary_royalty_dust_absorbed_by_last_recipient() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pool: i128 = 7;
+    mint(&env, &token, &admin, pool);
+    client.record_secondary_royalty(&token, &admin, &pool);
+    client.distribute_secondary_royalties();
+
+    let token_client = TokenClient::new(&env, &token);
+    // 7 * 5000 / 10000 = 3 for first; last gets 7 - 3 = 4
+    assert_eq!(token_client.balance(&admin), 3, "admin should receive 3");
+    assert_eq!(token_client.balance(&b), 4, "b (last) absorbs dust and receives 4");
+}
+
+/// After a successful distribution the secondary pool is reset to zero.
+#[test]
+fn test_secondary_royalty_pool_zeroed_after_distribution() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let pool: i128 = 200;
+    mint(&env, &token, &admin, pool);
+    client.record_secondary_royalty(&token, &admin, &pool);
+    client.distribute_secondary_royalties();
+
+    assert_eq!(client.get_secondary_pool(), 0, "pool should be zeroed after distribution");
+}
+
+/// PoolExceedsBalance is returned when the recorded pool is larger than the
+/// actual token balance (e.g. after accounting inconsistency).
+#[test]
+fn test_secondary_royalty_pool_exceeds_balance_returns_typed_error() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Record 100 stroops — pool = 100, contract balance = 100.
+    let pool: i128 = 100;
+    mint(&env, &token, &admin, pool);
+    client.record_secondary_royalty(&token, &admin, &pool);
+
+    // Force the pool counter above the real balance.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&StorageKey::SecondaryPool, &1_000_i128);
+    });
+
+    let result = client.try_distribute_secondary_royalties();
+    assert_eq!(result, Err(Ok(ContractError::PoolExceedsBalance)));
+}
+
+/// Large pool (1000 stroops) with near-equal thirds (3333/3333/3334) distributes
+/// without losing a stroop: 333 + 333 + 334 = 1000.
+#[test]
+fn test_secondary_royalty_rounding_precision_large_pool() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let c = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone(), c.clone()],
+        &vec![&env, 3333_u32, 3333_u32, 3334_u32],
+    );
+
+    let pool: i128 = 1000;
+    mint(&env, &token, &admin, pool);
+    client.record_secondary_royalty(&token, &admin, &pool);
+    client.distribute_secondary_royalties();
+
+    let token_client = TokenClient::new(&env, &token);
+    // 1000 * 3333 / 10000 = 333 each for first two; last gets 1000 - 333 - 333 = 334
+    assert_eq!(token_client.balance(&admin), 333);
+    assert_eq!(token_client.balance(&b), 333);
+    assert_eq!(token_client.balance(&c), 334);
+    assert_eq!(
+        token_client.balance(&admin) + token_client.balance(&b) + token_client.balance(&c),
+        pool,
+        "all stroops must be accounted for"
+    );
+}
+
+/// distribute_with_override returns AmountTooSmall when the contract balance
+/// is less than the number of override recipients (3 recipients, 2 stroops).
+#[test]
+fn test_distribute_with_override_amount_too_small_returns_typed_error() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let c = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Balance = 2 stroops, 3 override recipients → amount (2) < n (3).
+    mint(&env, &token, &contract_id, 2);
+
+    let overrides = vec![
+        &env,
+        Recipient { address: admin.clone(), share: 5000_u32 },
+        Recipient { address: b.clone(), share: 3000_u32 },
+        Recipient { address: c.clone(), share: 2000_u32 },
+    ];
+
+    let result = client.try_distribute_with_override(&token, &overrides);
+    assert_eq!(result, Err(Ok(ContractError::AmountTooSmall)));
+}
+
+/// distribute_with_override succeeds at the exact boundary: n recipients with
+/// exactly n stroops (2 recipients, 2 stroops → each receives 1 stroop).
+#[test]
+fn test_distribute_with_override_exactly_n_stroops_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Exact boundary: 2 recipients, 2 stroops.
+    mint(&env, &token, &contract_id, 2);
+
+    let overrides = vec![
+        &env,
+        Recipient { address: admin.clone(), share: 5000_u32 },
+        Recipient { address: b.clone(), share: 5000_u32 },
+    ];
+
+    client.distribute_with_override(&token, &overrides);
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&admin), 1, "admin should receive 1 stroop");
+    assert_eq!(token_client.balance(&b), 1, "b should receive 1 stroop");
+}
+
+/// distribute_with_override returns InvalidShareTotal when override shares
+/// do not sum to exactly 10 000.
+#[test]
+fn test_distribute_with_override_invalid_share_total_returns_typed_error() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    mint(&env, &token, &contract_id, 1000);
+
+    // Shares sum to 9999, not 10000.
+    let bad_overrides = vec![
+        &env,
+        Recipient { address: admin.clone(), share: 5000_u32 },
+        Recipient { address: b.clone(), share: 4999_u32 },
+    ];
+
+    let result = client.try_distribute_with_override(&token, &bad_overrides);
+    assert_eq!(result, Err(Ok(ContractError::InvalidShareTotal)));
+}
+
+/// A single override recipient at 10 000 basis points receives the entire
+/// contract balance.
+#[test]
+fn test_distribute_with_override_single_recipient_gets_full_amount() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let sole = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    let amount: i128 = 500;
+    mint(&env, &token, &contract_id, amount);
+
+    let overrides = vec![
+        &env,
+        Recipient { address: sole.clone(), share: 10000_u32 },
+    ];
+
+    client.distribute_with_override(&token, &overrides);
+
+    assert_eq!(TokenClient::new(&env, &token).balance(&sole), amount);
+    assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 0);
+}
