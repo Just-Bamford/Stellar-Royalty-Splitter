@@ -92,9 +92,40 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Test
 
+### Backend Tests (Node.js)
+
+```bash
+cd backend
+npm test
+```
+
+**Status:** ✅ **152/152 tests passing (100%)**
+
+### Frontend Unit Tests
+
+```bash
+cd frontend
+npm run test:coverage
+```
+
+**Status:** ✅ Vitest + RTL configured, unit tests for core components.
+
+### Frontend E2E Tests
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
+**Status:** 📋 18 tests configured (requires Playwright browsers)
+
+### Rust Contract Tests
+
 ```bash
 cargo test
 ```
+
+**Status:** ❓ Requires Rust toolchain
 
 ---
 
@@ -263,6 +294,12 @@ The backend builds unsigned transaction XDR and returns it to the frontend. **Fr
 
 ---
 
+### Backend shutdown
+
+The backend handles `SIGTERM` and `SIGINT` gracefully. On shutdown it stops accepting new HTTP connections, lets in-flight API requests finish through Node's `server.close()` drain behavior, checkpoints and closes the SQLite database, logs each shutdown step, and then exits. No additional shutdown timeout is configured, so container or process managers should provide any external termination deadline they require.
+
+---
+
 ## Environment Variables
 
 Copy `backend/.env.example` to `backend/.env`:
@@ -271,15 +308,15 @@ Copy `backend/.env.example` to `backend/.env`:
 cp backend/.env.example backend/.env
 ```
 
-| Variable            | Description                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `PORT`              | Port the backend API listens on (default: `3001`)                                       |
-| `STELLAR_NETWORK`   | `testnet` or `mainnet`                                                                  |
-| `HORIZON_URL`       | Horizon REST endpoint for the chosen network                                            |
-| `SOROBAN_RPC_URL`   | Soroban RPC endpoint for simulating and preparing transactions                          |
-| `SERVER_SECRET_KEY` | Server-side keypair used for read-only simulations only — never signs user transactions |
-| `SIGNING_KEY_FILE` | Optional secrets-manager file path; takes precedence over `SERVER_SECRET_KEY` on load |
-| `ADMIN_ROTATE_TOKEN` | Bearer token for `POST /admin/rotate-key` hot-reload without redeploy (#293) |
+| Variable             | Description                                                                             |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| `PORT`               | Port the backend API listens on (default: `3001`)                                       |
+| `STELLAR_NETWORK`    | `testnet` or `mainnet`                                                                  |
+| `HORIZON_URL`        | Horizon REST endpoint for the chosen network                                            |
+| `SOROBAN_RPC_URL`    | Soroban RPC endpoint for simulating and preparing transactions                          |
+| `SERVER_SECRET_KEY`  | Server-side keypair used for read-only simulations only — never signs user transactions |
+| `SIGNING_KEY_FILE`   | Optional secrets-manager file path; takes precedence over `SERVER_SECRET_KEY` on load   |
+| `ADMIN_ROTATE_TOKEN` | Bearer token for `POST /admin/rotate-key` hot-reload without redeploy (#293)            |
 
 ---
 

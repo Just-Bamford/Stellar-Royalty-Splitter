@@ -39,7 +39,7 @@ describe("signing-key (#293)", () => {
     const { initializeSigningKey, getSigningPublicKey } = await import(
       "../src/signing-key.js"
     );
-    initializeSigningKey();
+    await initializeSigningKey();
 
     expect(getSigningPublicKey()).toBe(kp.publicKey());
   });
@@ -55,7 +55,7 @@ describe("signing-key (#293)", () => {
     const { initializeSigningKey, getSigningPublicKey } = await import(
       "../src/signing-key.js"
     );
-    initializeSigningKey();
+    await initializeSigningKey();
 
     expect(getSigningPublicKey()).toBe(fileKp.publicKey());
   });
@@ -67,7 +67,7 @@ describe("signing-key (#293)", () => {
 
     const { initializeSigningKey, rotateSigningKey, getSigningPublicKey } =
       await import("../src/signing-key.js");
-    initializeSigningKey();
+    await initializeSigningKey();
     const result = rotateSigningKey(second.secret(), { source: "api" });
 
     expect(result.publicKey).toBe(second.publicKey());
@@ -86,7 +86,7 @@ describe("signing-key (#293)", () => {
       reloadSigningKeyFromSecretsFile,
       getSigningPublicKey,
     } = await import("../src/signing-key.js");
-    initializeSigningKey();
+    await initializeSigningKey();
     expect(getSigningPublicKey()).toBe(first.publicKey());
 
     writeFileSync(filePath, second.secret());

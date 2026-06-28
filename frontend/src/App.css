@@ -7,6 +7,45 @@
   transition: background-color var(--transition-base);
 }
 
+.session-toast {
+  position: fixed;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  max-width: min(420px, calc(100vw - 2rem));
+  padding: 0.85rem 1rem;
+  background: var(--error-light);
+  color: var(--error-dark);
+  border: 1px solid var(--error-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.9rem;
+}
+
+.session-toast span {
+  flex: 1;
+}
+
+.session-toast-close {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  color: currentColor;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  line-height: 1;
+}
+
+.session-toast-close:hover,
+.session-toast-close:focus-visible {
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .app-content {
   display: flex;
   flex: 1;
@@ -204,6 +243,18 @@
   font-size: 1rem;
 }
 
+.connect-wallet-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+  width: min(100%, 420px);
+}
+
+.connect-wallet-panel .card {
+  margin-bottom: 0;
+}
+
 .hidden-section {
   display: none;
 }
@@ -382,6 +433,16 @@
     font-size: 0.8rem;
     word-wrap: break-word;
     overflow-wrap: break-word;
+  }
+
+  .quick-actions {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .quick-action-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
   }
 }
 

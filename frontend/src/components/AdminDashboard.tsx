@@ -1,11 +1,37 @@
-import { useState, useEffect } from "react";
-import { api, TransactionRecord } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../api";
+import type {
+  ContractState,
+  ContractStateCacheStatus,
+  TransactionRecord,
+} from "../api";
 import { QRCodeSVG } from "qrcode.react";
 import { CopyButton } from "./CopyButton";
+import { Skeleton } from "./Skeleton";
 import "./AdminDashboard.css";
 
 interface AdminDashboardProps {
   contractId: string;
+}
+
+type RefreshInterval = "never" | "5000" | "30000";
+
+const AUTO_REFRESH_STORAGE_KEY = "adminDashboardAutoRefreshInterval";
+const AUTO_REFRESH_OPTIONS: Array<{ value: RefreshInterval; label: string }> = [
+  { value: "5000", label: "5s" },
+  { value: "30000", label: "30s" },
+  { value: "never", label: "Never" },
+];
+
+function getInitialRefreshInterval(): RefreshInterval {
+  const stored = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
+  return stored === "5000" || stored === "30000" || stored === "never"
+    ? stored
+    : "never";
+}
+
+function formatRefreshTime(value: Date | null) {
+  return value ? value.toLocaleTimeString() : "Not refreshed yet";
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -17,15 +43,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [initHistory, setInitHistory] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [contractVersion, setContractVersion] = useState<string>("loading...");
+  const [contractState, setContractState] = useState<ContractState | null>(null);
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [cacheStatus, setCacheStatus] =
+    useState<ContractStateCacheStatus>("live");
+  const [autoRefreshInterval, setAutoRefreshInterval] =
+    useState<RefreshInterval>(getInitialRefreshInterval);
 
-  useEffect(() => {
-    if (contractId) {
-      loadInitializeHistory();
-      loadContractVersion();
-    }
-  }, [contractId]);
-
-  const loadInitializeHistory = async () => {
+  const loadInitializeHistory = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.getTransactionHistory(contractId, 50, 0);
@@ -41,9 +68,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [contractId]);
 
-  const loadContractVersion = async () => {
+  const loadContractVersion = useCallback(async () => {
     try {
       const response = await api.getContractVersion(contractId);
       setContractVersion(response.version);
@@ -56,7 +83,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setContractVersion("unknown");
       }
     }
-  };
+  }, [contractId]);
+
+  const loadContractState = useCallback(
+    async (bypassCache = false) => {
+      if (!contractId) return;
+
+      setRefreshLoading(true);
+      setRefreshError(null);
+
+      try {
+        const response = await api.getContractState(contractId, { bypassCache });
+        setContractState(response);
+        setCacheStatus(response.cacheStatus);
+        setLastRefreshed(new Date(response.fetchedAt));
+      } catch (err: any) {
+        console.error("Error loading contract state:", err);
+        setCacheStatus("error");
+        setRefreshError(err.message ?? "Unable to refresh contract state");
+      } finally {
+        setRefreshLoading(false);
+      }
+    },
+    [contractId],
+  );
+
+  useEffect(() => {
+    if (contractId) {
+      loadInitializeHistory();
+      loadContractVersion();
+      loadContractState(false);
+    }
+  }, [contractId, loadContractState, loadContractVersion, loadInitializeHistory]);
+
+  useEffect(() => {
+    localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, autoRefreshInterval);
+  }, [autoRefreshInterval]);
+
+  useEffect(() => {
+    if (!contractId || autoRefreshInterval === "never") return;
+
+    const intervalId = window.setInterval(() => {
+      loadContractState(false);
+    }, Number(autoRefreshInterval));
+
+    return () => window.clearInterval(intervalId);
+  }, [autoRefreshInterval, contractId, loadContractState]);
 
   const exportContractInfo = () => {
     const contractInfo = {
@@ -102,6 +174,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
   }
 
+  // Render-only loading flag derived from the existing version sentinel.
+  // The fetch sets contractVersion to "loading..." before the request resolves,
+  // so this shows a skeleton in place of the raw sentinel without touching the
+  // data-fetching logic (out of scope per the issue).
+  const versionLoading = contractVersion === "loading...";
+
   return (
     <div className="admin-dashboard">
       <div className="admin-header">
@@ -126,6 +204,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="contract-actions">
+          <button
+            className="action-btn refresh-state"
+            onClick={() => loadContractState(true)}
+            disabled={refreshLoading}
+            title="Refresh contract state"
+            aria-label="Refresh contract state"
+          >
+            <span
+              className={refreshLoading ? "refresh-spinner spinning" : "refresh-spinner"}
+              aria-hidden="true"
+            >
+              ↻
+            </span>
+            {refreshLoading ? "Refreshing" : "Refresh State"}
+          </button>
           <button className="action-btn export" onClick={exportContractInfo} title="Export contract info as JSON">
             📥 Export
           </button>
@@ -144,8 +237,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="contract-version-display">
           <div className="contract-version-label">Contract Version</div>
           <div className="contract-version-value">
-            <code>v{contractVersion}</code>
+            {versionLoading ? (
+              <Skeleton width="80px" height="1.25rem" />
+            ) : (
+              <code>v{contractVersion}</code>
+            )}
           </div>
+        </div>
+
+        <div className="contract-state-panel">
+          <div className="contract-state-row">
+            <span className="contract-state-label">Cache Status</span>
+            <span className={`cache-status-badge ${cacheStatus}`}>
+              {cacheStatus}
+            </span>
+          </div>
+          <div className="contract-state-row">
+            <span className="contract-state-label">Last Refreshed</span>
+            <span className="contract-state-value">
+              {formatRefreshTime(lastRefreshed)}
+            </span>
+          </div>
+          <label className="contract-state-row auto-refresh-control">
+            <span className="contract-state-label">Auto Refresh</span>
+            <select
+              value={autoRefreshInterval}
+              onChange={(event) =>
+                setAutoRefreshInterval(event.target.value as RefreshInterval)
+              }
+              aria-label="Auto refresh interval"
+            >
+              {AUTO_REFRESH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {contractState && (
+            <div className="contract-state-row">
+              <span className="contract-state-label">Contract Admin</span>
+              <code className="contract-state-admin">
+                {contractState.adminAddress ?? "not set"}
+              </code>
+            </div>
+          )}
+          {refreshError && (
+            <div className="contract-state-error" role="alert">
+              {refreshError}
+            </div>
+          )}
         </div>
 
         <div className="contract-stats">
@@ -168,13 +309,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div className="history-section">
         <div className="history-header">
           <h2>Initialize History</h2>
-          <button onClick={loadInitializeHistory} className="refresh-mini-btn">
+          <button onClick={loadInitializeHistory} className="refresh-mini-btn" aria-label="Refresh initialize history">
             🔄
           </button>
         </div>
 
         {loading ? (
-          <div className="loading-mini">Loading...</div>
+          <div className="history-list" aria-busy="true" aria-label="Loading initialize history">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="history-item">
+                <Skeleton width="40%" height="0.875rem" className="mb-2" />
+                <Skeleton width="70%" height="1rem" className="mb-2" />
+                <Skeleton width="55%" height="1rem" />
+              </div>
+            ))}
+          </div>
         ) : initHistory.length > 0 ? (
           <div className="history-list">
             {initHistory.map((record, idx) => (
@@ -244,7 +393,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="detail-block">
                 <h3>Contract Version</h3>
                 <div className="version-info-block">
-                  <code>v{contractVersion}</code>
+                  {versionLoading ? (
+                    <Skeleton width="80px" height="1.25rem" />
+                  ) : (
+                    <code>v{contractVersion}</code>
+                  )}
                 </div>
               </div>
 

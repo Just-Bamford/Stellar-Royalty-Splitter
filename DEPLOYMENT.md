@@ -138,15 +138,15 @@ Copy the example file and fill in every variable before starting the backend:
 cp backend/.env.example backend/.env
 ```
 
-| Variable | Mainnet value | Notes |
-|---|---|---|
-| `PORT` | `3001` (or your chosen port) | Must match reverse-proxy / load-balancer config |
-| `STELLAR_NETWORK` | `mainnet` | **Must not be `testnet`** |
-| `HORIZON_URL` | `https://horizon.stellar.org` | Stellar Foundation public Mainnet endpoint |
-| `SOROBAN_RPC_URL` | `https://soroban-rpc.mainnet.stellar.gateway.fm` | Or your own RPC node |
-| `SERVER_SECRET_KEY` | Your server keypair secret | Use `SIGNING_KEY_FILE` in production |
-| `SIGNING_KEY_FILE` | `/run/secrets/signing_key` | Preferred over `SERVER_SECRET_KEY`; secrets-manager path |
-| `ADMIN_ROTATE_TOKEN` | Strong random string | `openssl rand -hex 32` |
+| Variable             | Mainnet value                                    | Notes                                                    |
+| -------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| `PORT`               | `3001` (or your chosen port)                     | Must match reverse-proxy / load-balancer config          |
+| `STELLAR_NETWORK`    | `mainnet`                                        | **Must not be `testnet`**                                |
+| `HORIZON_URL`        | `https://horizon.stellar.org`                    | Stellar Foundation public Mainnet endpoint               |
+| `SOROBAN_RPC_URL`    | `https://soroban-rpc.mainnet.stellar.gateway.fm` | Or your own RPC node                                     |
+| `SERVER_SECRET_KEY`  | Your server keypair secret                       | Use `SIGNING_KEY_FILE` in production                     |
+| `SIGNING_KEY_FILE`   | `/run/secrets/signing_key`                       | Preferred over `SERVER_SECRET_KEY`; secrets-manager path |
+| `ADMIN_ROTATE_TOKEN` | Strong random string                             | `openssl rand -hex 32`                                   |
 
 **Security reminders:**
 
@@ -248,20 +248,146 @@ stellar contract invoke \
 
 ## 6. Post-Deployment Checklist Summary
 
-| # | Item | Done |
-|---|---|---|
-| 1 | Optimized WASM built and size-checked | ☐ |
-| 2 | Contract deployed to Mainnet | ☐ |
-| 3 | Contract ID saved to `.contract-id` | ☐ |
-| 4 | `initialize` called with correct collaborators and shares | ☐ |
-| 5 | All backend env variables set for Mainnet | ☐ |
-| 6 | Freighter switched to Mainnet | ☐ |
-| 7 | `get_collaborators` returns expected addresses | ☐ |
-| 8 | `is_paused` returns `false` | ☐ |
-| 9 | Backend health endpoint confirms Mainnet | ☐ |
-| 10 | Contract visible on Mainnet block explorer | ☐ |
-| 11 | Smoke-test distribution executed successfully | ☐ |
-| 12 | `stellar.toml` updated with Mainnet contract address | ☐ |
+| #   | Item                                                      | Done |
+| --- | --------------------------------------------------------- | ---- |
+| 1   | Optimized WASM built and size-checked                     | ☐    |
+| 2   | Contract deployed to Mainnet                              | ☐    |
+| 3   | Contract ID saved to `.contract-id`                       | ☐    |
+| 4   | `initialize` called with correct collaborators and shares | ☐    |
+| 5   | All backend env variables set for Mainnet                 | ☐    |
+| 6   | Freighter switched to Mainnet                             | ☐    |
+| 7   | `get_collaborators` returns expected addresses            | ☐    |
+| 8   | `is_paused` returns `false`                               | ☐    |
+| 9   | Backend health endpoint confirms Mainnet                  | ☐    |
+| 10  | Contract visible on Mainnet block explorer                | ☐    |
+| 11  | Smoke-test distribution executed successfully             | ☐    |
+| 12  | `stellar.toml` updated with Mainnet contract address      | ☐    |
+
+---
+
+## 7. Pre-Deployment Security Checklist
+
+Before deploying to Mainnet, verify all security requirements are met:
+
+### Contract Security
+
+- [ ] All security audit findings reviewed (see `SECURITY_AUDIT.md`)
+- [ ] Priority 1 & 2 remediations completed or documented with deferral justification
+- [ ] No known critical vulnerabilities
+- [ ] Formal verification completed if applicable
+- [ ] Contract code audit by third party (recommended)
+
+### RPC & Infrastructure
+
+- [ ] Multiple RPC endpoints configured (minimum 2, recommended 3)
+- [ ] RPC failover/health check logic implemented
+- [ ] RPC response validation enabled
+- [ ] Circuit breaker pattern implemented for RPC calls
+- [ ] Rate limiting configured on RPC calls
+
+### Authentication & Authorization
+
+- [ ] Request signature verification implemented (ed25519)
+- [ ] Admin key stored in hardware wallet (NOT in .env)
+- [ ] Multi-signature setup for admin (2-of-3 recommended) OR time-lock enabled
+- [ ] Key rotation procedure documented
+- [ ] Emergency access procedures defined
+
+### Rate Limiting & DDoS
+
+- [ ] Rate limiting configured appropriately (see `SECURITY.md`)
+- [ ] IP-based rate limits in place
+- [ ] Per-user rate limits configured for authenticated users
+- [ ] CAPTCHA or similar protection for sensitive endpoints
+- [ ] DDoS mitigation provider configured (Cloudflare, AWS Shield, etc.)
+
+### Database & Backups
+
+- [ ] Database backups configured and tested
+- [ ] Backup retention policy defined (minimum 7 years for audit logs)
+- [ ] Database encryption enabled
+- [ ] Database access restricted to backend only
+- [ ] Regular backup restore drills scheduled
+
+### Monitoring & Alerting
+
+- [ ] Monitoring and alerting set up for:
+  - [ ] Contract events (distributions, admin transfers)
+  - [ ] API error rates
+  - [ ] RPC failures and rate limits
+  - [ ] Database connectivity
+  - [ ] Suspicious request patterns
+- [ ] Alert escalation procedures defined
+- [ ] On-call rotation established
+- [ ] Incident response procedures documented
+
+### Logging & Audit
+
+- [ ] Structured JSON logging enabled
+- [ ] Log aggregation configured
+- [ ] Log integrity protection enabled (hashing/immutability)
+- [ ] Audit logs retained for minimum 7 years
+- [ ] Log access restricted and monitored
+- [ ] GDPR compliance verified if applicable
+
+### Frontend & Client
+
+- [ ] HTTPS with valid certificates enforced
+- [ ] CORS policy correctly configured
+- [ ] Frontend served from secure CDN
+- [ ] Content Security Policy (CSP) headers set
+- [ ] No secrets in frontend code
+
+### Environment & Secrets
+
+- [ ] `STELLAR_NETWORK=mainnet` confirmed
+- [ ] `HORIZON_URL` points to Mainnet
+- [ ] `SOROBAN_RPC_URL` points to Mainnet RPC
+- [ ] `SERVER_SECRET_KEY` or `SIGNING_KEY_FILE` set securely
+- [ ] `ADMIN_ROTATE_TOKEN` set to strong random value
+- [ ] All secrets stored in secrets manager (NOT in .env in production)
+- [ ] `.env` file is in `.gitignore` and never committed
+
+### Testing & Validation
+
+- [ ] All unit tests passing (100% pass rate)
+- [ ] E2E tests covering all major flows
+- [ ] Load testing completed
+- [ ] Security testing (OWASP top 10) completed
+- [ ] Penetration testing completed (recommended)
+- [ ] Fuzz testing completed on contract (recommended)
+- [ ] Smoke test performed on Testnet before Mainnet deployment
+
+### Documentation & Communication
+
+- [ ] All documentation updated for Mainnet
+- [ ] Runbooks created for common operational tasks
+- [ ] Incident response procedures documented
+- [ ] Communication plan for incidents/outages defined
+- [ ] Stakeholders notified of Mainnet launch date
+- [ ] Support channels established
+
+### Compliance & Legal
+
+- [ ] Terms of Service reviewed and updated
+- [ ] Privacy Policy reviewed and updated
+- [ ] Data retention policies defined
+- [ ] Regulatory requirements for jurisdiction verified
+- [ ] KYC/AML requirements assessed and implemented if needed
+- [ ] Compliance audit completed (recommended)
+
+---
+
+## Note: Recent Updates (Wave 3)
+
+Recent PRs have added important improvements (June 2026):
+
+- **PR #377**: Non-empty collaborators array validation
+- **PR #376**: Token address format validation
+- **PR #375**: UI/UX enhancements with loading states
+- **PR #381**: `distribute_with_override` share validation
+
+**All Wave 3 changes must be tested on Testnet before Mainnet deployment.**
 
 ---
 
@@ -282,4 +408,4 @@ This halts all `distribute` calls until `unpause` is called by the admin. Refer 
 
 ---
 
-*Keep this document in sync whenever the contract interface or backend configuration changes.*
+_Keep this document in sync whenever the contract interface or backend configuration changes._

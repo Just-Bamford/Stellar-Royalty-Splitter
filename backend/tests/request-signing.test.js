@@ -1,166 +1,202 @@
-import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+/**
+ * Request signing integration tests (issue #392).
+ */
+import { describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import express from "express";
 import request from "supertest";
-import { Keypair } from "@stellar/stellar-sdk";
+import StellarSdk from "@stellar/stellar-sdk";
 import {
-  buildSignaturePayload,
-  resetSignatureNonceCache,
-  verifySignedPostRequests,
+  signRequest,
+  verifyRequestSignatureMiddleware,
+  buildCanonicalMessage,
+  hashRequestBody,
+  verifyWalletSignature,
+  isRequestSigningRequired,
+  _resetNonceCache,
 } from "../src/request-signing.js";
 
-function buildApp() {
+const { Keypair } = StellarSdk;
+const TEST_KEYPAIR = Keypair.random();
+const WALLET_SECRET = TEST_KEYPAIR.secret();
+const WALLET_PUBLIC = TEST_KEYPAIR.publicKey();
+
+function createTestApp() {
   const app = express();
-  app.use(
-    express.json({
-      verify: (req, _res, buf) => {
-        req.rawBody = buf.toString("utf8");
-      },
-    }),
-  );
-  app.use(verifySignedPostRequests);
-  app.post("/api/v1/distribute", (req, res) => res.json({ ok: true, body: req.body }));
-  app.get("/api/v1/health", (_req, res) => res.json({ ok: true }));
+  app.use(express.json());
+  app.use(verifyRequestSignatureMiddleware);
+  app.post("/api/v1/initialize", (req, res) => {
+    res.json({ ok: true, wallet: req.signedWalletAddress ?? req.body.walletAddress });
+  });
   return app;
 }
 
-function signHeaders({
-  keypair,
-  body = {},
-  path = "/api/v1/distribute",
-  timestamp = new Date().toISOString(),
-  nonce = "nonce-1",
-}) {
-  const bodyText = JSON.stringify(body);
-  const payload = buildSignaturePayload({
-    method: "POST",
-    path,
-    timestamp,
-    nonce,
-    body: bodyText,
-  });
-
-  return {
-    "x-signature-public-key": keypair.publicKey(),
-    "x-signature": keypair.sign(Buffer.from(payload, "utf8")).toString("base64"),
-    "x-signature-timestamp": timestamp,
-    "x-signature-nonce": nonce,
-  };
-}
-
-describe("request signature middleware", () => {
-  let originalAllowedKeys;
-  let originalNodeEnv;
+describe("request-signing (issue #392)", () => {
+  const originalEnv = process.env.REQUEST_SIGNING_REQUIRED;
 
   beforeEach(() => {
-    originalAllowedKeys = process.env.REQUEST_SIGNING_PUBLIC_KEYS;
-    originalNodeEnv = process.env.NODE_ENV;
-    delete process.env.REQUEST_SIGNING_PUBLIC_KEYS;
-    process.env.NODE_ENV = "test";
-    resetSignatureNonceCache();
-    jest.useRealTimers();
+    _resetNonceCache();
+    process.env.REQUEST_SIGNING_REQUIRED = "true";
   });
 
   afterEach(() => {
-    if (originalAllowedKeys === undefined) delete process.env.REQUEST_SIGNING_PUBLIC_KEYS;
-    else process.env.REQUEST_SIGNING_PUBLIC_KEYS = originalAllowedKeys;
-    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = originalNodeEnv;
-    resetSignatureNonceCache();
+    process.env.REQUEST_SIGNING_REQUIRED = originalEnv;
+    _resetNonceCache();
   });
 
-  test("allows GET requests without a signature", async () => {
-    const res = await request(buildApp()).get("/api/v1/health");
+  test("request signing is required by default", () => {
+    delete process.env.REQUEST_SIGNING_REQUIRED;
 
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(isRequestSigningRequired()).toBe(true);
   });
 
-  test("accepts a valid Ed25519 signature for a POST request", async () => {
-    const keypair = Keypair.random();
-    const body = { contractId: "contract", walletAddress: keypair.publicKey(), amount: 1 };
+  test("valid signature is accepted", async () => {
+    const app = createTestApp();
+    const body = {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      walletAddress: WALLET_PUBLIC,
+      collaborators: ["GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"],
+      shares: [10000],
+    };
+    const { headers } = signRequest({
+      method: "POST",
+      path: "/api/v1/initialize",
+      body,
+      walletSecret: WALLET_SECRET,
+    });
 
-    const res = await request(buildApp())
-      .post("/api/v1/distribute")
-      .set(signHeaders({ keypair, body }))
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .set(headers)
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ ok: true, body });
+    expect(res.body.ok).toBe(true);
   });
 
-  test("rejects unsigned POST requests with 401", async () => {
-    const res = await request(buildApp()).post("/api/v1/distribute").send({ amount: 1 });
+  test("missing signature headers returns 401 when required", async () => {
+    const app = createTestApp();
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({ walletAddress: WALLET_PUBLIC });
 
     expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/missing request signature/i);
+    expect(res.body.code).toBe("missing_signature");
   });
 
-  test("rejects invalid signatures with 401", async () => {
-    const keypair = Keypair.random();
-    const body = { amount: 1 };
-    const headers = signHeaders({ keypair, body });
-    headers["x-signature"] = Keypair.random().sign(Buffer.from("wrong")).toString("base64");
+  test("invalid signature returns 401", async () => {
+    const app = createTestApp();
+    const body = { walletAddress: WALLET_PUBLIC };
+    const { headers } = signRequest({
+      method: "POST",
+      path: "/api/v1/initialize",
+      body,
+      walletSecret: WALLET_SECRET,
+    });
 
-    const res = await request(buildApp()).post("/api/v1/distribute").set(headers).send(body);
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .set({ ...headers, "X-Signature": Buffer.from("invalid").toString("base64") })
+      .send(body);
 
     expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/invalid request signature/i);
+    expect(res.body.code).toBe("invalid_signature");
   });
 
-  test("rejects replayed nonces with 401", async () => {
-    const keypair = Keypair.random();
-    const body = { amount: 1 };
-    const headers = signHeaders({ keypair, body, nonce: "replay-me" });
-    const app = buildApp();
+  test("expired timestamp returns 401", async () => {
+    const app = createTestApp();
+    const body = { walletAddress: WALLET_PUBLIC };
+    const expiredTs = Math.floor(Date.now() / 1000) - 600;
+    const { headers } = signRequest({
+      method: "POST",
+      path: "/api/v1/initialize",
+      body,
+      walletSecret: WALLET_SECRET,
+      timestamp: expiredTs,
+    });
 
-    const first = await request(app).post("/api/v1/distribute").set(headers).send(body);
-    const replay = await request(app).post("/api/v1/distribute").set(headers).send(body);
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .set(headers)
+      .send(body);
 
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe("signature_expired");
+  });
+
+  test("replay nonce returns 401", async () => {
+    const app = createTestApp();
+    const body = { walletAddress: WALLET_PUBLIC };
+    const { headers } = signRequest({
+      method: "POST",
+      path: "/api/v1/initialize",
+      body,
+      walletSecret: WALLET_SECRET,
+      nonce: "fixed-nonce-123",
+    });
+
+    const first = await request(app).post("/api/v1/initialize").set(headers).send(body);
     expect(first.status).toBe(200);
-    expect(replay.status).toBe(401);
-    expect(replay.body.error).toMatch(/nonce/i);
+
+    const second = await request(app).post("/api/v1/initialize").set(headers).send(body);
+    expect(second.status).toBe(401);
+    expect(second.body.code).toBe("replay_detected");
   });
 
-  test("rejects stale timestamps with 401", async () => {
-    const keypair = Keypair.random();
-    const body = { amount: 1 };
-    const staleTimestamp = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  test("wallet mismatch between header and body returns 401", async () => {
+    const app = createTestApp();
+    const body = {
+      walletAddress: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    };
+    const { headers } = signRequest({
+      method: "POST",
+      path: "/api/v1/initialize",
+      body,
+      walletSecret: WALLET_SECRET,
+    });
 
-    const res = await request(buildApp())
-      .post("/api/v1/distribute")
-      .set(signHeaders({ keypair, body, timestamp: staleTimestamp }))
-      .send(body);
-
+    const res = await request(app).post("/api/v1/initialize").set(headers).send(body);
     expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/timestamp/i);
+    expect(res.body.code).toBe("wallet_mismatch");
   });
 
-  test("rejects signed requests from public keys outside the allowlist", async () => {
-    const keypair = Keypair.random();
-    process.env.REQUEST_SIGNING_PUBLIC_KEYS = Keypair.random().publicKey();
-    const body = { amount: 1 };
+  test("unsigned requests allowed when signing not required", async () => {
+    process.env.REQUEST_SIGNING_REQUIRED = "false";
+    const app = createTestApp();
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({ walletAddress: WALLET_PUBLIC });
 
-    const res = await request(buildApp())
-      .post("/api/v1/distribute")
-      .set(signHeaders({ keypair, body }))
-      .send(body);
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/not allowed/i);
+    expect(res.status).toBe(200);
   });
 
-  test("requires a public key allowlist in production", async () => {
-    const keypair = Keypair.random();
-    process.env.NODE_ENV = "production";
-    delete process.env.REQUEST_SIGNING_PUBLIC_KEYS;
-    const body = { amount: 1 };
+  test("buildCanonicalMessage and verifyWalletSignature round-trip", () => {
+    const bodyHash = hashRequestBody({ foo: "bar" });
+    const message = buildCanonicalMessage({
+      method: "POST",
+      path: "/api/v1/distribute",
+      timestamp: 1700000000,
+      nonce: "abc",
+      bodyHash,
+    });
+    const { headers } = signRequest({
+      method: "POST",
+      path: "/api/v1/distribute",
+      body: { foo: "bar" },
+      walletSecret: WALLET_SECRET,
+      timestamp: 1700000000,
+      nonce: "abc",
+    });
+    expect(
+      verifyWalletSignature(WALLET_PUBLIC, message, headers["X-Signature"])
+    ).toBe(true);
+  });
 
-    const res = await request(buildApp())
-      .post("/api/v1/distribute")
-      .set(signHeaders({ keypair, body }))
-      .send(body);
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/allowlist/i);
+  test("isRequestSigningRequired reflects env", () => {
+    process.env.REQUEST_SIGNING_REQUIRED = "true";
+    expect(isRequestSigningRequired()).toBe(true);
+    process.env.REQUEST_SIGNING_REQUIRED = "false";
+    expect(isRequestSigningRequired()).toBe(false);
+    delete process.env.REQUEST_SIGNING_REQUIRED;
+    expect(isRequestSigningRequired()).toBe(true);
   });
 });

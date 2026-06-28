@@ -89,6 +89,34 @@ echo "   Network     : $NETWORK"
 echo "$CONTRACT_ID" > .contract-id
 echo "   Saved to    : .contract-id"
 
+# Write contract ID to backend/.env for the API server (#296)
+ENV_FILE="backend/.env"
+ENV_EXAMPLE="backend/.env.example"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  if [[ -f "$ENV_EXAMPLE" ]]; then
+    cp "$ENV_EXAMPLE" "$ENV_FILE"
+    echo "   Created     : $ENV_FILE (from .env.example)"
+  else
+    touch "$ENV_FILE"
+    echo "   Created     : $ENV_FILE"
+  fi
+fi
+
+if grep -q '^ROYALTY_CONTRACT_ID=' "$ENV_FILE" 2>/dev/null; then
+  sed -i "s|^ROYALTY_CONTRACT_ID=.*|ROYALTY_CONTRACT_ID=$CONTRACT_ID|" "$ENV_FILE"
+else
+  echo "ROYALTY_CONTRACT_ID=$CONTRACT_ID" >> "$ENV_FILE"
+fi
+
+if grep -q '^STELLAR_NETWORK=' "$ENV_FILE" 2>/dev/null; then
+  sed -i "s|^STELLAR_NETWORK=.*|STELLAR_NETWORK=$NETWORK|" "$ENV_FILE"
+else
+  echo "STELLAR_NETWORK=$NETWORK" >> "$ENV_FILE"
+fi
+
+echo "   Updated     : $ENV_FILE (ROYALTY_CONTRACT_ID, STELLAR_NETWORK)"
+
 echo ""
 echo "Next — initialize the contract:"
 echo ""

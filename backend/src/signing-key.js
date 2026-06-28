@@ -1,14 +1,15 @@
 /**
  * Server signing key lifecycle (#293).
  *
- * Loads the key from SIGNING_KEY_FILE (secrets-manager mount) or
- * SERVER_SECRET_KEY, keeps it in memory for hot rotation without redeploy,
- * and never logs secret material.
+ * Loads the key from encrypted secrets stores (AWS Secrets Manager, HashiCorp Vault)
+ * or plaintext fallback (SIGNING_KEY_FILE, SERVER_SECRET_KEY), keeps it in memory
+ * for hot rotation without redeploy, and never logs secret material.
  */
 import { readFileSync, existsSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import StellarSdk from "@stellar/stellar-sdk";
 import logger from "./logger.js";
+import { loadSigningSecret, getSecretsProviderStatus } from "./secrets-manager.js";
 
 const { Keypair } = StellarSdk;
 
@@ -68,45 +69,43 @@ function setActiveKeypair(keypair, source) {
 }
 
 /**
- * Load signing key from SIGNING_KEY_FILE or SERVER_SECRET_KEY.
+ * Load signing key from secrets provider (AWS, Vault, file, or env).
  * Missing configuration is allowed (server may run without a signing key).
  */
-export function initializeSigningKey() {
-  const filePath = readSecretsFilePath();
-  if (filePath) {
-    const secret = readSecretFromFile(filePath);
+export async function initializeSigningKey() {
+  try {
+    const secret = await loadSigningSecret();
+
+    if (!secret) {
+      activeKeypair = null;
+      lastRotationAt = null;
+      lastRotationSource = null;
+      logger.warn("No server signing key configured", {
+        event: "signing_key_unconfigured",
+      });
+      return null;
+    }
+
     activeKeypair = parseSigningSecret(secret);
-    lastRotationSource = "file";
+    const providerStatus = getSecretsProviderStatus();
+    lastRotationSource = providerStatus.provider;
     lastRotationAt = new Date().toISOString();
-    logger.info("Signing key loaded from secrets file", {
-      event: "signing_key_loaded",
-      source: "file",
-      publicKey: activeKeypair.publicKey(),
-      filePath,
-    });
-    return activeKeypair;
-  }
 
-  const envSecret = normalizeSecret(process.env.SERVER_SECRET_KEY);
-  if (envSecret) {
-    activeKeypair = parseSigningSecret(envSecret);
-    lastRotationSource = "env";
-    lastRotationAt = new Date().toISOString();
-    logger.info("Signing key loaded from environment", {
+    logger.info("Signing key loaded from secrets provider", {
       event: "signing_key_loaded",
-      source: "env",
+      source: lastRotationSource,
       publicKey: activeKeypair.publicKey(),
+      encrypted: providerStatus.encryptionKeyConfigured,
     });
-    return activeKeypair;
-  }
 
-  activeKeypair = null;
-  lastRotationAt = null;
-  lastRotationSource = null;
-  logger.warn("No server signing key configured", {
-    event: "signing_key_unconfigured",
-  });
-  return null;
+    return activeKeypair;
+  } catch (error) {
+    logger.error("Failed to initialize signing key", {
+      event: "signing_key_init_failed",
+      error: error.message,
+    });
+    throw error;
+  }
 }
 
 export function getSigningKeypair() {
@@ -118,11 +117,14 @@ export function getSigningPublicKey() {
 }
 
 export function getSigningKeyStatus() {
+  const providerStatus = getSecretsProviderStatus();
   return {
     configured: activeKeypair !== null,
     publicKey: getSigningPublicKey(),
     lastRotationAt,
     lastRotationSource,
+    secretsProvider: providerStatus.provider,
+    encryptionEnabled: providerStatus.encryptionKeyConfigured,
   };
 }
 
@@ -140,7 +142,27 @@ export function rotateSigningKey(secret, { source = "api" } = {}) {
 }
 
 /**
+ * Re-read signing key from secrets provider and apply the updated secret without redeploy.
+ */
+export async function reloadSigningKeyFromSecretsProvider() {
+  try {
+    const secret = await loadSigningSecret();
+    if (!secret) {
+      throw new Error("No signing key available from secrets provider");
+    }
+    return rotateSigningKey(secret, { source: "secrets_reload" });
+  } catch (error) {
+    logger.error("Failed to reload signing key from secrets provider", {
+      event: "signing_key_reload_failed",
+      error: error.message,
+    });
+    throw error;
+  }
+}
+
+/**
  * Re-read SIGNING_KEY_FILE and apply the updated secret without redeploy.
+ * @deprecated Use reloadSigningKeyFromSecretsProvider() instead
  */
 export function reloadSigningKeyFromSecretsFile() {
   const filePath = readSecretsFilePath();
