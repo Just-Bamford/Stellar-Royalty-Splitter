@@ -7,6 +7,8 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
 import { correlationMiddleware } from "./correlation.js";
+import { transactionTrackingMiddleware } from "./transaction-tracking.js";
+import { transactionRouter } from "./routes/transaction.js";
 import { recordHttpRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
@@ -45,6 +47,9 @@ const app = express();
 
 // #396: Correlation ID — must be first so every subsequent middleware has req.correlationId
 app.use(correlationMiddleware);
+
+// #425: Transaction ID Tracking middleware
+app.use(transactionTrackingMiddleware);
 
 // #396: Request / response logging with correlation ID and timing
 app.use((req, res, next) => {
@@ -102,8 +107,14 @@ app.use(
       "X-Nonce",
       "X-Signature",
       "X-API-Key",
+      "X-Transaction-ID",
     ],
-    exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    exposedHeaders: [
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "X-RateLimit-Reset",
+      "X-Transaction-ID",
+    ],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })
 );
@@ -203,6 +214,7 @@ app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/transaction", transactionRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 

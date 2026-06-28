@@ -18,6 +18,8 @@ const metrics = {
   transactionsFailedTotal: 0,
   horizonResponseTimeMsTotal: 0,
   horizonResponseTimeCount: 0,
+  rejectedRequestsTotal: 0,
+  trackedTransactionsTotal: 0,
 
   // ── #396: HTTP request tracking ───────────────────────────────────────
   /** Map<"METHOD /path status"> → count */
@@ -72,6 +74,14 @@ export function recordHorizonResponseTime(durationMs) {
   if (!Number.isFinite(durationMs) || durationMs < 0) return;
   metrics.horizonResponseTimeMsTotal += durationMs;
   metrics.horizonResponseTimeCount += 1;
+}
+
+export function recordRejectedRequest() {
+  metrics.rejectedRequestsTotal += 1;
+}
+
+export function recordTrackedTransaction() {
+  metrics.trackedTransactionsTotal += 1;
 }
 
 // ── #396: New recorders ───────────────────────────────────────────────────
@@ -161,6 +171,8 @@ export function getMetricsSnapshot() {
     horizonResponseTimeMsTotal: metrics.horizonResponseTimeMsTotal,
     horizonResponseTimeCount: metrics.horizonResponseTimeCount,
     averageHorizonResponseTimeMs,
+    rejectedRequestsTotal: metrics.rejectedRequestsTotal,
+    trackedTransactionsTotal: metrics.trackedTransactionsTotal,
 
     // #396
     httpRequestCounts: Object.fromEntries(metrics.httpRequestCounts),
@@ -200,6 +212,9 @@ export function prometheusMetrics() {
     "# HELP stellar_horizon_response_time_average_ms Average Horizon response time in milliseconds.",
     "# TYPE stellar_horizon_response_time_average_ms gauge",
     `stellar_horizon_response_time_average_ms ${formatMetricValue(snapshot.averageHorizonResponseTimeMs)}`,
+    "# HELP stellar_tracked_transactions_total Total number of tracked request transactions.",
+    "# TYPE stellar_tracked_transactions_total counter",
+    `stellar_tracked_transactions_total ${snapshot.trackedTransactionsTotal}`,
     "# HELP stellar_horizon_response_time_count Horizon response time observations.",
     "# TYPE stellar_horizon_response_time_count counter",
     `stellar_horizon_response_time_count ${snapshot.horizonResponseTimeCount}`,
@@ -284,6 +299,8 @@ export function resetMetrics() {
   metrics.transactionsFailedTotal = 0;
   metrics.horizonResponseTimeMsTotal = 0;
   metrics.horizonResponseTimeCount = 0;
+  metrics.rejectedRequestsTotal = 0;
+  metrics.trackedTransactionsTotal = 0;
   metrics.httpRequestCounts.clear();
   metrics.responseTimeObservations.length = 0;
   metrics.requestBytesTotal = 0;

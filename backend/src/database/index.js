@@ -28,6 +28,14 @@ export {
   getTransactionById,
 } from "./transactions.js";
 
+// Request tracking
+export {
+  recordRequestStart,
+  recordRequestEnd,
+  getRequestTracking,
+  cleanupRequestTracking,
+} from "./tracking.js";
+
 // Webhooks (#295, #401, #428)
 export {
   registerWebhook,
