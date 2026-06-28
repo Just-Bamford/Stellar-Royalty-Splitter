@@ -56,6 +56,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction: jest.fn(() => "tx-789"),
   addAuditLog: jest.fn(),
+  recordNonceIfNew: jest.fn(() => true),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
 }));

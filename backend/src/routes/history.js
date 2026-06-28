@@ -3,16 +3,20 @@ import {
   getTransactionHistory,
   getTransactionCount,
   getTransactionDetails,
+  getTransactionById,
   getAuditLog,
   addAuditLog,
   updateTransactionStatus,
+  updateTransactionHash,
 } from "../database/index.js";
 import {
   validateContractId,
   validateContractIdMiddleware,
   parsePagination,
 } from "../validation.js";
-import { server } from "../stellar.js";
+import { sendError } from "../error-response.js";
+import { pollHorizonTransaction } from "../stellar.js";
+import { deliverDistributeWebhooks } from "../webhook-delivery.js";
 import logger from "../logger.js";
 
 const router = express.Router();
@@ -27,7 +31,7 @@ router.get("/history/:contractId", validateContractIdMiddleware, (req, res) => {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
 
-    const pagination = parsePagination(req.query, res, 50, 100);
+    const pagination = parsePagination(req.query, res);
     if (!pagination) return;
     const { limit, offset } = pagination;
 
@@ -41,7 +45,7 @@ router.get("/history/:contractId", validateContractIdMiddleware, (req, res) => {
     });
   } catch (error) {
     logger.error("Error fetching transaction history:", error);
-    res.status(500).json({ success: false, error: error.message });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to fetch transaction history");
   }
 });
 
@@ -56,10 +60,7 @@ router.get("/transaction/:txHash", (req, res) => {
     const transaction = getTransactionDetails(txHash);
 
     if (!transaction) {
-      return res.status(404).json({
-        success: false,
-        error: "Transaction not found",
-      });
+      return sendError(res, 404, "not_found", "Transaction not found");
     }
 
     res.json({
@@ -68,74 +69,94 @@ router.get("/transaction/:txHash", (req, res) => {
     });
   } catch (error) {
     logger.error("Error fetching transaction details:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to fetch transaction details");
   }
 });
 
 /**
  * POST /api/transaction/confirm/:txHash
- * Verify on-chain status via Soroban RPC before updating the DB.
- * Returns 409 if the requested status contradicts the on-chain result.
+ * Poll Horizon for ledger confirmation (#297), update the DB, and fire
+ * distribute-completion webhooks (#295).
  */
 router.post("/transaction/confirm/:txHash", async (req, res) => {
   try {
     const { txHash } = req.params;
-    const { blockTime, errorMessage } = req.body;
+    const { blockTime, errorMessage, transactionId } = req.body;
 
     // Validate transaction hash format (64 hex characters)
     if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid transaction hash format. Expected 64 hexadecimal characters.",
-      });
+      return sendError(
+        res,
+        400,
+        "invalid_transaction_hash",
+        "Invalid transaction hash format. Expected 64 hexadecimal characters."
+      );
     }
 
-    // Return 404 if transaction does not exist
-    const existing = getTransactionDetails(txHash);
+    let existing = getTransactionDetails(txHash);
+
+    if (!existing && transactionId != null) {
+      const parsedId = parseInt(transactionId, 10);
+      if (Number.isNaN(parsedId) || parsedId <= 0) {
+        return sendError(res, 400, "invalid_transaction_id", "Invalid transactionId");
+      }
+
+      const pending = getTransactionById(parsedId);
+      if (!pending) {
+        return sendError(res, 404, "not_found", "Transaction not found");
+      }
+
+      if (pending.status !== "pending") {
+        return sendError(res, 409, "conflict", `Transaction already ${pending.status}`);
+      }
+
+      if (pending.txHash && pending.txHash !== txHash) {
+        return sendError(res, 409, "conflict", "Transaction is already linked to a different hash");
+      }
+
+      updateTransactionHash(parsedId, txHash);
+      existing = getTransactionDetails(txHash);
+    }
+
     if (!existing) {
-      return res.status(404).json({ success: false, error: "Transaction not found" });
+      return sendError(res, 404, "not_found", "Transaction not found");
     }
 
     // Prevent overwriting already-settled transactions
     if (existing.status !== "pending") {
-      return res.status(409).json({
-        success: false,
-        error: `Transaction already ${existing.status}`,
-      });
+      return sendError(res, 409, "conflict", `Transaction already ${existing.status}`);
     }
 
-    // Verify on-chain status
-    let onChainResult;
+    let pollResult;
     try {
-      onChainResult = await server.getTransaction(txHash);
-    } catch {
-      return res.status(502).json({ success: false, error: "Failed to reach Stellar RPC" });
+      pollResult = await pollHorizonTransaction(txHash);
+    } catch (error) {
+      const status = error?.status ?? 504;
+      return sendError(res, status, undefined, error?.message ?? "Failed to confirm transaction on Horizon");
     }
 
-    // Map Stellar RPC status to our DB status
-    const STATUS_MAP = { SUCCESS: "confirmed", FAILED: "failed" };
-    const resolvedStatus = STATUS_MAP[onChainResult.status];
+    updateTransactionStatus(
+      txHash,
+      pollResult.status,
+      blockTime ?? pollResult.createdAt ?? null,
+      errorMessage ?? null,
+    );
 
-    if (!resolvedStatus) {
-      // NOT_FOUND or still pending on-chain
-      return res.status(409).json({
-        success: false,
-        error: `Transaction not yet finalized on-chain (status: ${onChainResult.status})`,
-      });
+    const confirmed = getTransactionDetails(txHash);
+
+    if (pollResult.status === "confirmed" && confirmed?.type === "distribute") {
+      deliverDistributeWebhooks(confirmed);
     }
-
-    updateTransactionStatus(txHash, resolvedStatus, blockTime ?? null, errorMessage ?? null);
 
     res.json({
       success: true,
-      message: `Transaction ${txHash.substring(0, 8)}... marked as ${resolvedStatus}`,
+      status: pollResult.status,
+      ledger: pollResult.ledger ?? null,
+      message: `Transaction ${txHash.substring(0, 8)}... marked as ${pollResult.status}`,
     });
   } catch (error) {
     logger.error("Error updating transaction status:", error);
-    res.status(500).json({ success: false, error: error.message });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to update transaction status");
   }
 });
 
@@ -149,7 +170,7 @@ router.get("/audit/:contractId", validateContractIdMiddleware, (req, res) => {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
 
-    const pagination = parsePagination(req.query, res, 100, 200);
+    const pagination = parsePagination(req.query, res);
     if (!pagination) return;
     const { limit, offset } = pagination;
 
@@ -162,7 +183,7 @@ router.get("/audit/:contractId", validateContractIdMiddleware, (req, res) => {
     });
   } catch (error) {
     logger.error("Error fetching audit log:", error);
-    res.status(500).json({ success: false, error: error.message });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to fetch audit log");
   }
 });
 
@@ -176,10 +197,7 @@ router.post("/audit/:contractId", validateContractIdMiddleware, (req, res) => {
     const { action, user, details } = req.body;
 
     if (!action) {
-      return res.status(400).json({
-        success: false,
-        error: "Action is required",
-      });
+      return sendError(res, 400, "bad_request", "Action is required");
     }
 
     addAuditLog(contractId, action, user || "unknown", details || {});
@@ -190,10 +208,7 @@ router.post("/audit/:contractId", validateContractIdMiddleware, (req, res) => {
     });
   } catch (error) {
     logger.error("Error creating audit log entry:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to create audit log entry");
   }
 });
 

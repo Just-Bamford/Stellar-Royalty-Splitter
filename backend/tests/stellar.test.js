@@ -345,3 +345,66 @@ describe("buildTx concurrent locking (#294)", () => {
     expect(getAccount).toHaveBeenCalledTimes(2);
   });
 });
+
+// ── #297 — Horizon transaction polling ─────────────────────────────────────
+
+describe("pollHorizonTransaction (#297)", () => {
+  let originalFetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.useRealTimers();
+  });
+
+  test("returns confirmed status when Horizon finds a successful transaction", async () => {
+    global.fetch = jest.fn(async () => ({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        successful: true,
+        ledger: 555,
+        created_at: "2026-05-31T12:00:00.000Z",
+      }),
+    }));
+
+    const { pollHorizonTransaction } = await import("../src/stellar.js");
+    const hash = "b".repeat(64);
+
+    await expect(pollHorizonTransaction(hash)).resolves.toMatchObject({
+      status: "confirmed",
+      ledger: 555,
+    });
+  });
+
+  test("retries on 404 until the transaction appears", async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { status: 404, ok: false };
+      }
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({
+          successful: true,
+          ledger: 1,
+          created_at: "2026-05-31T12:00:00.000Z",
+        }),
+      };
+    });
+
+    const { pollHorizonTransaction } = await import("../src/stellar.js");
+    const hash = "c".repeat(64);
+    const promise = pollHorizonTransaction(hash);
+
+    await jest.advanceTimersByTimeAsync(2000);
+    await expect(promise).resolves.toMatchObject({ status: "confirmed" });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+});

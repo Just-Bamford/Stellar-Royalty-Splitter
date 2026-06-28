@@ -1,0 +1,162 @@
+.onboarding-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 999;
+}
+
+.onboarding-tooltip {
+  position: fixed;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  max-width: 320px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.onboarding-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.onboarding-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.onboarding-close {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.onboarding-close:hover {
+  color: var(--text-primary);
+}
+
+.onboarding-description {
+  margin: 0 0 1rem 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.onboarding-progress {
+  margin-bottom: 1rem;
+}
+
+.onboarding-step-count {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin-bottom: 0.5rem;
+}
+
+.onboarding-progress-bar {
+  height: 2px;
+  background: var(--border-color);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.onboarding-progress-fill {
+  height: 100%;
+  background: var(--info);
+  transition: width 0.3s ease-out;
+}
+
+.onboarding-tooltip--centered {
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%);
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.onboarding-btn-skip,
+.onboarding-btn-previous,
+.onboarding-btn-next {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.6rem 0.75rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.onboarding-btn-skip,
+.onboarding-btn-previous {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.onboarding-btn-skip:hover,
+.onboarding-btn-previous:hover {
+  opacity: 0.8;
+}
+
+.onboarding-btn-next {
+  background: var(--info);
+  color: var(--text-inverse);
+}
+
+.onboarding-btn-next:hover {
+  opacity: 0.85;
+}
+
+@media (max-width: 768px) {
+  .onboarding-tooltip {
+    max-width: calc(100vw - 2rem);
+    width: calc(100vw - 2rem);
+    padding: 1rem;
+    box-sizing: border-box;
+  }
+
+  .onboarding-overlay {
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .onboarding-actions {
+    gap: 0.6rem;
+  }
+
+  .onboarding-btn-skip,
+  .onboarding-btn-previous,
+  .onboarding-btn-next {
+    flex: 1 1 100%;
+    min-height: 48px;
+    font-size: 0.95rem;
+  }
+}

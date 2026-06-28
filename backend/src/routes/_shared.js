@@ -4,22 +4,25 @@ import { recordTransaction, addAuditLog } from "../database/index.js";
 /**
  * Shared pattern for transaction-building routes:
  * 1. Record transaction in database
- * 2. Build transaction XDR
+ * 2. Build transaction XDR (with correlation ID threaded through RPC calls)
  * 3. Log audit event
  * 4. Return XDR and transaction ID
  *
- * This eliminates duplication across initialize, distribute, and similar routes.
+ * #396: Accepts an optional `correlationId` so every Stellar RPC call made
+ * during this request shares the same trace context in logs and metrics.
  */
 export async function buildAndRecordTransaction({
   contractId,
   walletAddress,
   transactionType,
+  contractMethod,
   scvlArgs,
   auditAction,
   auditMetadata,
   transactionMetadata = {},
+  correlationId,
 }) {
-  // Record transaction in database for audit trail
+  const method = contractMethod ?? transactionType;
   const transactionId = recordTransaction(
     contractId,
     transactionType,
@@ -27,8 +30,13 @@ export async function buildAndRecordTransaction({
     transactionMetadata
   );
 
-  // Build the transaction XDR
-  const txXdr = await retryBuildTx(walletAddress, contractId, transactionType, scvlArgs);
+  const txXdr = await retryBuildTx(
+    walletAddress,
+    contractId,
+    method,
+    scvlArgs,
+    correlationId,
+  );
 
   // Log the audit event
   addAuditLog(contractId, auditAction, walletAddress, {

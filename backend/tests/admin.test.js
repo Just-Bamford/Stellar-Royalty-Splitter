@@ -37,7 +37,7 @@ async function buildAdminApp() {
   const express = (await import("express")).default;
   const { adminRouter } = await import("../src/routes/admin.js");
   const { initializeSigningKey } = await import("../src/signing-key.js");
-  initializeSigningKey();
+  await initializeSigningKey();
   const app = express();
   app.use(express.json());
   app.use("/admin", adminRouter);
