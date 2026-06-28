@@ -59,6 +59,14 @@ export function initializeDatabase() {
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
+      // Issue #462: composite index for single-query royalty statistics
+      version: 8,
+      sql: `
+        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contractId_timestamp
+          ON secondary_royalty_distributions(contractId, timestamp);
+      `,
+    },
+    {
       // Issue #427: track dust allocated per secondary-royalty distribution round
       // Issue #428: add max_attempts to webhooks; add cleanup index on DLQ
       version: 7,

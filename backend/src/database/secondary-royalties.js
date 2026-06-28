@@ -322,48 +322,95 @@ export const commitSecondaryDistributionAtomic = db.transaction(
   }
 );
 
+// #462: 60-second in-process cache for royalty statistics per contractId.
+const _statsCache = new Map();
+const STATS_CACHE_TTL_MS = 60_000;
+
+export function _invalidateStatsCache(contractId) {
+  if (contractId) {
+    _statsCache.delete(contractId);
+  } else {
+    _statsCache.clear();
+  }
+}
+
+// Single CTE query combining totals, pending pool, and last distribution (#462).
+const _statsStmt = db.prepare(`
+  WITH
+    last_dist_ts AS (
+      SELECT COALESCE(MAX(timestamp), '1970-01-01') AS ts
+      FROM secondary_royalty_distributions
+      WHERE contractId = ?
+    ),
+    totals AS (
+      SELECT
+        COUNT(*) AS count,
+        COALESCE(SUM(CAST(royaltyAmount AS REAL)), 0) AS totalRoyalties,
+        COALESCE(SUM(CAST(salePrice AS REAL)), 0) AS totalVolume
+      FROM secondary_sales
+      WHERE contractId = ?
+    ),
+    pending AS (
+      SELECT COALESCE(SUM(CAST(royaltyAmount AS REAL)), 0) AS pendingPool
+      FROM secondary_sales, last_dist_ts
+      WHERE secondary_sales.contractId = ?
+        AND secondary_sales.timestamp > last_dist_ts.ts
+    ),
+    last_dist AS (
+      SELECT srd.timestamp, srd.totalRoyaltiesDistributed, srd.numberOfSales, t.txHash
+      FROM secondary_royalty_distributions srd
+      LEFT JOIN transactions t ON srd.transactionId = t.id
+      WHERE srd.contractId = ?
+      ORDER BY srd.timestamp DESC
+      LIMIT 1
+    )
+  SELECT
+    totals.count          AS totalSales,
+    totals.totalRoyalties AS totalRoyalties,
+    totals.totalVolume    AS totalVolume,
+    pending.pendingPool   AS pendingPool,
+    last_dist.timestamp                  AS lastDistTimestamp,
+    last_dist.totalRoyaltiesDistributed  AS lastDistTotal,
+    last_dist.numberOfSales              AS lastDistSales,
+    last_dist.txHash                     AS lastDistTxHash
+  FROM totals
+  CROSS JOIN pending
+  LEFT JOIN last_dist ON 1=1
+`);
+
 /**
  * Get royalty statistics for a contract.
+ * Combines totals, pending pool, and last distribution in a single SQL query.
+ * Results are cached for 60 seconds to reduce query pressure (#462).
  * Always returns consistent types — numeric fields use toFixed(7) strings,
  * counts are integers, and null is never returned for aggregates.
  */
 export function getRoyaltyStatistics(contractId) {
-  const totalSalesStmt = db.prepare(`
-    SELECT
-      COUNT(*) as count,
-      COALESCE(SUM(CAST(royaltyAmount as REAL)), 0) as totalRoyalties,
-      COALESCE(SUM(CAST(salePrice as REAL)), 0) as totalVolume
-    FROM secondary_sales
-    WHERE contractId = ?
-  `);
-  const totalSales = totalSalesStmt.get(contractId);
+  const cached = _statsCache.get(contractId);
+  if (cached && Date.now() - cached.ts < STATS_CACHE_TTL_MS) {
+    return cached.data;
+  }
 
-  const pendingPoolStmt = db.prepare(`
-    SELECT COALESCE(SUM(CAST(royaltyAmount as REAL)), 0) as pendingPool
-    FROM secondary_sales
-    WHERE contractId = ?
-      AND timestamp > COALESCE(
-        (SELECT MAX(timestamp) FROM secondary_royalty_distributions WHERE contractId = ?),
-        '1970-01-01'
-      )
-  `);
-  const pendingPool = pendingPoolStmt.get(contractId, contractId);
+  const row = _statsStmt.get(contractId, contractId, contractId, contractId);
 
-  const lastDistributionStmt = db.prepare(`
-    SELECT srd.timestamp, srd.totalRoyaltiesDistributed, srd.numberOfSales, t.txHash
-    FROM secondary_royalty_distributions srd
-    LEFT JOIN transactions t ON srd.transactionId = t.id
-    WHERE srd.contractId = ?
-    ORDER BY srd.timestamp DESC
-    LIMIT 1
-  `);
-  const lastDistribution = lastDistributionStmt.get(contractId);
+  const lastDistribution =
+    row.lastDistTimestamp != null
+      ? {
+          timestamp: row.lastDistTimestamp,
+          totalRoyaltiesDistributed: row.lastDistTotal,
+          numberOfSales: row.lastDistSales,
+          txHash: row.lastDistTxHash,
+        }
+      : null;
 
-  return {
-    totalSecondarySales: totalSales.count,
-    totalRoyaltiesGenerated: totalSales.totalRoyalties.toFixed(7),
-    totalVolume: totalSales.totalVolume.toFixed(7),
-    pendingRoyaltyPool: pendingPool.pendingPool.toFixed(7),
-    lastDistribution: lastDistribution || null,
+  const data = {
+    totalSecondarySales: row.totalSales,
+    totalRoyaltiesGenerated: row.totalRoyalties.toFixed(7),
+    totalVolume: row.totalVolume.toFixed(7),
+    pendingRoyaltyPool: row.pendingPool.toFixed(7),
+    lastDistribution,
   };
+
+  _statsCache.set(contractId, { ts: Date.now(), data });
+  return data;
 }

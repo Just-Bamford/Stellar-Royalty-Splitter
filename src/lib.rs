@@ -138,7 +138,7 @@ pub enum ContractError {
     InvalidUpdatedShareTotal = 25,
     SalePriceNotPositive = 26,
     DustExceedsLimit = 27,
-    NoPendingCommit = 27,
+    NoPendingCommit = 32,
     InvalidReveal = 28,
     RevealTooEarly = 29,
     CommitmentExists = 30,
@@ -462,20 +462,24 @@ impl RoyaltySplitter {
 
     fn hash_collaborators(env: &Env, collaborators: &Vec<Address>, salt: &BytesN<32>) -> BytesN<32> {
         let mut bytes = Bytes::new(env);
-        bytes.extend_from_slice(salt.as_ref());
+        bytes.append(salt.as_ref());
         for i in 0..collaborators.len() {
             let addr = collaborators.get(i).unwrap();
-            bytes.append(&String::from_str(env, &addr.to_string()).to_bytes());
+            let addr_str = addr.to_string();
+            let addr_len = addr_str.len() as usize;
+            let mut buf = [0u8; 56];
+            addr_str.copy_into_slice(&mut buf[..addr_len]);
+            bytes.extend_from_slice(&buf[..addr_len]);
         }
         env.crypto().sha256(&bytes)
     }
 
     fn hash_shares(env: &Env, shares: &Vec<u32>, salt: &BytesN<32>) -> BytesN<32> {
         let mut bytes = Bytes::new(env);
-        bytes.extend_from_slice(salt.as_ref());
+        bytes.append(salt.as_ref());
         for i in 0..shares.len() {
             let share = shares.get(i).unwrap();
-            bytes.append(&Bytes::from_slice(env, &share.to_be_bytes()));
+            bytes.extend_from_slice(&share.to_be_bytes());
         }
         env.crypto().sha256(&bytes)
     }
@@ -680,7 +684,7 @@ impl RoyaltySplitter {
         storage::instance_set(&env, &StorageKey::PauseSource, &caller);
         
         env.events().publish(
-            (symbol_short!("royalty"), symbol_short!("collab_pause")),
+            (symbol_short!("royalty"), symbol_short!("c_pause")),
             (caller, env.ledger().timestamp()),
         );
     }
@@ -831,7 +835,7 @@ impl RoyaltySplitter {
         env.storage().instance().remove(&StorageKey::PendingAdminTimestamp);
 
         env.events().publish(
-            (symbol_short!("royalty"), symbol_short!("adm_cancel")),
+            (symbol_short!("royalty"), symbol_short!("adm_cncl")),
             pending,
         );
     }
@@ -934,19 +938,19 @@ impl RoyaltySplitter {
             .unwrap_or(false);
         
         if !paused {
-            let zero_addr = Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap();
+            let zero_addr = Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
             return (0, zero_addr, 0);
         }
-        
+
         let timestamp = env.storage()
             .instance()
             .get(&StorageKey::PauseTimestamp)
             .unwrap_or(0);
-        
+
         let source = env.storage()
             .instance()
             .get(&StorageKey::PauseSource)
-            .unwrap_or_else(|| Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap());
+            .unwrap_or_else(|| Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")));
         
         let current_time = env.ledger().timestamp();
         let elapsed = current_time.saturating_sub(timestamp);
@@ -966,7 +970,7 @@ impl RoyaltySplitter {
         let pending: Option<Address> = env.storage().instance().get(&StorageKey::PendingAdmin);
         
         if pending.is_none() {
-            let zero_addr = Address::from_string(&env, &String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap();
+            let zero_addr = Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
             return (zero_addr, 0, 0);
         }
         
@@ -1467,10 +1471,6 @@ impl RoyaltySplitter {
         let token_client = token::Client::new(&env, &token);
         let balance = token_client.balance(&env.current_contract_address());
 
-        if pool > balance {
-            Self::fail(&env, ContractError::PoolExceedsBalance);
-        }
-
         // Collaborators and ShareMap from persistent storage (#322)
         let collaborators: Vec<Address> =
             storage::persistent_get::<Vec<Address>>(&env, &StorageKey::Collaborators)
@@ -1518,6 +1518,37 @@ impl RoyaltySplitter {
             Self::fail(&env, ContractError::DustExceedsLimit);
         }
 
+        // #463: Pre-validate each recipient payout against available contract balance.
+        // Emits SecondaryDistributionFailed for each recipient that cannot be paid so
+        // off-chain indexers can reconstruct which recipients were affected.
+        let mut success_count: u32 = 0;
+        let mut failure_count: u32 = 0;
+        let mut running_balance = balance;
+
+        for (addr, payout) in payouts.iter() {
+            if payout <= running_balance {
+                success_count += 1;
+                running_balance -= payout;
+            } else {
+                failure_count += 1;
+                env.events().publish(
+                    (symbol_short!("royalty"), symbol_short!("sec_fail")),
+                    (EVENT_VERSION, env.ledger().sequence(), addr.clone(), payout),
+                );
+            }
+        }
+
+        // Rollback strategy (#463): if any transfer would fail, emit the summary event
+        // (visible in the failed transaction meta for off-chain indexers) then panic so
+        // all state changes are rolled back atomically.
+        if failure_count > 0 {
+            env.events().publish(
+                (symbol_short!("royalty"), symbol_short!("sec_dist")),
+                (EVENT_VERSION, env.ledger().sequence(), token, pool, dust, success_count, failure_count),
+            );
+            Self::fail(&env, ContractError::InsufficientBalance);
+        }
+
         // Record distribution with dust tracking (#398)
         let mut history: Vec<DistributionRecord> =
             storage::persistent_get::<Vec<DistributionRecord>>(&env, &StorageKey::DistributionHistory)
@@ -1540,9 +1571,10 @@ impl RoyaltySplitter {
         // Store dust for next distribution (#398)
         storage::instance_set(&env, &StorageKey::SecondaryDust, &dust);
 
+        // #463: Summary event includes success/failure counters for monitoring.
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("sec_dist")),
-            (EVENT_VERSION, env.ledger().sequence(), token, pool, dust),
+            (EVENT_VERSION, env.ledger().sequence(), token, pool, dust, success_count, failure_count),
         );
 
         storage::instance_set(
