@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sendError, sendValidationError } from "./error-response.js";
+import { recordValidationFailure } from "./dos-protection.js";
 
 export const stellarAddress = z
   .string("Validation failed: walletAddress must be a string")
@@ -139,6 +140,7 @@ export function validate(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
+      recordValidationFailure(req.ip);
       return sendValidationError(
         res,
         result.error.issues.map((e) => ({
@@ -181,6 +183,7 @@ export function validateInitializePayloadSize(req, res, next) {
 export function validateContractIdMiddleware(req, res, next) {
   const contractId = req.params.contractId;
   if (!contractId || !/^C[A-Z2-7]{55}$/.test(contractId)) {
+    recordValidationFailure(req.ip);
     return sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
   }
   next();
@@ -216,6 +219,7 @@ export function validateStellarAddress(address, res) {
 export function validatePaginationQuery(req, res, next) {
   const result = paginationQuerySchema.safeParse(req.query);
   if (!result.success) {
+    recordValidationFailure(req.ip);
     return sendValidationError(
       res,
       result.error.issues.map((e) => ({

@@ -1,4 +1,4 @@
-﻿import { jest, describe, test, expect, beforeEach } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -11,6 +11,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));

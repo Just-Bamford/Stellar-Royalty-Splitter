@@ -18,6 +18,7 @@ const metrics = {
   transactionsFailedTotal: 0,
   horizonResponseTimeMsTotal: 0,
   horizonResponseTimeCount: 0,
+  rejectedRequestsTotal: 0,
 
   // ── #396: HTTP request tracking ───────────────────────────────────────
   /** Map<"METHOD /path status"> → count */
@@ -72,6 +73,10 @@ export function recordHorizonResponseTime(durationMs) {
   if (!Number.isFinite(durationMs) || durationMs < 0) return;
   metrics.horizonResponseTimeMsTotal += durationMs;
   metrics.horizonResponseTimeCount += 1;
+}
+
+export function recordRejectedRequest() {
+  metrics.rejectedRequestsTotal += 1;
 }
 
 // ── #396: New recorders ───────────────────────────────────────────────────
@@ -161,6 +166,7 @@ export function getMetricsSnapshot() {
     horizonResponseTimeMsTotal: metrics.horizonResponseTimeMsTotal,
     horizonResponseTimeCount: metrics.horizonResponseTimeCount,
     averageHorizonResponseTimeMs,
+    rejectedRequestsTotal: metrics.rejectedRequestsTotal,
 
     // #396
     httpRequestCounts: Object.fromEntries(metrics.httpRequestCounts),
@@ -197,6 +203,9 @@ export function prometheusMetrics() {
     "# HELP stellar_transactions_failed_total Failed distribute transaction build attempts.",
     "# TYPE stellar_transactions_failed_total counter",
     `stellar_transactions_failed_total ${snapshot.transactionsFailedTotal}`,
+    "# HELP stellar_rejected_requests_total Total number of requests rejected by DoS protection or validation filters.",
+    "# TYPE stellar_rejected_requests_total counter",
+    `stellar_rejected_requests_total ${snapshot.rejectedRequestsTotal}`,
     "# HELP stellar_horizon_response_time_average_ms Average Horizon response time in milliseconds.",
     "# TYPE stellar_horizon_response_time_average_ms gauge",
     `stellar_horizon_response_time_average_ms ${formatMetricValue(snapshot.averageHorizonResponseTimeMs)}`,
@@ -284,6 +293,7 @@ export function resetMetrics() {
   metrics.transactionsFailedTotal = 0;
   metrics.horizonResponseTimeMsTotal = 0;
   metrics.horizonResponseTimeCount = 0;
+  metrics.rejectedRequestsTotal = 0;
   metrics.httpRequestCounts.clear();
   metrics.responseTimeObservations.length = 0;
   metrics.requestBytesTotal = 0;

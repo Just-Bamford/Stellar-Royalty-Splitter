@@ -33,19 +33,19 @@ function extractBearerToken(req) {
   return header.slice("Bearer ".length).trim();
 }
 
-function requireAdminRotateToken(req, res, next) {
+function requireAdminToken(req, res, next) {
   if (!process.env.ADMIN_ROTATE_TOKEN) {
-    logger.warn("Admin rotate-key rejected: ADMIN_ROTATE_TOKEN not configured", {
-      event: "signing_key_rotate_denied",
+    logger.warn("Admin request rejected: ADMIN_ROTATE_TOKEN not configured", {
+      event: "admin_token_denied",
       reason: "token_not_configured",
     });
-    return sendError(res, 503, "service_unavailable", "Key rotation is not configured on this server");
+    return sendError(res, 503, "service_unavailable", "Admin endpoints are not configured on this server");
   }
 
   const token = extractBearerToken(req);
   if (!isAdminRotateTokenValid(token)) {
-    logger.warn("Admin rotate-key rejected: invalid token", {
-      event: "signing_key_rotate_denied",
+    logger.warn("Admin request rejected: invalid token", {
+      event: "admin_token_denied",
       reason: "invalid_token",
     });
     return sendError(res, 401, "unauthorized", "Unauthorized");
@@ -198,7 +198,7 @@ adminRouter.post("/transfer", async (req, res, next) => {
  */
 adminRouter.post(
   "/rotate-key",
-  requireAdminRotateToken,
+  requireAdminToken,
   validate(rotateKeySchema),
   (req, res, next) => {
     try {
@@ -297,6 +297,57 @@ adminRouter.post("/webhooks/dead-letters/:id/retry", async (req, res, next) => {
       url: entry.url,
       ...(result.error && { error: result.error }),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// API Key admin endpoints (#420)
+// ---------------------------------------------------------------------------
+
+const generateKeySchema = z.object({
+  label: z.string().max(100, "label must not exceed 100 characters").optional(),
+});
+
+adminRouter.post(
+  "/generate-key",
+  requireAdminToken,
+  validate(generateKeySchema),
+  async (req, res, next) => {
+    try {
+      const { label } = req.body;
+      const { createApiKey } = await import("../database/index.js");
+      const keyObj = createApiKey(label);
+      res.json(keyObj);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+adminRouter.get("/keys", requireAdminToken, async (req, res, next) => {
+  try {
+    const { listApiKeys } = await import("../database/index.js");
+    const keysList = listApiKeys();
+    res.json({ keys: keysList });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post("/keys/:id/revoke", requireAdminToken, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id <= 0) {
+      return sendError(res, 400, "invalid_id", "Invalid key ID");
+    }
+    const { revokeApiKey } = await import("../database/index.js");
+    const success = revokeApiKey(id);
+    if (!success) {
+      return sendError(res, 404, "not_found", "API key not found or already revoked");
+    }
+    res.json({ success: true, id });
   } catch (err) {
     next(err);
   }

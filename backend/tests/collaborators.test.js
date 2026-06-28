@@ -1,9 +1,10 @@
 import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
+import { getCacheManager } from "../src/cache.js";
 
-const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const COLLAB1  = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-const COLLAB2  = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const COLLAB1  = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const COLLAB2  = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC6PV";
 
 const mockSimulate = jest.fn();
 const mockIsSimError = jest.fn(() => false);
@@ -51,6 +52,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   isContractInitialized: jest.fn(),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
@@ -63,12 +66,16 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 
 const { default: app } = await import("./app.js");
 const { SorobanRpc } = await import("@stellar/stellar-sdk");
+const { _resetCollaboratorsCache } = await import("../src/routes/collaborators.js");
 
 describe("GET /api/v1/collaborators/:contractId", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockSimulate.mockReset();
     mockIsSimError.mockReset();
     mockIsSimError.mockReturnValue(false);
+    _resetCollaboratorsCache();
+    const cache = getCacheManager();
+    await cache.flushAll();
   });
 
   test("happy path — returns collaborators with basisPoints", async () => {
@@ -88,6 +95,7 @@ describe("GET /api/v1/collaborators/:contractId", () => {
     });
 
     const res = await request(app).get(`/api/v1/collaborators/${CONTRACT}`);
+    console.log("RESPONSE BODY ON 500:", res.status, res.body, res.text);
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);

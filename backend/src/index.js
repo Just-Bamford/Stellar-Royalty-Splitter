@@ -7,7 +7,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
 import { correlationMiddleware } from "./correlation.js";
-import { recordHttpRequest } from "./metrics.js";
+import { recordHttpRequest, recordRejectedRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
@@ -28,6 +28,7 @@ import { sendError } from "./error-response.js";
 import { verifyRequestSignatureMiddleware } from "./request-signing.js";
 import { apiKeyRateLimiter } from "./api-key-rate-limit.js";
 import { createLegacyApiRedirectMiddleware } from "./legacy-api-redirect.js";
+import { dosProtectionMiddleware, recordValidationFailure } from "./dos-protection.js";
 
 // #399: Cache and event listener imports
 import { getCacheManager } from "./cache.js";
@@ -150,6 +151,7 @@ app.use(generalLimiter);
 // per-IP limiters above. No-op when X-API-Key is absent.
 app.use(apiKeyRateLimiter);
 
+app.use(dosProtectionMiddleware);
 app.use(express.json({ limit: "10kb" }));
 
 // Ed25519 request signature verification for write operations (#392)
@@ -220,7 +222,16 @@ app.use("/admin", adminRouter);
 
 // Central error handler
 app.use((err, req, res, _next) => {
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    recordValidationFailure(req.ip);
+    return sendError(res, 400, "invalid_json", "Invalid JSON payload");
+  }
   if (err.type === "entity.too.large") {
+    logger.warn("Suspected DoS: Payload limit exceeded (body parser)", {
+      ip: req.ip,
+      path: req.originalUrl,
+    });
+    recordRejectedRequest();
     return sendError(res, 413, "payload_too_large", "Payload too large");
   }
   logger.error("Unhandled error", {

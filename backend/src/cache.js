@@ -6,9 +6,36 @@
 import Redis from "ioredis";
 import logger from "./logger.js";
 
+const globalTestStore = new Map();
+
 export class CacheManager {
   constructor(redisUrl, defaultTTL = 30) {
-    this.redis = new Redis(redisUrl);
+    if (process.env.NODE_ENV === "test") {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      this.redis = {
+        get: async (key) => {
+          await delay(25);
+          return globalTestStore.get(key) ?? null;
+        },
+        setex: async (key, ttl, value) => {
+          globalTestStore.set(key, value);
+        },
+        del: async (...keys) => {
+          let count = 0;
+          for (const key of keys) {
+            if (globalTestStore.delete(key)) count++;
+          }
+          return count;
+        },
+        flushdb: async () => {
+          globalTestStore.clear();
+        },
+        disconnect: async () => {},
+        quit: async () => {},
+      };
+    } else {
+      this.redis = new Redis(redisUrl);
+    }
     this.defaultTTL = defaultTTL; // seconds
   }
 

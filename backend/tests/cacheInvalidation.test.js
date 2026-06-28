@@ -44,8 +44,10 @@ class MockSorobanRpc {
     this.admin = newAdmin;
   }
 
-  emitAdminTransfer(previousAdmin, newAdmin) {
-    this.ledger++;
+  emitAdminTransfer(previousAdmin, newAdmin, isDuplicate = false) {
+    if (!isDuplicate) {
+      this.ledger++;
+    }
     this.events.push({
       ledgerSequence: this.ledger,
       transactionHash: `tx${this.ledger}`,
@@ -86,6 +88,7 @@ describe("Cache Invalidation (#399)", () => {
   const contractId = "C123TEST";
 
   beforeAll(async () => {
+    process.env.ADMIN_EVENT_POLL_MS = "10";
     cache = new CacheManager(process.env.REDIS_URL || "redis://localhost:6379");
     rpc = new MockSorobanRpc();
   });
@@ -94,6 +97,13 @@ describe("Cache Invalidation (#399)", () => {
     await cache.flushAll();
     rpc.events = [];
     rpc.ledger = 1000;
+  });
+
+  afterEach(() => {
+    if (listener) {
+      listener.stop();
+      listener = null;
+    }
   });
 
   afterAll(async () => {
@@ -197,7 +207,7 @@ describe("Cache Invalidation (#399)", () => {
     listener.start();
 
     rpc.emitAdminTransfer("GOLDADMIN123", "GDUPADMIN111");
-    rpc.emitAdminTransfer("GOLDADMIN123", "GDUPADMIN111"); // duplicate
+    rpc.emitAdminTransfer("GOLDADMIN123", "GDUPADMIN111", true); // duplicate
 
     await new Promise((r) => setTimeout(r, 100));
 

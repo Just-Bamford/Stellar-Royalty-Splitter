@@ -18,6 +18,7 @@ import { buildAndRecordTransaction } from "./_shared.js";
 import { createRequestLogger } from "../logger.js";
 import { recordNonceIfNew } from "../database/index.js";
 import { sendError } from "../error-response.js";
+import { invalidateCollaboratorsCache } from "./collaborators.js";
 
 export const initializeRouter = Router();
 

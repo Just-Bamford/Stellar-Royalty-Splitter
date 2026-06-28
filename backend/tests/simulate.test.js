@@ -79,6 +79,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   },
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({

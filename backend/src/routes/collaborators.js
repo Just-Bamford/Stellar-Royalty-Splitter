@@ -61,7 +61,7 @@ collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req
     const contract = new Contract(contractId);
 
     const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+      "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
       "0"
     );
 

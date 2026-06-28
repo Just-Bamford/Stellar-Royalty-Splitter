@@ -62,6 +62,14 @@ export {
 // Analytics
 export { getAnalyticsData } from "./analytics.js";
 
+// API Keys (#420)
+export {
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+  findActiveKeyByRawKey,
+} from "./api-keys.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;

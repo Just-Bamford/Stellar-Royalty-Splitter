@@ -11,6 +11,11 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   checkContractDeploymentStatus,
   getConfiguredContractId,
   getNetworkLabel,
+  checkAllHorizonEndpoints: jest.fn(),
+  checkAllRpcEndpoints: jest.fn(),
+  getCurrentHorizonUrl: jest.fn(() => "https://horizon-testnet.stellar.org"),
+  getCurrentRpcUrl: jest.fn(() => "https://soroban-testnet.stellar.org"),
+  getContractAdmin: jest.fn(() => "GOLDADMIN123"),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));

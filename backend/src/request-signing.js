@@ -14,6 +14,7 @@ import { createHash, timingSafeEqual, randomUUID } from "crypto";
 import StellarSdk from "@stellar/stellar-sdk";
 import { sendError } from "./error-response.js";
 import logger from "./logger.js";
+import { recordValidationFailure } from "./dos-protection.js";
 
 const { Keypair } = StellarSdk;
 
@@ -131,6 +132,7 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
   }
 
   if (!walletAddress || !timestampHeader || !nonce || !signature) {
+    recordValidationFailure(req.ip);
     return sendError(
       res,
       401,
@@ -140,16 +142,19 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
   }
 
   if (!/^G[A-Z2-7]{55}$/.test(walletAddress)) {
+    recordValidationFailure(req.ip);
     return sendError(res, 401, "invalid_signature", "Invalid wallet address in signature headers");
   }
 
   const timestampSec = parseInt(timestampHeader, 10);
   if (!Number.isFinite(timestampSec)) {
+    recordValidationFailure(req.ip);
     return sendError(res, 401, "invalid_signature", "X-Timestamp must be a Unix epoch in seconds");
   }
 
   const ageMs = Math.abs(Date.now() - timestampSec * 1000);
   if (ageMs > MAX_SIGNATURE_AGE_MS) {
+    recordValidationFailure(req.ip);
     return sendError(
       res,
       401,
@@ -159,6 +164,7 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
   }
 
   if (!markNonceUsed(nonce)) {
+    recordValidationFailure(req.ip);
     return sendError(res, 401, "replay_detected", "Nonce has already been used");
   }
 
@@ -176,6 +182,7 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
       path: req.originalUrl,
       walletAddress,
     });
+    recordValidationFailure(req.ip);
     return sendError(res, 401, "invalid_signature", "Request signature verification failed");
   }
 
@@ -185,6 +192,7 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
     "walletAddress" in req.body &&
     !safeEqual(req.body.walletAddress, walletAddress)
   ) {
+    recordValidationFailure(req.ip);
     return sendError(
       res,
       401,
