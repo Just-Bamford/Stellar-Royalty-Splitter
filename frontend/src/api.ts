@@ -99,6 +99,7 @@ async function post<T>(
   path: string,
   body: unknown,
   walletAddress?: string,
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
@@ -116,11 +117,23 @@ async function post<T>(
     }
   }
 
+  if (extraHeaders) {
+    Object.assign(headers, extraHeaders);
+  }
+
   return request<T>(path, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Generate a fresh idempotency key for retry-safe POST requests.
+ * Generate once per user action, then pass the same key on every retry.
+ */
+export function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -237,15 +250,19 @@ export const api = {
       body.walletAddress,
     ),
 
-  distribute: (body: {
-    contractId: string;
-    walletAddress: string;
-    tokenId: string;
-  }) =>
+  distribute: (
+    body: {
+      contractId: string;
+      walletAddress: string;
+      tokenId: string;
+    },
+    idempotencyKey?: string,
+  ) =>
     post<{ xdr: string; transactionId: number }>(
       "/distribute",
       body,
       body.walletAddress,
+      idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     ),
 
   getContractBalance: (contractId: string, tokenId: string) =>
@@ -335,17 +352,25 @@ export const api = {
       body.walletAddress,
     ),
 
-  distributeSecondaryRoyalties: (body: {
-    contractId: string;
-    walletAddress: string;
-    tokenId: string;
-  }) =>
+  distributeSecondaryRoyalties: (
+    body: {
+      contractId: string;
+      walletAddress: string;
+      tokenId: string;
+    },
+    idempotencyKey?: string,
+  ) =>
     post<{
       xdr: string;
       transactionId: number;
       numberOfSales: number;
       totalRoyalties: string;
-    }>("/secondary-royalty/distribute", body, body.walletAddress),
+    }>(
+      "/secondary-royalty/distribute",
+      body,
+      body.walletAddress,
+      idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    ),
 
   getRoyaltyStats: (contractId: string) =>
     get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),

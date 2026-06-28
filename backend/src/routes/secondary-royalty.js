@@ -11,15 +11,15 @@ import {
 import {
   recordTransaction,
   recordSecondarySale,
-  recordSecondaryRoyaltyDistribution,
   getSecondarySales,
   getSecondaryRoyaltyDistributions,
   getRoyaltyStatistics,
-  markSalesDistributed,
   countSecondarySales,
   addAuditLog,
   applyLargestRemainder,
+  commitSecondaryDistributionAtomic,
 } from "../database/index.js";
+import { idempotencyMiddleware } from "../idempotency.js";
 import {
   validate,
   recordSecondarySaleSchema,
@@ -58,7 +58,7 @@ secondaryRoyaltyRouter.get("/pool/:contractId", validateContractIdMiddleware, as
  * Body: { contractId, walletAddress, nftId, previousOwner, newOwner, salePrice, saleToken, royaltyRate }
  * Returns: { xdr, transactionId, royaltyAmount }
  */
-secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req, res, next) => {
+secondaryRoyaltyRouter.post("/", idempotencyMiddleware, validate(recordSecondarySaleSchema), async (req, res, next) => {
   try {
     const {
       contractId,
@@ -224,104 +224,94 @@ secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
  * deterministically allocated to collaborators with the largest fractional share.
  * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties
  */
-secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), async (req, res, next) => {
-  try {
-    const { contractId, walletAddress, tokenId, collaborators } = req.body;
+secondaryRoyaltyRouter.post(
+  "/distribute",
+  idempotencyMiddleware,
+  validate(distributeSecondarySchema),
+  async (req, res, next) => {
+    try {
+      const { contractId, walletAddress, tokenId, collaborators } = req.body;
 
-    // Get pending (undistributed) secondary sales
-    const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
+      // Get pending (undistributed) secondary sales
+      const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
 
-    if (pendingSales.length === 0) {
-      return sendError(res, 400, "bad_request", "No pending secondary royalties to distribute.");
-    }
-
-    // Calculate total royalties (BigInt for precision)
-    const totalRoyalties = pendingSales.reduce((sum, sale) => {
-      return sum + BigInt(sale.royaltyAmount);
-    }, 0n);
-
-    // ---------------------------------------------------------------------------
-    // #427: Apply largest-remainder rounding when collaborator shares are provided
-    // ---------------------------------------------------------------------------
-    let roundingAllocations = null;
-    let totalDustAllocated = 0n;
-
-    if (Array.isArray(collaborators) && collaborators.length > 0) {
-      // Validate that basis points sum to exactly 10000
-      const bpSum = collaborators.reduce((s, c) => s + (c.basisPoints ?? 0), 0);
-      if (bpSum !== 10000) {
-        return sendError(
-          res,
-          400,
-          "invalid_collaborators",
-          `collaborators basisPoints must sum to 10000, got ${bpSum}.`
-        );
+      if (pendingSales.length === 0) {
+        return sendError(res, 400, "bad_request", "No pending secondary royalties to distribute.");
       }
 
-      // Apply largest-remainder algorithm — guarantees SUM === totalRoyalties
-      roundingAllocations = applyLargestRemainder(totalRoyalties, collaborators);
-      totalDustAllocated = roundingAllocations.reduce((s, a) => s + a.dustReceived, 0n);
+      // Calculate total royalties (BigInt for precision)
+      const totalRoyalties = pendingSales.reduce((sum, sale) => {
+        return sum + BigInt(sale.royaltyAmount);
+      }, 0n);
 
-      // Log the rounding decisions for debugging (#427 requirement)
-      if (totalDustAllocated > 0n) {
-        const dustRecipients = roundingAllocations
-          .filter((a) => a.dustReceived > 0n)
-          .map((a) => ({ address: a.address, dust: a.dustReceived.toString() }));
-        // logger is not imported in this file; use console-style log via audit
-        addAuditLog(contractId, "secondary_distribution_dust_allocated", walletAddress, {
-          totalDust: totalDustAllocated.toString(),
-          dustRecipients,
-        });
+      // ---------------------------------------------------------------------------
+      // #427: Apply largest-remainder rounding when collaborator shares are provided
+      // ---------------------------------------------------------------------------
+      let roundingAllocations = null;
+      let totalDustAllocated = 0n;
+      let dustAuditData = null;
+
+      if (Array.isArray(collaborators) && collaborators.length > 0) {
+        const bpSum = collaborators.reduce((s, c) => s + (c.basisPoints ?? 0), 0);
+        if (bpSum !== 10000) {
+          return sendError(
+            res,
+            400,
+            "invalid_collaborators",
+            `collaborators basisPoints must sum to 10000, got ${bpSum}.`
+          );
+        }
+
+        roundingAllocations = applyLargestRemainder(totalRoyalties, collaborators);
+        totalDustAllocated = roundingAllocations.reduce((s, a) => s + a.dustReceived, 0n);
+
+        if (totalDustAllocated > 0n) {
+          dustAuditData = {
+            totalDust: totalDustAllocated.toString(),
+            dustRecipients: roundingAllocations
+              .filter((a) => a.dustReceived > 0n)
+              .map((a) => ({ address: a.address, dust: a.dustReceived.toString() })),
+          };
+        }
       }
+
+      // Build the Stellar XDR *before* any DB writes so that a Stellar failure
+      // never leaves sales in an inconsistent state (#471).
+      const txXdr = await buildTx(walletAddress, contractId, "distribute_secondary_royalties", [
+        addressToScVal(tokenId),
+      ]);
+
+      // All DB writes are atomic: if any step fails, the transaction rolls back
+      // and pending sales remain undistributed (#471).
+      const transactionId = commitSecondaryDistributionAtomic({
+        contractId,
+        walletAddress,
+        totalRoyalties,
+        numberOfSales: pendingSales.length,
+        pendingSaleIds: pendingSales.map((s) => s.id),
+        totalDustAllocated,
+        dustAuditData,
+      });
+
+      res.json({
+        xdr: txXdr,
+        transactionId,
+        numberOfSales: pendingSales.length,
+        totalRoyalties: totalRoyalties.toString(),
+        dustAllocated: totalDustAllocated.toString(),
+        ...(roundingAllocations && {
+          allocations: roundingAllocations.map((a) => ({
+            address: a.address,
+            amount: a.amount.toString(),
+            dustReceived: a.dustReceived.toString(),
+          })),
+        }),
+      });
+    } catch (err) {
+      next(err);
     }
-
-    const transactionId = recordTransaction(contractId, "secondary_distribute", walletAddress, {
-      totalRoyalties: totalRoyalties.toString(),
-      numberOfSales: pendingSales.length,
-    });
-
-    // Build transaction to distribute secondary royalties
-    const txXdr = await buildTx(walletAddress, contractId, "distribute_secondary_royalties", [
-      addressToScVal(tokenId),
-    ]);
-
-    // Mark sales as distributed
-    markSalesDistributed(pendingSales.map((s) => s.id));
-
-    // Record the distribution, including dust for analytics (#427)
-    recordSecondaryRoyaltyDistribution(
-      transactionId,
-      contractId,
-      totalRoyalties.toString(),
-      pendingSales.length,
-      totalDustAllocated
-    );
-
-    addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
-      transactionId,
-      numberOfSales: pendingSales.length,
-      totalRoyalties: totalRoyalties.toString(),
-      dustAllocated: totalDustAllocated.toString(),
-    });
-
-    res.json({
-      xdr: txXdr,
-      transactionId,
-      numberOfSales: pendingSales.length,
-      totalRoyalties: totalRoyalties.toString(),
-      dustAllocated: totalDustAllocated.toString(),
-      ...(roundingAllocations && {
-        allocations: roundingAllocations.map((a) => ({
-          address: a.address,
-          amount: a.amount.toString(),
-          dustReceived: a.dustReceived.toString(),
-        })),
-      }),
-    });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 /**
  * GET /api/secondary-royalty/stats/:contractId
