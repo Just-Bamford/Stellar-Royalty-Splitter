@@ -6,6 +6,7 @@ import { useNetwork } from "../context/NetworkContext";
 import { useTransaction, useIsTransactionInFlight } from "../context/TransactionContext";
 import { useTransactionPolling } from "../hooks/useTransactionPolling";
 import FormStatus from "./FormStatus";
+import FormInput from "./FormInput";
 import PauseBanner from "./PauseBanner";
 import TransactionStatusBadge from "./TransactionStatusBadge";
 import { useFormStatus } from "../hooks/useFormStatus";
@@ -420,23 +421,18 @@ export default function DistributeForm({
         />
       )}
 
-      <label htmlFor="distribute-token-id">Token contract address</label>
-      <input
+      <FormInput
         id="distribute-token-id"
+        label="Token contract address"
         placeholder="C..."
         value={tokenId}
+        error={tokenIdError}
+        showSuccess={tokenIdValid && !tokenIdError}
         autoComplete="off"
         spellCheck={false}
         disabled={loading}
-        aria-invalid={tokenIdError ? "true" : undefined}
-        aria-describedby={tokenIdError ? "distribute-token-id-error" : undefined}
         onChange={(e) => { setTokenId(e.target.value); setAmount(""); }}
       />
-      {tokenIdError && (
-        <p className="field-error" id="distribute-token-id-error" role="alert">
-          {tokenIdError}
-        </p>
-      )}
       {tokenId && (
         <p className="description" id="contract-balance-status" aria-live="polite">
           {balanceLoading
@@ -447,26 +443,18 @@ export default function DistributeForm({
         </p>
       )}
 
-      <label htmlFor="distribute-amount">Amount</label>
-      <input
+      <FormInput
         id="distribute-amount"
+        label="Amount"
         type="text"
         inputMode="decimal"
         placeholder="0"
         value={amount}
+        error={exceedsBalance ? `Amount exceeds available balance of ${contractBalance}` : undefined}
+        showSuccess={amount && !isNaN(parsedAmount) && parsedAmount > 0 && !exceedsBalance}
         onChange={(e) => setAmount(e.target.value)}
         disabled={contractBalance === null || loading}
-        aria-invalid={exceedsBalance ? "true" : undefined}
-        aria-describedby={exceedsBalance ? "distribute-amount-error" : undefined}
       />
-      {exceedsBalance && (
-        <p
-          className="field-error"
-          id="distribute-amount-error"
-        >
-          Amount exceeds available balance of {contractBalance}.
-        </p>
-      )}
       {collaboratorsLoading && (
         <p className="description" aria-live="polite">Loading recipients…</p>
       )}

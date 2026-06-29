@@ -687,6 +687,123 @@ small {
   to { transform: rotate(360deg); }
 }
 
+/* Form Validation Animations */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+@keyframes error-border-pulse {
+  0%, 100% { border-color: var(--error-color); box-shadow: 0 0 0 3px rgba(229, 62, 62, 0.15); }
+  50% { border-color: #fc8181; box-shadow: 0 0 0 3px rgba(229, 62, 62, 0.3); }
+}
+
+@keyframes success-checkmark {
+  0% { stroke-dashoffset: 24; opacity: 0; }
+  50% { stroke-dashoffset: 12; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes success-icon-pop {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes error-icon-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-10deg); }
+  75% { transform: rotate(10deg); }
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.input-wrapper--error input {
+  animation: shake 0.4s ease-in-out, error-border-pulse 1.5s ease-in-out 0.4s;
+  border-color: var(--error-color) !important;
+}
+
+.input-wrapper--error input:focus {
+  border-color: var(--error-color) !important;
+  box-shadow: 0 0 0 3px rgba(229, 62, 62, 0.15) !important;
+}
+
+.input-wrapper--success input {
+  border-color: var(--success, #22c55e) !important;
+}
+
+.input-wrapper--success input:focus {
+  border-color: var(--success, #22c55e) !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15) !important;
+}
+
+.input-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.input-icon--error {
+  animation: error-icon-shake 0.3s ease-in-out;
+}
+
+.input-icon--success {
+  animation: success-icon-pop 0.3s ease-out;
+}
+
+.input-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.input-icon--error svg {
+  color: var(--error-color);
+}
+
+.input-icon--success svg {
+  color: var(--success, #22c55e);
+}
+
+.input-error-message {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--error-color);
+  margin-top: 0.25rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input-wrapper--error input {
+    animation: none;
+  }
+  
+  .input-icon--error,
+  .input-icon--success {
+    animation: none;
+  }
+  
+  .input-error-message {
+    animation: none;
+  }
+}
+
 @media (max-width: 520px) {
   .share-calculator-layout {
     grid-template-columns: 1fr;
