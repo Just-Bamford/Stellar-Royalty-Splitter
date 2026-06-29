@@ -4630,3 +4630,54 @@ fn test_batch_distribute_large_batch() {
     assert_eq!(TokenClient::new(&env, &token9).balance(&admin), 5000);
     assert_eq!(TokenClient::new(&env, &token9).balance(&b), 5000);
 }
+
+/// #665 — liquidate() emits a loan_liquidated event with correct addresses and data.
+#[test]
+fn test_liquidate_emits_loan_liquidated_event() {
+    use stellar_royalty_splitter::LiquidationEvent;
+
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let borrower = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+    let loan_id = String::from_str(&env, "LOAN-001");
+    let repay_amount: i128 = 5_000_000;
+    let collateral_seized: i128 = 6_000_000;
+
+    client.liquidate(
+        &borrower,
+        &liquidator,
+        &loan_id,
+        &repay_amount,
+        &collateral_seized,
+    );
+
+    let events = env.events().all();
+
+    // Verify topics: [loan_liq, borrower, liquidator]
+    let found = events.iter().any(|(cid, topics, data)| {
+        cid == contract_id
+            && topics
+                == vec![
+                    &env,
+                    symbol_short!("loan_liq").into_val(&env),
+                    borrower.clone().into_val(&env),
+                    liquidator.clone().into_val(&env),
+                ]
+            && {
+                let evt = LiquidationEvent::try_from_val(&env, &data);
+                match evt {
+                    Ok(e) => {
+                        e.loan_id == loan_id
+                            && e.repay_amount == repay_amount
+                            && e.collateral_seized == collateral_seized
+                    }
+                    Err(_) => false,
+                }
+            }
+    });
+
+    assert!(found, "loan_liquidated event not emitted with correct topics/data");
+}

@@ -72,6 +72,27 @@ export function initializeDatabase() {
       `,
     },
     {
+      // #665: loan_liquidations table to record on-chain loan_liquidated events
+      version: 4,
+      sql: `
+        CREATE TABLE IF NOT EXISTS loan_liquidations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          loanId TEXT NOT NULL,
+          borrower TEXT NOT NULL,
+          liquidator TEXT NOT NULL,
+          repayAmount TEXT NOT NULL,
+          collateralSeized TEXT NOT NULL,
+          txHash TEXT,
+          status TEXT NOT NULL DEFAULT 'liquidated',
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_loan_liquidations_contractId ON loan_liquidations(contractId);
+        CREATE INDEX IF NOT EXISTS idx_loan_liquidations_loanId ON loan_liquidations(loanId);
+        CREATE INDEX IF NOT EXISTS idx_loan_liquidations_borrower ON loan_liquidations(borrower);
+      `,
+    },
+    {
       // #133: enforce FK constraints on existing databases by recreating
       // distribution_payouts and secondary_royalty_distributions with
       // ON DELETE CASCADE. SQLite doesn't support ADD CONSTRAINT, so we

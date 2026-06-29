@@ -20,6 +20,7 @@ import { healthRouter } from "./routes/health.js";
 import { closeDatabase, initializeDatabase } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
+import { liquidateRouter } from "./routes/liquidate.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { initializeDatabase } from "./database/index.js";
 import db from "./database/index.js";
@@ -121,6 +122,7 @@ app.use("/api/v1/initialize", writeLimiter);
 app.use("/api/v1/distribute", writeLimiter);
 app.use("/api/v1/secondary-royalty", writeLimiter);
 app.use("/api/v1/webhooks", writeLimiter);
+app.use("/api/v1/liquidate", writeLimiter);
 
 app.use("/api/v1/initialize", initializeRouter);
 app.use("/api/v1/distribute", distributeRouter);
@@ -132,6 +134,7 @@ app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/liquidate", liquidateRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 

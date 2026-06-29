@@ -14,6 +14,15 @@ pub struct Recipient {
     pub share: u32,
 }
 
+/// Event data emitted by `liquidate` (#665).
+#[contracttype]
+#[derive(Clone)]
+pub struct LiquidationEvent {
+    pub loan_id: String,
+    pub repay_amount: i128,
+    pub collateral_seized: i128,
+}
+
 /// One entry in the royalty rate change history (#323).
 #[contracttype]
 #[derive(Clone)]
@@ -103,6 +112,7 @@ pub enum ContractError {
     CollaboratorNotFound,
     InvalidUpdatedShareTotal,
     SalePriceNotPositive,
+    NoBalance,
 }
 
 #[contract]
@@ -1280,6 +1290,46 @@ impl RoyaltySplitter {
             storage::persistent_get::<Vec<Address>>(&env, &StorageKey::Collaborators)
                 .unwrap_or(Vec::new(&env));
         collaborators.len()
+    }
+
+    /// Record a loan liquidation and emit a `loan_liquidated` event (#665).
+    ///
+    /// # Arguments
+    /// * `borrower`          - Address whose loan is being liquidated.
+    /// * `liquidator`        - Address performing the liquidation.
+    /// * `loan_id`           - Unique identifier for the loan.
+    /// * `repay_amount`      - Amount repaid by the liquidator.
+    /// * `collateral_seized` - Collateral amount transferred to the liquidator.
+    ///
+    /// # Authorization
+    /// Requires `liquidator` signature.
+    ///
+    /// # Events
+    /// Emits topics `[loan_liq, borrower, liquidator]` with data
+    /// `LiquidationEvent { loan_id, repay_amount, collateral_seized }`.
+    pub fn liquidate(
+        env: Env,
+        borrower: Address,
+        liquidator: Address,
+        loan_id: String,
+        repay_amount: i128,
+        collateral_seized: i128,
+    ) {
+        storage::extend_instance_ttl(&env);
+        liquidator.require_auth();
+
+        env.events().publish(
+            (
+                symbol_short!("loan_liq"),
+                borrower,
+                liquidator,
+            ),
+            LiquidationEvent {
+                loan_id,
+                repay_amount,
+                collateral_seized,
+            },
+        );
     }
 
     /// Returns the ordered list of all registered collaborator addresses.

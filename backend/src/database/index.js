@@ -45,6 +45,9 @@ export {
 // Analytics
 export { getAnalyticsData } from "./analytics.js";
 
+// Loan liquidations (#665)
+export { recordLoanLiquidation, getLoanLiquidation, getLoanLiquidations } from "./liquidations.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
