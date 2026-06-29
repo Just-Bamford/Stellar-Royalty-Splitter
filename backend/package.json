@@ -9,7 +9,11 @@
     "lint": "eslint src/**/*.js",
     "format": "prettier --write src/**/*.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",
-    "test:backend": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/"
+    "test:backend": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",
+    "migrate": "node scripts/migrate.js",
+    "migrate:status": "node scripts/migrate.js status",
+    "migrate:up": "node scripts/migrate.js up",
+    "migrate:down": "node scripts/migrate.js down"
   },
   "jest": {
     "testEnvironment": "node",

@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import crypto from "crypto";
 import logger from "../logger.js";
 import { instrumentDatabase } from "../query-profiler.js";
+import { migrateUp, getCurrentVersion, MIGRATIONS } from "./migrations.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "..", "audit.db");
@@ -158,216 +159,11 @@ export function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_indexed_events_transaction_hash ON indexed_events(transaction_hash);
   `);
 
-  const migrations = [
-    {
-      version: 1,
-      sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
-    },
-    {
-      // Issue #492: RBAC roles assignment database table
-      version: 10,
-      sql: `
-        CREATE TABLE IF NOT EXISTS user_roles (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          contractId TEXT,
-          walletAddress TEXT NOT NULL,
-          role TEXT NOT NULL CHECK(role IN ('viewer', 'operator', 'admin')),
-          assignedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          assignedBy TEXT,
-          UNIQUE(contractId, walletAddress)
-        );
-        CREATE INDEX IF NOT EXISTS idx_user_roles_walletAddress ON user_roles(walletAddress);
-
-        -- Retry queue for failed secondary royalty distributions
-        CREATE TABLE IF NOT EXISTS secondary_royalty_retry_queue (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          contractId TEXT NOT NULL,
-          walletAddress TEXT NOT NULL,
-          tokenId TEXT NOT NULL,
-          collaborators TEXT,
-          totalRoyalties TEXT NOT NULL,
-          numberOfSales INTEGER NOT NULL,
-          pendingSaleIds TEXT NOT NULL,
-          totalDustAllocated TEXT NOT NULL DEFAULT '0',
-          dustAuditData TEXT,
-          errorMessage TEXT,
-          retryCount INTEGER NOT NULL DEFAULT 0,
-          nextRetryAt DATETIME NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          lastAttemptAt DATETIME
-        );
-        CREATE INDEX IF NOT EXISTS idx_retry_queue_nextRetryAt ON secondary_royalty_retry_queue(nextRetryAt);
-        CREATE INDEX IF NOT EXISTS idx_retry_queue_contractId ON secondary_royalty_retry_queue(contractId);
-
-        -- Dead-letter queue for permanently failed secondary royalty distributions
-        CREATE TABLE IF NOT EXISTS secondary_royalty_dlq (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          contractId TEXT NOT NULL,
-          walletAddress TEXT NOT NULL,
-          tokenId TEXT NOT NULL,
-          collaborators TEXT,
-          totalRoyalties TEXT NOT NULL,
-          numberOfSales INTEGER NOT NULL,
-          pendingSaleIds TEXT NOT NULL,
-          totalDustAllocated TEXT NOT NULL DEFAULT '0',
-          dustAuditData TEXT,
-          errorMessage TEXT NOT NULL,
-          failureReason TEXT NOT NULL,
-          retryCount INTEGER NOT NULL DEFAULT 0,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          failedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_dlq_contractId ON secondary_royalty_dlq(contractId);
-        CREATE INDEX IF NOT EXISTS idx_dlq_createdAt ON secondary_royalty_dlq(createdAt);
-      `,
-    },
-    {
-      // Issue #462: composite index for single-query royalty statistics
-      version: 8,
-      sql: `
-        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contractId_timestamp
-          ON secondary_royalty_distributions(contractId, timestamp);
-      `,
-    },
-    {
-      // Issue #427: track dust allocated per secondary-royalty distribution round
-      // Issue #428: add max_attempts to webhooks; add cleanup index on DLQ
-      version: 7,
-      sql: `
-        -- #427: dust_allocated column on secondary_royalty_distributions
-        ALTER TABLE secondary_royalty_distributions ADD COLUMN dustAllocated TEXT NOT NULL DEFAULT '0';
-
-        -- #428: max_attempts per webhook row (0 = unlimited / legacy)
-        ALTER TABLE webhooks ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3;
-
-        -- #428: createdAt index on dead_letters for efficient 30-day cleanup
-        CREATE INDEX IF NOT EXISTS idx_dead_letters_createdAt ON webhook_dead_letters(createdAt);
-      `,
-    },
-    {
-      // Issue #421: permanent per-contract nonce dedup for /api/v1/initialize.
-      version: 6,
-      sql: `
-        CREATE TABLE IF NOT EXISTS request_nonces (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          contractId TEXT NOT NULL,
-          nonce TEXT NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(contractId, nonce)
-        );
-        CREATE INDEX IF NOT EXISTS idx_request_nonces_contractId ON request_nonces(contractId);
-      `,
-    },
-    {
-      version: 5,
-      sql: `
-        -- Issue #401: Dead-letter queue for failed webhook deliveries
-        CREATE TABLE IF NOT EXISTS webhook_dead_letters (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          webhookId INTEGER,
-          contractId TEXT NOT NULL,
-          url TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          errorMessage TEXT,
-          retryCount INTEGER NOT NULL DEFAULT 0,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          lastAttemptAt DATETIME,
-          FOREIGN KEY(webhookId) REFERENCES webhooks(id) ON DELETE SET NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_dead_letters_contractId ON webhook_dead_letters(contractId);
-        CREATE INDEX IF NOT EXISTS idx_dead_letters_retryCount ON webhook_dead_letters(retryCount);
-      `,
-    },
-    {
-      version: 4,
-      sql: `
-        -- Issue #395: Add hash-chain index to audit_log for integrity verification.
-        -- Current base schemas already include entry_hash and prev_hash.
-        CREATE INDEX IF NOT EXISTS idx_audit_entry_hash ON audit_log(entry_hash);
-      `,
-    },
-    {
-      version: 3,
-      sql: `
-        CREATE TABLE IF NOT EXISTS webhooks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          contractId TEXT NOT NULL,
-          url TEXT NOT NULL,
-          enabled INTEGER NOT NULL DEFAULT 1,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(contractId, url)
-        );
-        CREATE INDEX IF NOT EXISTS idx_webhooks_contractId ON webhooks(contractId);
-      `,
-    },
-    {
-      // #133: enforce FK constraints on existing databases by recreating
-      // distribution_payouts and secondary_royalty_distributions with
-      // ON DELETE CASCADE. SQLite doesn't support ADD CONSTRAINT, so we
-      // use the rename-create-copy-drop pattern inside a transaction.
-      version: 2,
-      sql: `
-        PRAGMA foreign_keys = OFF;
-
-        BEGIN;
-
-        CREATE TABLE IF NOT EXISTS distribution_payouts_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          transactionId INTEGER NOT NULL,
-          contractId TEXT NOT NULL DEFAULT '',
-          collaboratorAddress TEXT NOT NULL,
-          amountReceived TEXT NOT NULL,
-          FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
-        );
-        INSERT OR IGNORE INTO distribution_payouts_new
-          SELECT id, transactionId, contractId, collaboratorAddress, amountReceived
-          FROM distribution_payouts;
-        DROP TABLE distribution_payouts;
-        ALTER TABLE distribution_payouts_new RENAME TO distribution_payouts;
-
-        CREATE TABLE IF NOT EXISTS secondary_royalty_distributions_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          transactionId INTEGER NOT NULL,
-          contractId TEXT NOT NULL,
-          totalRoyaltiesDistributed TEXT NOT NULL,
-          numberOfSales INTEGER NOT NULL,
-          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
-        );
-        INSERT OR IGNORE INTO secondary_royalty_distributions_new
-          SELECT id, transactionId, contractId, totalRoyaltiesDistributed, numberOfSales, timestamp
-          FROM secondary_royalty_distributions;
-        DROP TABLE secondary_royalty_distributions;
-        ALTER TABLE secondary_royalty_distributions_new RENAME TO secondary_royalty_distributions;
-
-        COMMIT;
-
-        PRAGMA foreign_keys = ON;
-      `,
-    },
-    {
-      // Issue #461: composite index on transactions for pagination queries
-      // Accelerates getTransactionHistory() which filters by contractId and orders by timestamp DESC.
-      version: 10,
-      sql: `
-        CREATE INDEX IF NOT EXISTS idx_transactions_contractId_timestamp_desc
-          ON transactions(contractId, timestamp DESC);
-      `,
-    },
-  ];
-
-  const applied = db
-    .prepare("SELECT version FROM schema_migrations")
-    .all()
-    .map((r) => r.version);
-
-  for (const migration of migrations) {
-    if (!applied.includes(migration.version)) {
-      db.exec(migration.sql);
-      db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
-      logger.info(`Applied migration v${migration.version}`);
-    }
-  }
+  // Apply all pending versioned migrations through the migration engine (#519).
+  // The engine tracks applied versions in `schema_migrations`, runs each
+  // migration transactionally, and is shared with the `migrate` CLI so the boot
+  // path and operator tooling stay in lockstep.
+  migrateUp(db, {}, MIGRATIONS);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS transactions (
@@ -468,10 +264,7 @@ export function initializeDatabase() {
  * Get the current database schema migration version.
  */
 export function getMigrationVersion() {
-  const result = db
-    .prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1")
-    .get();
-  return result?.version ?? 0;
+  return getCurrentVersion(db);
 }
 
 /**
