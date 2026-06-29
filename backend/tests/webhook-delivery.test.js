@@ -4,6 +4,7 @@ const listWebhooks = jest.fn();
 
 await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
   listWebhooks,
+  recordDeliveryAttempt: jest.fn(),
 }));
 
 describe("deliverDistributeWebhooks (#295)", () => {

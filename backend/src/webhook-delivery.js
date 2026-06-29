@@ -3,6 +3,7 @@
  */
 
 import { listWebhooks } from "./database/webhooks.js";
+import { recordDeliveryAttempt } from "./database/webhooks.js";
 import logger from "./logger.js";
 
 function parsePositiveInt(value, fallback) {
@@ -35,27 +36,33 @@ async function postWebhook(url, payload) {
     });
 
     if (!response.ok) {
-      throw new Error(`Webhook returned HTTP ${response.status}`);
+      const err = new Error(`Webhook returned HTTP ${response.status}`);
+      err.statusCode = response.status;
+      throw err;
     }
+    return { statusCode: response.status };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function deliverWithRetry(url, payload) {
+async function deliverWithRetry(webhook, payload) {
+  const { id: webhookId, url, contractId } = webhook;
   for (let attempt = 1; attempt <= WEBHOOK_MAX_RETRIES; attempt++) {
+    const start = Date.now();
     try {
-      await postWebhook(url, payload);
+      const { statusCode } = await postWebhook(url, payload);
+      const durationMs = Date.now() - start;
+      recordDeliveryAttempt({ webhookId, contractId, success: true, statusCode, durationMs, attempt });
       logger.info("Webhook delivered", { url, attempt });
       return;
     } catch (error) {
+      const durationMs = Date.now() - start;
+      const statusCode = error.statusCode ?? null;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const isLastAttempt = attempt === WEBHOOK_MAX_RETRIES;
-      logger.warn("Webhook delivery failed", {
-        url,
-        attempt,
-        maxRetries: WEBHOOK_MAX_RETRIES,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      recordDeliveryAttempt({ webhookId, contractId, success: false, statusCode, errorMessage, durationMs, attempt });
+      logger.warn("Webhook delivery failed", { url, attempt, maxRetries: WEBHOOK_MAX_RETRIES, error: errorMessage });
 
       if (isLastAttempt) {
         logger.error("Webhook delivery exhausted retries", { url });
@@ -93,7 +100,7 @@ export function deliverDistributeWebhooks(transaction) {
   };
 
   for (const webhook of webhooks) {
-    deliverWithRetry(webhook.url, payload).catch((error) => {
+    deliverWithRetry(webhook, payload).catch((error) => {
       logger.error("Unexpected webhook delivery error", {
         url: webhook.url,
         error: error instanceof Error ? error.message : String(error),
