@@ -18,6 +18,13 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   i128ToScVal: jest.fn((n) => n),
   u32ToScVal: jest.fn((n) => n),
   server: {},
+  networkPassphrase: "Test SDF Network ; September 2015",
+}));
+
+// Placeholder XDR strings used in these tests aren't real envelopes, so stub
+// the validator to accept them; dedicated tests cover the validation itself.
+await jest.unstable_mockModule("../src/xdr-validation.js", () => ({
+  validateXdrStructure: () => ({ valid: true }),
 }));
 
 await jest.unstable_mockModule("../src/logger.js", () => ({

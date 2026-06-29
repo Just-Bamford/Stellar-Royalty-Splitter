@@ -27,6 +27,13 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
 
+// --- XDR validation mock --------------------------------------------------
+// Placeholder XDR strings used in these tests aren't real envelopes, so stub
+// the validator to accept them; dedicated tests cover the validation itself.
+await jest.unstable_mockModule("../src/xdr-validation.js", () => ({
+  validateXdrStructure: () => ({ valid: true }),
+}));
+
 // --- Database mock --------------------------------------------------------
 const getSecondarySales = jest.fn();
 const commitSecondaryDistributionAtomic = jest.fn();

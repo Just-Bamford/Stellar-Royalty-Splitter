@@ -22,6 +22,13 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   i128ToScVal: jest.fn((n) => n),
   u32ToScVal: jest.fn((n) => n),
   server: {},
+  networkPassphrase: "Test SDF Network ; September 2015",
+}));
+
+// secondary-royalty.js now pulls in the XDR validator via _shared.js; stub it
+// so these GET-route tests don't depend on real envelope parsing.
+await jest.unstable_mockModule("../src/xdr-validation.js", () => ({
+  validateXdrStructure: () => ({ valid: true }),
 }));
 
 await jest.unstable_mockModule("../src/logger.js", () => ({

@@ -26,6 +26,7 @@ import {
   getDeadLetterItems,
 } from "../database/index.js";
 import { idempotencyMiddleware } from "../idempotency.js";
+import { assertValidXdr } from "./_shared.js";
 import {
   validate,
   recordSecondarySaleSchema,
@@ -150,6 +151,9 @@ secondaryRoyaltyRouter.post("/", idempotencyMiddleware, validate(recordSecondary
       i128ToScVal(salePrice),
     ]);
 
+    // Reject invalid XDR before it ever reaches the client (#XDR validation).
+    assertValidXdr(txXdr);
+
     addAuditLog(contractId, "secondary_sale_recorded", walletAddress, {
       transactionId,
       nftId,
@@ -201,6 +205,9 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
     const txXdr = await buildTx(walletAddress, contractId, "set_royalty_rate", [
       u32ToScVal(royaltyRate),
     ]);
+
+    // Reject invalid XDR before it ever reaches the client (#XDR validation).
+    assertValidXdr(txXdr);
 
     addAuditLog(contractId, "royalty_rate_set", walletAddress, {
       transactionId,
@@ -325,6 +332,11 @@ secondaryRoyaltyRouter.post(
           `Distribution failed and queued for retry: ${errorMessage}`
         );
       }
+
+      // Reject invalid XDR before committing any DB state or returning it to
+      // the client. An invalid envelope is a deterministic failure, so it is
+      // surfaced as an error rather than queued for retry.
+      assertValidXdr(txXdr);
 
       // All DB writes are atomic: if any step fails, the transaction rolls back
       // and pending sales remain undistributed (#471).
