@@ -25,6 +25,8 @@ import { initializeDatabase } from "./database/index.js";
 import db from "./database/index.js";
 import { initializeSigningKey } from "./signing-key.js";
 import { sendError, normalizeErrorCode } from "./error-response.js";
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec, swaggerUiOptions } from './swagger.js';
 
 // Initialize database on startup
 initializeDatabase();
@@ -138,6 +140,9 @@ const adminLimiter = rateLimit({
 });
 app.use("/admin", adminLimiter);
 app.use("/admin", adminRouter);
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
 
 // Legacy /api/* redirect to /api/v1/*
 app.use("/api", (req, res) => {
