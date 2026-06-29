@@ -48,6 +48,9 @@ const initializeDatabase = jest.fn();
 const getMigrationVersion = jest.fn(() => 10);
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
+  db: {
+    transaction: (fn) => fn,
+  },
   getSecondarySales,
   commitSecondaryDistributionAtomic,
   applyLargestRemainder,

@@ -125,18 +125,37 @@ export function initializeDatabase() {
       UNIQUE(contractId, url)
     );
 
-    CREATE TABLE IF NOT EXISTS webhook_dead_letters (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      webhookId INTEGER,
-      contractId TEXT NOT NULL,
-      url TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      errorMessage TEXT,
-      retryCount INTEGER NOT NULL DEFAULT 0,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      lastAttemptAt DATETIME,
-      FOREIGN KEY(webhookId) REFERENCES webhooks(id) ON DELETE SET NULL
-    );
+      CREATE TABLE IF NOT EXISTS webhook_dead_letters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        webhookId INTEGER,
+        contractId TEXT NOT NULL,
+        url TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        errorMessage TEXT,
+        retryCount INTEGER NOT NULL DEFAULT 0,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        lastAttemptAt DATETIME,
+        FOREIGN KEY(webhookId) REFERENCES webhooks(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS indexed_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT UNIQUE,
+        ledger_sequence INTEGER,
+        transaction_hash TEXT,
+        event_index INTEGER,
+        timestamp DATETIME,
+        contract_id TEXT NOT NULL,
+        event_type TEXT,
+        event_data TEXT,
+        raw_event TEXT,
+        processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_indexed_events_contractId ON indexed_events(contract_id);
+      CREATE INDEX IF NOT EXISTS idx_indexed_events_ledger_sequence ON indexed_events(ledger_sequence);
+      CREATE INDEX IF NOT EXISTS idx_indexed_events_event_type ON indexed_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_indexed_events_timestamp ON indexed_events(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_indexed_events_transaction_hash ON indexed_events(transaction_hash);
   `);
 
   const migrations = [

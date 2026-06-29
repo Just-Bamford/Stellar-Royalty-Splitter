@@ -45,6 +45,9 @@ const getDeadLetterQueueStats = jest.fn(() => ({ count: 0 }));
 const getDeadLetterItems = jest.fn(() => []);
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
+  db: {
+    transaction: (fn) => fn,
+  },
   getSecondarySales,
   commitSecondaryDistributionAtomic,
   applyLargestRemainder,

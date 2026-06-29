@@ -57,6 +57,7 @@ export class CacheManager {
     SHARES: "contract:shares",
     HEALTH: "health:full",
     STATE_PREFIX: "contract:state:",
+    EVENT_WEBHOOKS_PREFIX: "event:webhooks:",
   };
 
   /**
@@ -148,6 +149,51 @@ export class CacheManager {
 
   async disconnect() {
     await this.redis.quit();
+  }
+
+  /**
+   * Get webhooks registered for a specific event type for a contract.
+   * Key format: event:webhooks:<contractId>:<eventType>
+   */
+  async getEventWebhooks(contractId, eventType) {
+    const key = `${CacheManager.KEYS.EVENT_WEBHOOKS_PREFIX}${contractId}:${eventType}`;
+    const webhooks = await this.get(key);
+    return webhooks || [];
+  }
+
+  /**
+   * Register a webhook for a specific event type for a contract.
+   */
+  async registerEventWebhook(contractId, eventType, webhook) {
+    const key = `${CacheManager.KEYS.EVENT_WEBHOOKS_PREFIX}${contractId}:${eventType}`;
+    const existing = await this.get(key) || [];
+
+    const webhookWithId = {
+      ...webhook,
+      id: webhook.id || `${contractId}:${eventType}:${Date.now()}`,
+      registeredAt: webhook.registeredAt || new Date().toISOString(),
+    };
+
+    const updated = [...existing, webhookWithId];
+    await this.set(key, updated, 3600); // 1 hour TTL for event webhooks
+    return webhookWithId;
+  }
+
+  /**
+   * Remove a specific event webhook.
+   */
+  async unregisterEventWebhook(contractId, eventType, webhookId) {
+    const key = `${CacheManager.KEYS.EVENT_WEBHOOKS_PREFIX}${contractId}:${eventType}`;
+    const webhooks = await this.get(key) || [];
+
+    const updated = webhooks.filter(w => w.id !== webhookId);
+    if (updated.length === 0) {
+      await this.invalidate(key);
+    } else {
+      await this.set(key, updated, 3600);
+    }
+
+    return updated.length < webhooks.length;
   }
 }
 
