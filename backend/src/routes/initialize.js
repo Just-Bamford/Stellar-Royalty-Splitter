@@ -3,6 +3,7 @@ import { addressToScVal, u32ToScVal, vecToScVal, isContractInitialized } from ".
 import { validate, initializeSchema, validateInitializePayloadSize } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
 import { sendError } from "../error-response.js";
+import { emitContractInvalidation } from "../cache.js";
 
 export const initializeRouter = Router();
 
@@ -66,6 +67,7 @@ initializeRouter.post(
         },
       });
 
+      emitContractInvalidation(contractId);
       res.json({ xdr, transactionId });
     } catch (err) {
       if (err.status) {

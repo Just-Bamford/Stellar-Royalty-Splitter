@@ -41,6 +41,13 @@ export function getMetricsSnapshot() {
 }
 
 export function prometheusMetrics() {
+  let cacheMetrics = { hits: 0, misses: 0, hitRatio: 0, size: 0 };
+  try {
+    // Lazy import avoids circular deps; cache.js is optional at metrics time
+    const cache = globalThis.__cacheModule;
+    if (cache) cacheMetrics = cache.getCacheMetrics();
+  } catch {/* ignore */}
+
   const snapshot = getMetricsSnapshot();
 
   return [
@@ -61,6 +68,18 @@ export function prometheusMetrics() {
     "# HELP stellar_horizon_response_time_count Horizon response time observations.",
     "# TYPE stellar_horizon_response_time_count counter",
     `stellar_horizon_response_time_count ${snapshot.horizonResponseTimeCount}`,
+    "# HELP stellar_cache_hits_total Total cache hits.",
+    "# TYPE stellar_cache_hits_total counter",
+    `stellar_cache_hits_total ${cacheMetrics.hits}`,
+    "# HELP stellar_cache_misses_total Total cache misses.",
+    "# TYPE stellar_cache_misses_total counter",
+    `stellar_cache_misses_total ${cacheMetrics.misses}`,
+    "# HELP stellar_cache_hit_ratio Cache hit ratio (0-1).",
+    "# TYPE stellar_cache_hit_ratio gauge",
+    `stellar_cache_hit_ratio ${formatMetricValue(cacheMetrics.hitRatio)}`,
+    "# HELP stellar_cache_size Current number of cached entries.",
+    "# TYPE stellar_cache_size gauge",
+    `stellar_cache_size ${cacheMetrics.size}`,
     "",
   ].join("\n");
 }

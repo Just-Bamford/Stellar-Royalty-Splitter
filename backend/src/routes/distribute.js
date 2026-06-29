@@ -9,6 +9,7 @@ import {
   recordTransactionSuccess,
 } from "../metrics.js";
 import { sendError } from "../error-response.js";
+import { emitContractInvalidation } from "../cache.js";
 
 export const distributeRouter = Router();
 
@@ -42,6 +43,7 @@ distributeRouter.post(
       });
 
       recordTransactionSuccess();
+      emitContractInvalidation(contractId);
       res.json({ xdr, transactionId });
     } catch (err) {
       recordTransactionFailure();

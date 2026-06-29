@@ -11,13 +11,22 @@ import {
 } from "../stellar.js";
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
 import { sendError } from "../error-response.js";
+import {
+  cacheGet,
+  cacheSet,
+  cacheGetOrFetch,
+  cacheGetWithAsyncRefresh,
+  cacheInvalidateByTag,
+  TTL,
+  registerWarmingKey,
+  _resetCache,
+} from "../cache.js";
 
 const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
 
 export const contractRouter = Router();
 
-const CONTRACT_STATE_CACHE_TTL_MS = 30_000;
-const contractStateCache = new Map();
+const CONTRACT_STATE_CACHE_TTL_MS = TTL.CONTRACT_STATE;
 
 function getConfiguredTokenId() {
   return (
@@ -119,8 +128,13 @@ function resolveStateRequest(req, res) {
   return { contractId, tokenId };
 }
 
+export function invalidateContractStateCache(contractId) {
+  cacheInvalidateByTag(contractId);
+}
+
+/** Backwards-compat for existing tests — resets the entire smart cache. */
 export function _resetContractStateCache() {
-  contractStateCache.clear();
+  _resetCache();
 }
 
 contractRouter.get("/state", async (req, res, next) => {
@@ -130,15 +144,23 @@ contractRouter.get("/state", async (req, res, next) => {
 
     const { contractId, tokenId } = stateRequest;
     const cacheKey = getContractStateCacheKey(contractId, tokenId);
-    const cached = contractStateCache.get(cacheKey);
-    const now = Date.now();
+    const tags = [contractId];
 
-    if (cached && now - cached.fetchedAt < CONTRACT_STATE_CACHE_TTL_MS) {
-      return res.json(cached.state);
-    }
+    const state = await cacheGetOrFetch(
+      cacheKey,
+      () => readContractState(contractId, tokenId),
+      CONTRACT_STATE_CACHE_TTL_MS,
+      tags,
+    );
 
-    const state = await readContractState(contractId, tokenId);
-    contractStateCache.set(cacheKey, { state, fetchedAt: now });
+    // Register for future warming on first access
+    registerWarmingKey(
+      cacheKey,
+      () => readContractState(contractId, tokenId),
+      CONTRACT_STATE_CACHE_TTL_MS,
+      tags,
+    );
+
     res.json(state);
   } catch (err) {
     if (err.status) {

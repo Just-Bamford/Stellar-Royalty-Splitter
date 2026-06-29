@@ -4,6 +4,7 @@ import { server, networkPassphrase } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
 import { sendError } from "../error-response.js";
+import { cacheGetOrFetch, TTL } from "../cache.js";
 
 const {
   Address,
@@ -26,40 +27,48 @@ export const collaboratorsRouter = Router();
 collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
-    const contract = new Contract(contractId);
 
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
+    const results = await cacheGetOrFetch(
+      `collaborators:${contractId}`,
+      async () => {
+        const contract = new Contract(contractId);
+        const dummyAccount = new Account(
+          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+          "0"
+        );
+        const tx = new TransactionBuilder(dummyAccount, {
+          fee: BASE_FEE,
+          networkPassphrase,
+        })
+          .addOperation(contract.call("get_all_shares"))
+          .setTimeout(30)
+          .build();
+
+        const sim = await server.simulateTransaction(tx);
+        if (SorobanRpc.Api.isSimulationError(sim)) {
+          const err = new Error(sim.error ?? "Simulation failed");
+          err.status = 400;
+          err.code = "contract_simulation_failed";
+          throw err;
+        }
+
+        const resultVal = sim.result?.retval;
+        if (!resultVal) return [];
+
+        const mapEntries = resultVal.map()?.entries ?? [];
+        logger.info(`get_all_shares: ${mapEntries.length} collaborators for ${contractId}`);
+        return mapEntries.map((entry) => ({
+          address: Address.fromScVal(entry.key()).toString(),
+          basisPoints: entry.val().u32(),
+        }));
+      },
+      TTL.COLLABORATORS,
+      [contractId],
     );
 
-    // Single simulation — replaces N+1 individual get_share calls
-    const tx = new TransactionBuilder(dummyAccount, {
-      fee: BASE_FEE,
-      networkPassphrase,
-    })
-      .addOperation(contract.call("get_all_shares"))
-      .setTimeout(30)
-      .build();
-
-    const sim = await server.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationError(sim)) {
-      return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
-    }
-
-    const resultVal = sim.result?.retval;
-    if (!resultVal) return res.json([]);
-
-    // retval is a Map<Address, u32> — iterate its entries
-    const mapEntries = resultVal.map()?.entries ?? [];
-    const results = mapEntries.map((entry) => ({
-      address: Address.fromScVal(entry.key()).toString(),
-      basisPoints: entry.val().u32(),
-    }));
-
-    logger.info(`get_all_shares returned ${results.length} collaborators for ${contractId}`);
     res.json(results);
   } catch (err) {
+    if (err.status) return sendError(res, err.status, err.code, err.message);
     next(err);
   }
 });

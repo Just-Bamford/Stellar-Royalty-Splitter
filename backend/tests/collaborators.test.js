@@ -62,12 +62,14 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 
 const { default: app } = await import("./app.js");
 const { SorobanRpc } = await import("@stellar/stellar-sdk");
+const { _resetCache } = await import("../src/cache.js");
 
 describe("GET /api/v1/collaborators/:contractId", () => {
   beforeEach(() => {
     mockSimulate.mockReset();
     mockIsSimError.mockReset();
     mockIsSimError.mockReturnValue(false);
+    _resetCache();
   });
 
   test("happy path — returns collaborators with basisPoints", async () => {

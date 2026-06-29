@@ -25,10 +25,17 @@ import { initializeDatabase } from "./database/index.js";
 import db from "./database/index.js";
 import { initializeSigningKey } from "./signing-key.js";
 import { sendError, normalizeErrorCode } from "./error-response.js";
+import { warmCache, getCacheMetrics } from "./cache.js";
 
 // Initialize database on startup
 initializeDatabase();
 initializeSigningKey();
+
+// Expose cache module for metrics (avoids circular dep in metrics.js)
+globalThis.__cacheModule = { getCacheMetrics };
+
+// Warm frequently accessed cache entries at startup (non-fatal)
+warmCache().catch(() => {});
 
 const app = express();
 
