@@ -75,6 +75,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   isContractInitialized: jest.fn(),
   networkPassphrase: "Test SDF Network ; September 2015",
   retryBuildTx: jest.fn(),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
   server: {
     simulateTransaction,
   },

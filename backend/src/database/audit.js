@@ -19,7 +19,7 @@ export function getAuditLog(contractId, limit = 100, offset = 0) {
       timestamp
     FROM audit_log
     WHERE contractId = ?
-    ORDER BY timestamp DESC
+    ORDER BY id DESC
     LIMIT ? OFFSET ?
   `);
 

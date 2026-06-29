@@ -68,7 +68,7 @@ Legacy `/api/*` paths redirect to `/api/v1/*`.
 
 ## Request signing (#392)
 
-Write operations (`POST`, `PUT`, `DELETE`) may require Ed25519 request signatures when `REQUEST_SIGNING_REQUIRED=true`.
+Write operations (`POST`, `PUT`, `DELETE`) require Ed25519 request signatures by default. Set `REQUEST_SIGNING_REQUIRED=false` only for local development or controlled compatibility testing.
 
 **Headers:**
 

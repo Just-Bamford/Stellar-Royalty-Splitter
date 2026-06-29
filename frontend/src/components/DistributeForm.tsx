@@ -291,7 +291,7 @@ export default function DistributeForm({
           status: "confirmed",
           blockTime: new Date().toISOString(),
           transactionId: res.transactionId,
-        })
+        }, walletAddress)
         .catch(() => {
           // Settlement errors surface through the polled status / timeout.
         });

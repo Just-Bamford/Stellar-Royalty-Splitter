@@ -1,6 +1,5 @@
 // Thin client that talks to the Express backend
 
-import { extractContractError } from "./lib/contract-errors";
 import { signWriteRequest } from "./lib/request-signing";
 
 const BASE = "/api/v1";
@@ -85,16 +84,6 @@ export class BackendApiError extends Error {
   }
 }
 
-function readErrorBody(status: number, data: unknown): BackendApiError {
-  const parsed = extractContractError(data ?? { error: "Request failed" });
-  return new BackendApiError(
-    status,
-    parsed.code,
-    parsed.message,
-    parsed.details,
-  );
-}
-
 async function post<T>(
   path: string,
   body: unknown,
@@ -104,17 +93,13 @@ async function post<T>(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   if (walletAddress && typeof body === "object" && body !== null) {
-    try {
-      const signingHeaders = await signWriteRequest({
-        method: "POST",
-        path: `${BASE}${path}`,
-        body,
-        walletAddress,
-      });
-      Object.assign(headers, signingHeaders);
-    } catch {
-      // Signing is optional when REQUEST_SIGNING_REQUIRED=false on the server.
-    }
+    const signingHeaders = await signWriteRequest({
+      method: "POST",
+      path: `${BASE}${path}`,
+      body,
+      walletAddress,
+    });
+    Object.assign(headers, signingHeaders);
   }
 
   if (extraHeaders) {
@@ -271,6 +256,7 @@ export const api = {
       contractId: string;
       walletAddress: string;
       tokenId: string;
+      amount?: number;
     },
     idempotencyKey?: string,
   ) =>

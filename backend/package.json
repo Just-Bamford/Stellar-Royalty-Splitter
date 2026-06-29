@@ -13,12 +13,7 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "transform": {},
-    "moduleNameMapper": {
-      "^better-sqlite3$": "<rootDir>/__mocks__/better-sqlite3.js",
-      "^node:test$": "<rootDir>/tests/node-test-shim.js",
-      "^test$": "<rootDir>/tests/node-test-shim.js"
-    }
+    "transform": {}
   },
   "devDependencies": {
     "eslint": "^8.57.0",

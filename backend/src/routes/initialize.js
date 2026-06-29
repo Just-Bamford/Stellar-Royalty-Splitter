@@ -15,6 +15,7 @@ import {
   validateRoyaltySplitMiddleware,
 } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
+import { invalidateCollaboratorsCache } from "./collaborators.js";
 import { createRequestLogger } from "../logger.js";
 import { recordNonceIfNew } from "../database/index.js";
 import { sendError } from "../error-response.js";

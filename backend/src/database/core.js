@@ -53,6 +53,91 @@ export function initializeDatabase() {
     );
   `);
 
+  // Ensure base tables exist before running additive migrations. Some older
+  // migration entries add indexes/columns to these tables.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      txHash TEXT UNIQUE,
+      contractId TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('initialize', 'distribute', 'secondary_royalty', 'secondary_distribute')),
+      initiatorAddress TEXT NOT NULL,
+      requestedAmount TEXT,
+      tokenId TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      blockTime DATETIME,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'failed')),
+      errorMessage TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS distribution_payouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transactionId INTEGER NOT NULL,
+      contractId TEXT NOT NULL DEFAULT '',
+      collaboratorAddress TEXT NOT NULL,
+      amountReceived TEXT NOT NULL,
+      FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS secondary_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      nftId TEXT NOT NULL,
+      previousOwner TEXT NOT NULL,
+      newOwner TEXT NOT NULL,
+      salePrice TEXT NOT NULL,
+      saleToken TEXT NOT NULL,
+      royaltyAmount TEXT NOT NULL,
+      royaltyRate INTEGER NOT NULL,
+      distributed INTEGER NOT NULL DEFAULT 0,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      transactionHash TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS secondary_royalty_distributions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transactionId INTEGER NOT NULL,
+      contractId TEXT NOT NULL,
+      totalRoyaltiesDistributed TEXT NOT NULL,
+      numberOfSales INTEGER NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      user TEXT,
+      details TEXT,
+      entry_hash TEXT NOT NULL,
+      prev_hash TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      url TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(contractId, url)
+    );
+
+    CREATE TABLE IF NOT EXISTS webhook_dead_letters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      webhookId INTEGER,
+      contractId TEXT NOT NULL,
+      url TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      errorMessage TEXT,
+      retryCount INTEGER NOT NULL DEFAULT 0,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lastAttemptAt DATETIME,
+      FOREIGN KEY(webhookId) REFERENCES webhooks(id) ON DELETE SET NULL
+    );
+  `);
+
   const migrations = [
     {
       version: 1,
@@ -118,17 +203,9 @@ export function initializeDatabase() {
     {
       version: 4,
       sql: `
-        -- Issue #395: Add hash chain to audit_log for integrity verification
-        BEGIN;
-        
-        -- Add hash columns if they don't exist
-        ALTER TABLE audit_log ADD COLUMN entry_hash TEXT;
-        ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
-        
-        -- Create index on entry_hash for faster verification
+        -- Issue #395: Add hash-chain index to audit_log for integrity verification.
+        -- Current base schemas already include entry_hash and prev_hash.
         CREATE INDEX IF NOT EXISTS idx_audit_entry_hash ON audit_log(entry_hash);
-        
-        COMMIT;
       `,
     },
     {

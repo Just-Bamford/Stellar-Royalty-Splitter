@@ -1,7 +1,9 @@
 /** Commit-reveal hashing for initialize (#403) — must match on-chain contract. */
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  const input = new ArrayBuffer(data.byteLength);
+  new Uint8Array(input).set(data);
+  const digest = await crypto.subtle.digest("SHA-256", input);
   return new Uint8Array(digest);
 }
 

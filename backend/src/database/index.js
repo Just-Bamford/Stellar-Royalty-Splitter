@@ -49,6 +49,9 @@ export { lookupCollaborators } from "./collaborator-lookup.js";
 // Request nonce dedup (#421)
 export { recordNonceIfNew } from "./request-nonces.js";
 
+// API keys (#420)
+export { createApiKey, listApiKeys, revokeApiKey, findActiveKeyByRawKey } from "./api-keys.js";
+
 // Secondary royalties
 export {
   recordSecondarySale,

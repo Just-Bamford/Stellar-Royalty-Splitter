@@ -12,6 +12,7 @@ import { buildAndRecordTransaction } from "./_shared.js";
 import { getCacheManager } from "../cache.js"; // #399
 import { listDeadLetters, markDeadLetterRetried } from "../database/webhooks.js"; // #428
 import { deliverWithRetry } from "../webhook-delivery.js"; // #428
+import { createApiKey, listApiKeys, revokeApiKey } from "../database/index.js";
 
 export const adminRouter = Router();
 
@@ -186,6 +187,45 @@ adminRouter.post("/transfer", async (req, res, next) => {
       newAdmin: liveAdmin,
       transactionHash: result.hash,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// API key administration (#420)
+// ---------------------------------------------------------------------------
+
+adminRouter.post("/generate-key", requireAdminRotateToken, (req, res, next) => {
+  try {
+    const { label } = req.body ?? {};
+    res.json(createApiKey(label));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get("/keys", requireAdminRotateToken, (_req, res, next) => {
+  try {
+    res.json({ keys: listApiKeys() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post("/keys/:id/revoke", requireAdminRotateToken, (req, res, next) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return sendError(res, 400, "invalid_id", "Invalid API key ID");
+    }
+
+    const revoked = revokeApiKey(id);
+    if (!revoked) {
+      return sendError(res, 404, "not_found", "API key not found");
+    }
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
