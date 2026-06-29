@@ -7,6 +7,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
 import { correlationMiddleware } from "./correlation.js";
+import { auditExportRouter } from "./routes/audit-export.js";
 import { recordHttpRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
@@ -24,15 +25,7 @@ import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { initializeSigningKey } from "./signing-key.js";
-import { sendError } from "./error-response.js";
-import { verifyRequestSignatureMiddleware } from "./request-signing.js";
-import { apiKeyRateLimiter } from "./api-key-rate-limit.js";
-import { createLegacyApiRedirectMiddleware } from "./legacy-api-redirect.js";
-
-// #399: Cache and event listener imports
-import { getCacheManager } from "./cache.js";
-import { AdminEventListener } from "./events/adminEventListener.js";
-import { getConfiguredContractId } from "./stellar.js";
+import { verifySignedWriteRequest } from "./request-signature.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -78,8 +71,22 @@ app.use((req, res, next) => {
 // normalizing into a different protected path.
 app.use(createLegacyApiRedirectMiddleware({ logger }));
 
-// Security headers
-app.use(helmet());
+// Security headers. #499: set an explicit Content-Security-Policy so a reflected
+// or stored payload cannot execute inline scripts even if it reaches the DOM.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+  })
+);
 
 const corsPreflightMaxAge = parseInt(process.env.CORS_PREFLIGHT_MAX_AGE ?? "86400", 10);
 
@@ -103,7 +110,13 @@ app.use(
       "X-Signature",
       "X-API-Key",
     ],
-    exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    exposedHeaders: [
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "X-RateLimit-Reset",
+      "X-Export-Signature",
+      "X-Export-Public-Key",
+    ],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })
 );
@@ -186,12 +199,15 @@ app.use((req, res, next) => {
 app.use("/api/v1/initialize", writeLimiter);
 app.use("/api/v1/distribute", writeLimiter);
 app.use("/api/v1/secondary-royalty", writeLimiter);
-app.use("/api/v1/webhooks", writeLimiter);
+app.use("/api/v1/transaction", writeLimiter);
+app.use("/api/v1/audit", writeLimiter);
 
-// Per-endpoint rate limits for read-heavy analytics/history routes (#394)
-app.use("/api/v1/history", readAnalyticsLimiter);
-app.use("/api/v1/audit", readAnalyticsLimiter);
-app.use("/api/v1/analytics", readAnalyticsLimiter);
+// Require Ed25519 request signatures for mutating client API operations.
+app.use("/api/v1/initialize", verifySignedWriteRequest);
+app.use("/api/v1/distribute", verifySignedWriteRequest);
+app.use("/api/v1/secondary-royalty", verifySignedWriteRequest);
+app.use("/api/v1/transaction", verifySignedWriteRequest);
+app.use("/api/v1/audit", verifySignedWriteRequest);
 
 app.use("/api/v1/initialize", initializeRouter);
 app.use("/api/v1/distribute", distributeRouter);
@@ -203,6 +219,7 @@ app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/admin", auditExportRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 

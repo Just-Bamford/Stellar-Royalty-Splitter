@@ -1,0 +1,228 @@
+apiVersion: 1
+
+# Alert rules for Stellar Royalty Splitter (#478)
+# Requires Grafana 9+ unified alerting.
+
+groups:
+  - orgId: 1
+    name: stellar-royalty-splitter
+    folder: Stellar
+    interval: 1m
+    rules:
+
+      # ── High error rate ──────────────────────────────────────────────────
+      - uid: srs-high-error-rate
+        title: High API Error Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: >
+                rate(stellar_http_requests_total{status=~"5.."}[5m])
+                / clamp_min(rate(stellar_http_requests_total[5m]), 0.001)
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [0.05], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "5xx error rate exceeds 5% for 5 minutes"
+          description: "Current rate: {{ $values.A.Value | printf \"%.2f\" }}. Check backend logs for root cause."
+          runbook: "See TROUBLESHOOTING.md — Backend section"
+        labels:
+          severity: critical
+          team: backend
+
+      # ── Transaction failures spike ────────────────────────────────────
+      - uid: srs-tx-failure-spike
+        title: Transaction Failure Spike
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: rate(stellar_transactions_failed_total[5m]) * 60
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [5], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "More than 5 transaction failures per minute for 5 minutes"
+          description: "Current rate: {{ $values.A.Value | printf \"%.1f\" }}/min. Soroban RPC or contract may be unreachable."
+        labels:
+          severity: warning
+          team: backend
+
+      # ── High p99 latency ──────────────────────────────────────────────
+      - uid: srs-high-p99-latency
+        title: High HTTP p99 Latency
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: stellar_http_response_time_p99_ms
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [3000], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "p99 HTTP latency exceeds 3 seconds for 10 minutes"
+          description: "Current p99: {{ $values.A.Value | printf \"%.0f\" }}ms. Check Soroban RPC and Horizon response times."
+        labels:
+          severity: warning
+          team: backend
+
+      # ── Horizon latency degraded ──────────────────────────────────────
+      - uid: srs-horizon-latency
+        title: Horizon Response Time Degraded
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: stellar_horizon_response_time_average_ms
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [2000], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "Horizon average response time exceeds 2 seconds"
+          description: "Current average: {{ $values.A.Value | printf \"%.0f\" }}ms. Stellar network may be degraded."
+        labels:
+          severity: warning
+          team: infrastructure
+
+      # ── RPC failure rate ──────────────────────────────────────────────
+      - uid: srs-rpc-failures
+        title: Stellar RPC Failures
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: >
+                rate(stellar_rpc_calls_total{result="failure"}[5m])
+                / clamp_min(rate(stellar_rpc_calls_total{result!~"success|failure"}[5m]), 0.001)
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [0.1], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Stellar RPC failure rate exceeds 10%"
+          description: "RPC failure rate: {{ $values.A.Value | printf \"%.1f%%\" }}. Check SOROBAN_RPC_URL connectivity."
+        labels:
+          severity: critical
+          team: infrastructure
+
+      # ── Cache hit rate low ────────────────────────────────────────────
+      - uid: srs-low-cache-hit-rate
+        title: Low Cache Hit Rate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: >
+                stellar_cache_hits_total
+                / clamp_min(stellar_cache_hits_total + stellar_cache_misses_total, 1)
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [0.3], type: lt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 15m
+        annotations:
+          summary: "Cache hit rate below 30% for 15 minutes"
+          description: "Hit rate: {{ $values.A.Value | printf \"%.0f%%\" }}. High miss rate increases RPC load."
+        labels:
+          severity: info
+          team: backend

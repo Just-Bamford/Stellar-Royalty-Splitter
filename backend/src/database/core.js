@@ -3,11 +3,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
 import logger from "../logger.js";
+import { instrumentDatabase } from "../query-profiler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "..", "audit.db");
 
-export const db = new Database(dbPath);
+export const db = instrumentDatabase(new Database(dbPath));
 db.pragma("journal_mode = WAL");
 db.pragma("synchronous = NORMAL"); // safe with WAL, much faster
 db.pragma("cache_size = -64000"); // 64MB page cache
@@ -53,17 +54,118 @@ export function initializeDatabase() {
     );
   `);
 
+  // Ensure base tables exist before running additive migrations. Some older
+  // migration entries add indexes/columns to these tables.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      txHash TEXT UNIQUE,
+      contractId TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('initialize', 'distribute', 'secondary_royalty', 'secondary_distribute')),
+      initiatorAddress TEXT NOT NULL,
+      requestedAmount TEXT,
+      tokenId TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      blockTime DATETIME,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'failed')),
+      errorMessage TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS distribution_payouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transactionId INTEGER NOT NULL,
+      contractId TEXT NOT NULL DEFAULT '',
+      collaboratorAddress TEXT NOT NULL,
+      amountReceived TEXT NOT NULL,
+      FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS secondary_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      nftId TEXT NOT NULL,
+      previousOwner TEXT NOT NULL,
+      newOwner TEXT NOT NULL,
+      salePrice TEXT NOT NULL,
+      saleToken TEXT NOT NULL,
+      royaltyAmount TEXT NOT NULL,
+      royaltyRate INTEGER NOT NULL,
+      distributed INTEGER NOT NULL DEFAULT 0,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      transactionHash TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS secondary_royalty_distributions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transactionId INTEGER NOT NULL,
+      contractId TEXT NOT NULL,
+      totalRoyaltiesDistributed TEXT NOT NULL,
+      numberOfSales INTEGER NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      user TEXT,
+      details TEXT,
+      entry_hash TEXT NOT NULL,
+      prev_hash TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      url TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(contractId, url)
+    );
+
+    CREATE TABLE IF NOT EXISTS webhook_dead_letters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      webhookId INTEGER,
+      contractId TEXT NOT NULL,
+      url TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      errorMessage TEXT,
+      retryCount INTEGER NOT NULL DEFAULT 0,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lastAttemptAt DATETIME,
+      FOREIGN KEY(webhookId) REFERENCES webhooks(id) ON DELETE SET NULL
+    );
+  `);
+
   const migrations = [
     {
       version: 1,
       sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
-      // Issue #460: composite index on secondary_sales for distribution query performance
+      // Issue #492: RBAC roles assignment database table
+      version: 9,
+      sql: `
+        CREATE TABLE IF NOT EXISTS user_roles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT,
+          walletAddress TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('viewer', 'operator', 'admin')),
+          assignedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          assignedBy TEXT,
+          UNIQUE(contractId, walletAddress)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_roles_walletAddress ON user_roles(walletAddress);
+      `,
+    },
+    {
+      // Issue #462: composite index for single-query royalty statistics
       version: 8,
       sql: `
-        CREATE INDEX IF NOT EXISTS idx_secondary_sales_distributed
-        ON secondary_sales(contractId, distributed, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contractId_timestamp
+          ON secondary_royalty_distributions(contractId, timestamp);
       `,
     },
     {
@@ -118,17 +220,9 @@ export function initializeDatabase() {
     {
       version: 4,
       sql: `
-        -- Issue #395: Add hash chain to audit_log for integrity verification
-        BEGIN;
-        
-        -- Add hash columns if they don't exist
-        ALTER TABLE audit_log ADD COLUMN entry_hash TEXT;
-        ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
-        
-        -- Create index on entry_hash for faster verification
+        -- Issue #395: Add hash-chain index to audit_log for integrity verification.
+        -- Current base schemas already include entry_hash and prev_hash.
         CREATE INDEX IF NOT EXISTS idx_audit_entry_hash ON audit_log(entry_hash);
-        
-        COMMIT;
       `,
     },
     {
@@ -268,13 +362,20 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_transactions_contractId ON transactions(contractId);
     CREATE INDEX IF NOT EXISTS idx_transactions_txHash ON transactions(txHash);
     CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+    CREATE INDEX IF NOT EXISTS idx_transactions_contract_status_timestamp_type
+      ON transactions(contractId, status, timestamp, type);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_contractId ON secondary_sales(contractId);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_nftId ON secondary_sales(nftId);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_timestamp ON secondary_sales(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_secondary_sales_distributed ON secondary_sales(contractId, distributed, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_secondary_sales_contract_distributed_timestamp
+      ON secondary_sales(contractId, distributed, timestamp);
     CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contractId ON secondary_royalty_distributions(contractId);
+    CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contract_timestamp
+      ON secondary_royalty_distributions(contractId, timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_contractId ON audit_log(contractId);
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_distribution_payouts_transaction_collaborator
+      ON distribution_payouts(transactionId, collaboratorAddress);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_secondary_sales_dedup ON secondary_sales(contractId, nftId, previousOwner, newOwner, salePrice, saleToken);
   `);
 

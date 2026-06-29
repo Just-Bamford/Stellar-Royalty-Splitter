@@ -1,12 +1,8 @@
 import express from "express";
-import db from "../database/index.js";
+import { getAnalyticsData } from "../database/index.js";
 import { createRequestLogger } from "../logger.js";
 import { validateContractIdMiddleware, analyticsQuerySchema } from "../validation.js";
 import { sendError, sendValidationError } from "../error-response.js";
-
-// Simple in-memory cache with TTL
-const cache = new Map();
-const CACHE_TTL = 60 * 1000; // 60 seconds
 
 const router = express.Router();
 
@@ -46,17 +42,6 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
       return sendError(res, 400, "invalid_query_parameter", "start date must be before end date.");
     }
 
-    // Create cache key
-    const cacheKey = `${contractId}-${startDate.toISOString()}-${endDate.toISOString()}`;
-
-    // Check cache
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      log.debug("analytics cache hit", { contractId, cacheKey });
-      res.set("Cache-Control", "max-age=60");
-      return res.json(cached.data);
-    }
-
     log.info("analytics query started", {
       contractId,
       startDate: startDate.toISOString(),
@@ -65,66 +50,14 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
 
     const queryStart = Date.now();
 
-    const summary = db
-      .prepare(
-        `SELECT
-          COUNT(DISTINCT t.id) as totalTransactions,
-          COALESCE(SUM(CAST(dp.amountReceived as REAL)), 0) as totalDistributed,
-          COALESCE(AVG(CAST(dp.amountReceived as REAL)), 0) as averagePayout
-        FROM transactions t
-        LEFT JOIN distribution_payouts dp ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.type != 'initialize'
-          AND t.timestamp BETWEEN ? AND ?`
-      )
-      .get(contractId, startDate.toISOString(), endDate.toISOString());
-
-    const trends = db
-      .prepare(
-        `SELECT
-          DATE(t.timestamp) as date,
-          SUM(CAST(dp.amountReceived as REAL)) as amount,
-          COUNT(*) as count
-        FROM distribution_payouts dp
-        JOIN transactions t ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.timestamp BETWEEN ? AND ?
-        GROUP BY DATE(t.timestamp)
-        ORDER BY date ASC`
-      )
-      .all(contractId, startDate.toISOString(), endDate.toISOString());
-
-    const topEarners = db
-      .prepare(
-        `SELECT
-          dp.collaboratorAddress as address,
-          SUM(CAST(dp.amountReceived as REAL)) as totalEarned,
-          COUNT(*) as payouts
-        FROM distribution_payouts dp
-        JOIN transactions t ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.timestamp BETWEEN ? AND ?
-        GROUP BY dp.collaboratorAddress
-        ORDER BY totalEarned DESC
-        LIMIT 10`
-      )
-      .all(contractId, startDate.toISOString(), endDate.toISOString());
-
-    const collaboratorStats = db
-      .prepare(
-        `SELECT
-          dp.collaboratorAddress as address,
-          SUM(CAST(dp.amountReceived as REAL)) as totalEarned,
-          COUNT(*) as payoutCount
-        FROM distribution_payouts dp
-        JOIN transactions t ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.timestamp BETWEEN ? AND ?
-        GROUP BY dp.collaboratorAddress
-        ORDER BY totalEarned DESC
-        LIMIT ?`
-      )
-      .all(contractId, startDate.toISOString(), endDate.toISOString(), collaboratorLimit);
+    // #503: single set-based query path (no per-transaction N+1) with a 60s
+    // cache, both owned by the data layer so every caller shares the same plan.
+    const { summary, trends, topEarners, collaboratorStats } = getAnalyticsData(
+      contractId,
+      startDate.toISOString(),
+      endDate.toISOString(),
+      collaboratorLimit
+    );
 
     log.info("analytics query completed", {
       contractId,

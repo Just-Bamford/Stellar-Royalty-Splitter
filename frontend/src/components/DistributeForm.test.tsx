@@ -22,6 +22,12 @@ vi.mock("../api", () => ({
   api: {
     getCollaborators: vi.fn().mockResolvedValue([]),
     getContractBalance: vi.fn().mockResolvedValue({ balance: "0" }),
+    getPauseState: vi.fn().mockResolvedValue({
+      paused: false,
+      pauseTimestamp: 0,
+      pauseSource: null,
+      remainingSeconds: 0,
+    }),
     distribute: vi.fn().mockResolvedValue({ xdr: "dummy-xdr", transactionId: 1 }),
     confirmTransaction: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
     getTransactionDetails: vi

@@ -99,7 +99,7 @@ export default function RecordSecondarySale({
       await api.confirmTransaction(result, {
         status: "confirmed",
         blockTime: new Date().toISOString(),
-      });
+      }, walletAddress);
 
       setStatus("ok", `Secondary sale recorded! Royalty: ${royaltyAmount} tokens. TX: ${result}`);
 

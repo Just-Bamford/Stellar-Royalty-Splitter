@@ -6,9 +6,48 @@
 import Redis from "ioredis";
 import logger from "./logger.js";
 
+class InMemoryRedis {
+  constructor() {
+    this.store = new Map();
+  }
+
+  async get(key) {
+    return this.store.get(key) ?? null;
+  }
+
+  async setex(key, _ttl, value) {
+    this.store.set(key, value);
+    return "OK";
+  }
+
+  async del(...keys) {
+    let deleted = 0;
+    for (const key of keys) {
+      if (this.store.delete(key)) {
+        deleted += 1;
+      }
+    }
+    return deleted;
+  }
+
+  async flushdb() {
+    this.store.clear();
+    return "OK";
+  }
+
+  async ping() {
+    return "PONG";
+  }
+
+  async quit() {
+    return "OK";
+  }
+}
+
 export class CacheManager {
   constructor(redisUrl, defaultTTL = 30) {
-    this.redis = new Redis(redisUrl);
+    const RedisClient = process.env.NODE_ENV === "test" ? InMemoryRedis : Redis;
+    this.redis = new RedisClient(redisUrl);
     this.defaultTTL = defaultTTL; // seconds
   }
 

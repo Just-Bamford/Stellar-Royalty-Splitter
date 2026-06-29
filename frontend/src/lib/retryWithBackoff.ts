@@ -27,6 +27,12 @@ export interface RetryOptions {
   signal?: AbortSignal;
   /** Called before each retry sleep, for "Reconnecting…" UI. attempt is 1-based. */
   onRetry?: (attempt: number, delayMs: number, error: unknown) => void;
+  /**
+   * Decides whether a given error is worth retrying. Returning false stops the
+   * loop immediately and rejects with that error (e.g. a deterministic 4xx that
+   * will never succeed on retry). Defaults to retrying every error.
+   */
+  shouldRetry?: (error: unknown) => boolean;
   /** Injectable RNG for deterministic tests. Default Math.random. */
   random?: () => number;
 }
@@ -91,6 +97,7 @@ export async function retryWithBackoff<T>(
     jitter = true,
     signal,
     onRetry,
+    shouldRetry,
     random = Math.random,
   } = options;
 
@@ -104,6 +111,7 @@ export async function retryWithBackoff<T>(
       if (signal?.aborted || isAbortError(error)) {
         throw new DOMException("Aborted", "AbortError");
       }
+      if (shouldRetry && !shouldRetry(error)) break; // non-retryable
       if (attempt === retries) break; // out of retries
       const delayMs = backoffDelay(attempt + 1, baseDelayMs, factor, jitter, random);
       onRetry?.(attempt + 1, delayMs, error);

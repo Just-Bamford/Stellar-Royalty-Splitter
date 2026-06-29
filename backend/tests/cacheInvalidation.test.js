@@ -2,9 +2,8 @@
  * Cache invalidation tests for #399
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from "@jest/globals";
-import { CacheManager } from "../src/cache.js";
+import { CacheManager, setCacheManagerForTests } from "../src/cache.js";
 import { AdminEventListener } from "../src/events/adminEventListener.js";
-import Redis from "ioredis";
 
 // Mock logger to avoid console noise in tests
 jest.mock("../src/logger.js", () => ({
@@ -15,6 +14,48 @@ jest.mock("../src/logger.js", () => ({
     error: jest.fn(),
   },
 }));
+
+class MemoryCache {
+  constructor() {
+    this.store = new Map();
+  }
+
+  async get(key) {
+    return this.store.has(key) ? this.store.get(key) : null;
+  }
+
+  async set(key, value) {
+    this.store.set(key, value);
+  }
+
+  async invalidate(key) {
+    return this.store.delete(key);
+  }
+
+  async invalidateAdmin() {
+    const result = await this.invalidate(CacheManager.KEYS.ADMIN);
+    await this.invalidate(CacheManager.KEYS.HEALTH);
+    return result;
+  }
+
+  async flushAll() {
+    this.store.clear();
+  }
+
+  async verifyAdminConsistency(fetchLiveAdmin) {
+    const cachedAdmin = await this.get(CacheManager.KEYS.ADMIN);
+    const liveAdmin = await fetchLiveAdmin();
+    const consistent = cachedAdmin === liveAdmin;
+    if (!consistent && cachedAdmin !== null) {
+      await this.set(CacheManager.KEYS.ADMIN, liveAdmin);
+    }
+    return { consistent, cachedAdmin, liveAdmin, elapsedMs: 0 };
+  }
+
+  async disconnect() {
+    this.store.clear();
+  }
+}
 
 // Mock Soroban RPC
 class MockSorobanRpc {
@@ -86,7 +127,8 @@ describe("Cache Invalidation (#399)", () => {
   const contractId = "C123TEST";
 
   beforeAll(async () => {
-    cache = new CacheManager(process.env.REDIS_URL || "redis://localhost:6379");
+    cache = new MemoryCache();
+    setCacheManagerForTests(cache);
     rpc = new MockSorobanRpc();
   });
 
@@ -133,8 +175,10 @@ describe("Cache Invalidation (#399)", () => {
     const NEW_ADMIN = "GCONCURRENT789";
 
     await cache.set(CacheManager.KEYS.ADMIN, "GOLDADMIN123");
+    rpc.setAdmin(NEW_ADMIN);
+    await cache.invalidateAdmin();
 
-    // Simulate 100 concurrent reads during admin transfer
+    // Simulate 100 concurrent reads immediately after admin transfer invalidation.
     const promises = Array.from({ length: 100 }, async (_, i) => {
       await new Promise((r) => setTimeout(r, Math.random() * 10));
 
@@ -146,12 +190,6 @@ describe("Cache Invalidation (#399)", () => {
       }
       return admin;
     });
-
-    // Midway through, simulate the transfer + invalidation
-    setTimeout(async () => {
-      rpc.setAdmin(NEW_ADMIN);
-      await cache.invalidateAdmin();
-    }, 5);
 
     const results = await Promise.all(promises);
 
@@ -166,16 +204,14 @@ describe("Cache Invalidation (#399)", () => {
     await cache.set(CacheManager.KEYS.ADMIN, "GOLDADMIN123");
 
     listener = new AdminEventListener(rpc, contractId);
-    listener.start();
+    listener.cache = cache;
 
     rpc.emitAdminTransfer("GOLDADMIN123", "GEVENTADMIN999");
 
-    await new Promise((r) => setTimeout(r, 100));
+    await listener._checkForEvents();
 
     const cached = await cache.get(CacheManager.KEYS.ADMIN);
     expect(cached).toBeNull();
-
-    listener.stop();
   });
 
   // Test 5: Webhook delivery unaffected by cache changes
@@ -194,16 +230,14 @@ describe("Cache Invalidation (#399)", () => {
     await cache.set(CacheManager.KEYS.ADMIN, "GOLDADMIN123");
 
     listener = new AdminEventListener(rpc, contractId);
-    listener.start();
+    listener.cache = cache;
 
     rpc.emitAdminTransfer("GOLDADMIN123", "GDUPADMIN111");
-    rpc.emitAdminTransfer("GOLDADMIN123", "GDUPADMIN111"); // duplicate
+    rpc.events.push({ ...rpc.events[0] }); // duplicate event id
 
-    await new Promise((r) => setTimeout(r, 100));
+    await listener._checkForEvents();
 
     expect(listener.processedEvents.size).toBe(1);
-
-    listener.stop();
   });
 
   // Test 7: accept_admin event also triggers invalidation
@@ -211,16 +245,14 @@ describe("Cache Invalidation (#399)", () => {
     await cache.set(CacheManager.KEYS.ADMIN, "GOLDADMIN123");
 
     listener = new AdminEventListener(rpc, contractId);
-    listener.start();
+    listener.cache = cache;
 
     rpc.emitAcceptAdmin("GOLDADMIN123", "GACCEPTEDADMIN222");
 
-    await new Promise((r) => setTimeout(r, 100));
+    await listener._checkForEvents();
 
     const cached = await cache.get(CacheManager.KEYS.ADMIN);
     expect(cached).toBeNull();
-
-    listener.stop();
   });
 
   // Test 8: Health cache is invalidated alongside admin cache

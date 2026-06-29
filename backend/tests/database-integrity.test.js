@@ -3,29 +3,19 @@
  * Tests for audit log hash chain integrity verification
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "@jest/globals";
 import assert from "node:assert";
-import { unlinkSync, existsSync } from "node:fs";
-import { db, initializeDatabase, addAuditLog, getAuditLog, verifyAuditLogIntegrity, computeAuditEntryHash, closeDatabase } from "../src/database/index.js";
-
-const TEST_DB_PATH = "./test-audit-integrity.db";
+import { db, initializeDatabase, verifyAuditLogIntegrity, computeAuditEntryHash } from "../src/database/core.js";
+import { addAuditLog, getAuditLog } from "../src/database/audit.js";
 
 describe("Database Integrity Verification (Issue #395)", () => {
   beforeEach(() => {
-    // Clean up test database if it exists
-    if (existsSync(TEST_DB_PATH)) {
-      unlinkSync(TEST_DB_PATH);
-    }
-    process.env.DATABASE_PATH = TEST_DB_PATH;
     initializeDatabase();
+    db.prepare("DELETE FROM audit_log").run();
   });
 
   afterEach(() => {
-    closeDatabase();
-    if (existsSync(TEST_DB_PATH)) {
-      unlinkSync(TEST_DB_PATH);
-    }
-    delete process.env.DATABASE_PATH;
+    db.prepare("DELETE FROM audit_log").run();
   });
 
   describe("Hash Computation", () => {
@@ -153,26 +143,32 @@ describe("Database Integrity Verification (Issue #395)", () => {
     it("should detect broken hash chain", () => {
       addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1"] });
       addAuditLog("contract123", "distribute", "user1", { amount: "100" });
-      
+
+      const logs = getAuditLog("contract123");
+      const newestLog = logs[0];
+
       // Manually break the chain by updating prev_hash
-      db.prepare("UPDATE audit_log SET prev_hash = ? WHERE id = ?").run("fake_hash", 2);
-      
+      db.prepare("UPDATE audit_log SET prev_hash = ? WHERE id = ?").run("fake_hash", newestLog.id);
+
       const result = verifyAuditLogIntegrity("contract123");
       assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.brokenAt, 2);
+      assert.strictEqual(result.brokenAt, newestLog.id);
       assert(result.error.includes("Hash chain broken"));
     });
 
     it("should detect tampered entry hash", () => {
       addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1"] });
       addAuditLog("contract123", "distribute", "user1", { amount: "100" });
-      
+
+      const logs = getAuditLog("contract123");
+      const oldestLog = logs[logs.length - 1];
+
       // Manually tamper with entry_hash
-      db.prepare("UPDATE audit_log SET entry_hash = ? WHERE id = ?").run("tampered_hash", 1);
-      
+      db.prepare("UPDATE audit_log SET entry_hash = ? WHERE id = ?").run("tampered_hash", oldestLog.id);
+
       const result = verifyAuditLogIntegrity("contract123");
       assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.brokenAt, 1);
+      assert.strictEqual(result.brokenAt, oldestLog.id);
       assert(result.error.includes("Hash mismatch"));
     });
 
@@ -200,7 +196,7 @@ describe("Database Integrity Verification (Issue #395)", () => {
 
   describe("Migration", () => {
     it("should apply migration version 4 for hash columns", () => {
-      const version = db.prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").get();
+      const version = db.prepare("SELECT version FROM schema_migrations WHERE version = 4").get();
       assert.strictEqual(version.version, 4);
     });
 

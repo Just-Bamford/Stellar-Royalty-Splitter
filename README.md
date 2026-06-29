@@ -308,15 +308,28 @@ Copy `backend/.env.example` to `backend/.env`:
 cp backend/.env.example backend/.env
 ```
 
-| Variable             | Description                                                                             |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| `PORT`               | Port the backend API listens on (default: `3001`)                                       |
-| `STELLAR_NETWORK`    | `testnet` or `mainnet`                                                                  |
-| `HORIZON_URL`        | Horizon REST endpoint for the chosen network                                            |
-| `SOROBAN_RPC_URL`    | Soroban RPC endpoint for simulating and preparing transactions                          |
-| `SERVER_SECRET_KEY`  | Server-side keypair used for read-only simulations only — never signs user transactions |
-| `SIGNING_KEY_FILE`   | Optional secrets-manager file path; takes precedence over `SERVER_SECRET_KEY` on load   |
-| `ADMIN_ROTATE_TOKEN` | Bearer token for `POST /admin/rotate-key` hot-reload without redeploy (#293)            |
+| Variable            | Description                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `PORT`              | Port the backend API listens on (default: `3001`)                                       |
+| `STELLAR_NETWORK`   | `testnet` or `mainnet`                                                                  |
+| `HORIZON_URL`       | Horizon REST endpoint for the chosen network                                            |
+| `SOROBAN_RPC_URL`   | Soroban RPC endpoint for simulating and preparing transactions                          |
+| `SERVER_SECRET_KEY` | Server-side keypair used for read-only simulations only — never signs user transactions |
+| `SIGNING_KEY_FILE` | Optional secrets-manager file path; takes precedence over `SERVER_SECRET_KEY` on load |
+| `ADMIN_ROTATE_TOKEN` | Bearer token for `POST /admin/rotate-key` hot-reload without redeploy (#293) |
+| `REQUEST_SIGNATURE_MAX_AGE_MS` | Maximum accepted age for signed write requests (default: `300000`) |
+
+Frontend write requests must be signed with a Stellar secret key that matches
+the request `walletAddress`. For local development, set this in `frontend/.env`:
+
+```bash
+VITE_REQUEST_SIGNING_SECRET=SB...
+```
+
+The API client signs every POST request with `x-srs-public-key`,
+`x-srs-signature`, `x-srs-timestamp`, and `x-srs-nonce`. The backend verifies
+the Ed25519 signature over the canonical request payload, rejects stale
+timestamps, and rejects replayed nonces with `401`.
 
 ---
 

@@ -31,6 +31,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -40,6 +42,7 @@ const recordTransaction = jest.fn(() => "tx-456");
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction,
   addAuditLog: jest.fn(),
+  lookupCollaborators: jest.fn(() => []),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
 }));

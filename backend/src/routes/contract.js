@@ -121,18 +121,14 @@ function resolveStateRequest(req, res) {
   const tokenId = firstQueryValue(req.query.tokenId) ?? getConfiguredTokenId();
 
   if (!contractId) {
-    res.status(400).json({
-      error: "contractId query param required when no default contract is configured",
-    });
+    sendError(res, 400, "bad_request", "contractId query param required when no default contract is configured");
     return null;
   }
 
   if (!validateContractId(contractId, res)) return null;
 
   if (!tokenId) {
-    res.status(400).json({
-      error: "tokenId query param required when no default token is configured",
-    });
+    sendError(res, 400, "bad_request", "tokenId query param required when no default token is configured");
     return null;
   }
 
@@ -180,7 +176,7 @@ contractRouter.get("/state", async (req, res, next) => {
     res.json(withCacheMetadata(state, "live", now));
   } catch (err) {
     if (err.status) {
-      return res.status(err.status).json({ error: err.message });
+      return sendError(res, err.status, undefined, err.message);
     }
     next(err);
   }
@@ -210,6 +206,45 @@ contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (r
     const initialized = await isContractInitialized(contractId);
     res.json({ initialized });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/contract/pause/:contractId
+ * #504: Returns the contract's pause state so the UI can warn users (and disable
+ * distribution) before they sign a transaction that would panic on-chain.
+ *
+ * Response: {
+ *   paused: boolean,
+ *   pauseTimestamp: number,   // unix seconds the pause began (0 if not paused)
+ *   pauseSource: string|null, // address that initiated the pause
+ *   remainingSeconds: number  // seconds until an emergency pause auto-expires
+ * }
+ */
+contractRouter.get("/pause/:contractId", validateContractIdMiddleware, async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    const [pausedVal, infoVal] = await Promise.all([
+      simulateContractRead(contractId, "is_paused"),
+      simulateContractRead(contractId, "get_pause_info"),
+    ]);
+
+    const paused = pausedVal ? Boolean(StellarSdk.scValToNative(pausedVal)) : false;
+    const [timestamp = 0n, source = null, remaining = 0n] = infoVal
+      ? StellarSdk.scValToNative(infoVal)
+      : [];
+
+    res.json({
+      paused,
+      pauseTimestamp: Number(timestamp),
+      pauseSource: source ? String(source) : null,
+      remainingSeconds: Number(remaining),
+    });
+  } catch (err) {
+    if (err.status) {
+      return sendError(res, err.status, undefined, err.message);
+    }
     next(err);
   }
 });

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import logger from "../logger.js";
-import { validate, contractAddress, stellarAddress } from "../validation.js";
+import { validate, contractAddress, stellarAddress, assignRoleSchema } from "../validation.js";
 import { sendError, sendValidationError } from "../error-response.js";
 import {
   isAdminRotateTokenValid,
@@ -12,6 +12,7 @@ import { buildAndRecordTransaction } from "./_shared.js";
 import { getCacheManager } from "../cache.js"; // #399
 import { listDeadLetters, markDeadLetterRetried } from "../database/webhooks.js"; // #428
 import { deliverWithRetry } from "../webhook-delivery.js"; // #428
+import { createApiKey, listApiKeys, revokeApiKey } from "../database/index.js";
 
 export const adminRouter = Router();
 
@@ -33,25 +34,45 @@ function extractBearerToken(req) {
   return header.slice("Bearer ".length).trim();
 }
 
-function requireAdminRotateToken(req, res, next) {
-  if (!process.env.ADMIN_ROTATE_TOKEN) {
-    logger.warn("Admin rotate-key rejected: ADMIN_ROTATE_TOKEN not configured", {
-      event: "signing_key_rotate_denied",
-      reason: "token_not_configured",
-    });
-    return sendError(res, 503, "service_unavailable", "Key rotation is not configured on this server");
-  }
-
+function requireAdminRotateTokenOrRole(req, res, next) {
+  // 1. Try bearer token if configured
   const token = extractBearerToken(req);
-  if (!isAdminRotateTokenValid(token)) {
-    logger.warn("Admin rotate-key rejected: invalid token", {
-      event: "signing_key_rotate_denied",
-      reason: "invalid_token",
-    });
-    return sendError(res, 401, "unauthorized", "Unauthorized");
+  if (token && isAdminRotateTokenValid(token)) {
+    return next();
   }
 
-  next();
+  // 2. Fallback to RBAC admin role
+  const walletAddress = req.get("X-Wallet-Address");
+  const signature = req.get("X-Signature");
+  if (!walletAddress || !signature) {
+    logger.warn("Admin rotate-key rejected: no rotate token or request signature", {
+      event: "signing_key_rotate_denied",
+      reason: "missing_credentials",
+    });
+    return sendError(res, 401, "unauthorized", "Unauthorized: valid rotate token or request signature is required");
+  }
+
+  // Verify request signature
+  verifyRequestSignatureMiddleware(req, res, async (err) => {
+    if (err) return next(err);
+    
+    // Check if caller has global admin role (contractId = null)
+    try {
+      const { dbGetUserRole } = await import("../database/roles.js");
+      const role = dbGetUserRole(null, req.signedWalletAddress);
+      if (role !== "admin") {
+        logger.warn("Admin rotate-key rejected: caller lacks admin role", {
+          event: "signing_key_rotate_denied",
+          caller: req.signedWalletAddress,
+          role,
+        });
+        return sendError(res, 403, "forbidden", "Access denied: required role admin");
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +103,7 @@ const setAdminsSchema = z
  * Body: { contractId, walletAddress, admins: string[], threshold: number }
  * Default threshold is 2 (2-of-N multi-sig).
  */
-adminRouter.post("/set-admins", validate(setAdminsSchema), async (req, res, next) => {
+adminRouter.post("/set-admins", requireRequestSignature, requireRole("admin"), validate(setAdminsSchema), async (req, res, next) => {
   try {
     const { contractId, walletAddress, admins, threshold = 2 } = req.body;
 
@@ -124,7 +145,7 @@ adminRouter.post("/set-admins", validate(setAdminsSchema), async (req, res, next
  * Transfer admin ownership with immediate cache invalidation (#399).
  * Body: { contractId, walletAddress, newAdmin, signedXdr }
  */
-adminRouter.post("/transfer", async (req, res, next) => {
+adminRouter.post("/transfer", requireRequestSignature, requireRole("admin"), async (req, res, next) => {
   try {
     const { contractId, walletAddress, newAdmin, signedXdr } = req.body;
 
@@ -191,6 +212,45 @@ adminRouter.post("/transfer", async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// API key administration (#420)
+// ---------------------------------------------------------------------------
+
+adminRouter.post("/generate-key", requireAdminRotateToken, (req, res, next) => {
+  try {
+    const { label } = req.body ?? {};
+    res.json(createApiKey(label));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get("/keys", requireAdminRotateToken, (_req, res, next) => {
+  try {
+    res.json({ keys: listApiKeys() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post("/keys/:id/revoke", requireAdminRotateToken, (req, res, next) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return sendError(res, 400, "invalid_id", "Invalid API key ID");
+    }
+
+    const revoked = revokeApiKey(id);
+    if (!revoked) {
+      return sendError(res, 404, "not_found", "API key not found");
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * POST /admin/rotate-key
  * Body: { secretKey?: string, reloadFromFile?: boolean }
@@ -198,7 +258,7 @@ adminRouter.post("/transfer", async (req, res, next) => {
  */
 adminRouter.post(
   "/rotate-key",
-  requireAdminRotateToken,
+  requireAdminRotateTokenOrRole,
   validate(rotateKeySchema),
   (req, res, next) => {
     try {
@@ -226,7 +286,7 @@ adminRouter.post(
  * List dead-letter queue entries for a contract.
  * Query params: limit (default 50)
  */
-adminRouter.get("/webhooks/dead-letters/:contractId", (req, res, next) => {
+adminRouter.get("/webhooks/dead-letters/:contractId", requireRequestSignature, requireRole("viewer"), (req, res, next) => {
   try {
     const { contractId } = req.params;
     const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 200);
@@ -249,7 +309,7 @@ adminRouter.get("/webhooks/dead-letters/:contractId", (req, res, next) => {
  * Resets retryCount so the scheduler will also attempt it again, and
  * immediately attempts delivery once.
  */
-adminRouter.post("/webhooks/dead-letters/:id/retry", async (req, res, next) => {
+adminRouter.post("/webhooks/dead-letters/:id/retry", requireRequestSignature, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id) || id <= 0) {
@@ -267,6 +327,35 @@ adminRouter.post("/webhooks/dead-letters/:id/retry", async (req, res, next) => {
 
     if (!entry) {
       return sendError(res, 404, "not_found", "Dead-letter entry not found");
+    }
+
+    // Manual role check for "operator" using entry.contractId
+    const caller = req.signedWalletAddress;
+    const { dbGetUserRole } = await import("../database/roles.js");
+    let role = dbGetUserRole(entry.contractId, caller);
+
+    // Bootstrap check: if no role in DB, check on-chain admin
+    if (!role && entry.contractId) {
+      const { getContractAdmin } = await import("../stellar.js");
+      try {
+        const onChainAdmin = await getContractAdmin(entry.contractId);
+        if (onChainAdmin && onChainAdmin === caller) {
+          role = "admin";
+        }
+      } catch {}
+    }
+
+    const ROLE_LEVELS = { viewer: 1, operator: 2, admin: 3 };
+    const callerLevel = ROLE_LEVELS[role] || 0;
+    const requiredLevel = ROLE_LEVELS.operator;
+
+    if (callerLevel < requiredLevel) {
+      return sendError(
+        res,
+        403,
+        "forbidden",
+        `Access denied: required role operator, caller has role ${role || "none"}`
+      );
     }
 
     let payload;
@@ -301,3 +390,38 @@ adminRouter.post("/webhooks/dead-letters/:id/retry", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * POST /admin/assign-role
+ * Body: { contractId, walletAddress, role }
+ */
+adminRouter.post(
+  "/assign-role",
+  requireRequestSignature,
+  requireRole("admin"),
+  validate(assignRoleSchema),
+  async (req, res, next) => {
+    try {
+      const { contractId, walletAddress, role } = req.body;
+      const caller = req.signedWalletAddress;
+
+      const { dbAssignUserRole } = await import("../database/roles.js");
+      const { addAuditLog } = await import("../database/audit.js");
+
+      dbAssignUserRole(contractId, walletAddress, role, caller);
+
+      // Role change audit trail (#492 AC)
+      addAuditLog(contractId || "global", "role_assigned", caller, {
+        targetUser: walletAddress,
+        assignedRole: role,
+      });
+
+      res.json({
+        success: true,
+        message: `Role ${role} assigned to ${walletAddress}`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
