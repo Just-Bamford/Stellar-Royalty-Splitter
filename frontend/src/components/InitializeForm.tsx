@@ -3,6 +3,7 @@ import { api, type CollaboratorSuggestion } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
 import FormStatus from "./FormStatus";
+import FormInput from "./FormInput";
 import { useFormStatus } from "../hooks/useFormStatus";
 import {
   bytesToHex,
@@ -448,27 +449,22 @@ export default function InitializeForm({
                 <div className="collaborator-row">
                   <div className="collaborator-address-field">
                     <div className="autocomplete-field">
-                      <input
+                      <FormInput
                         placeholder="Wallet address (G...)"
                         value={c.address}
+                        error={errors[i]?.address}
+                        showSuccess={c.address && STELLAR_ADDRESS_RE.test(c.address) && !errors[i]?.address}
                         role="combobox"
                         aria-autocomplete="list"
                         aria-expanded={focusedAddressIndex === i && (suggestions[i]?.length ?? 0) > 0}
                         aria-controls={`collaborator-${i}-suggestions`}
                         aria-label={`Wallet address for collaborator ${i + 1}`}
-                        aria-invalid={Boolean(errors[i]?.address)}
-                        aria-describedby={
-                          errors[i]?.address
-                            ? `collaborator-${i}-address-error`
-                            : `collaborator-${i}-lookup-help`
-                        }
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
                         onFocus={() => setFocusedAddressIndex(i)}
                         onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
                           handleBlur(i, "address", e.target.value);
                           window.setTimeout(() => setFocusedAddressIndex(null), 150);
                         }}
-                        style={{ marginBottom: errors[i]?.address ? "0.25rem" : undefined }}
                       />
                       <span id={`collaborator-${i}-lookup-help`} className="sr-only">
                         Start typing to search previous collaborators. Suggestions are filtered to avoid duplicate
@@ -502,14 +498,9 @@ export default function InitializeForm({
                         </span>
                       )}
                     </div>
-                    {errors[i]?.address && (
-                      <span id={`collaborator-${i}-address-error`} className="field-error">
-                        {errors[i].address}
-                      </span>
-                    )}
                   </div>
                   <div className="collaborator-share-field">
-                    <input
+                    <FormInput
                       placeholder="% (0–100)"
                       type="text"
                       inputMode="decimal"
@@ -517,10 +508,9 @@ export default function InitializeForm({
                       max={100}
                       step="any"
                       value={c.basisPoints}
-                      className={highlightShare ? "input-error" : ""}
+                      error={percentageError}
+                      showSuccess={c.basisPoints && !percentageError && !getPercentageError(c.basisPoints)}
                       aria-label={`Royalty percentage for collaborator ${i + 1}`}
-                      aria-invalid={highlightShare}
-                      aria-describedby={percentageError ? `collaborator-${i}-percentage-error` : undefined}
                       onKeyDown={handlePercentageKeyDown}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const { value } = e.target;
@@ -533,11 +523,7 @@ export default function InitializeForm({
                         validateRow(i, "basisPoints", value);
                       }}
                       onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
-                      style={{ marginBottom: percentageError ? "0.25rem" : undefined }}
                     />
-                    {percentageError && (
-                      <span id={`collaborator-${i}-percentage-error`} className="field-error">{percentageError}</span>
-                    )}
                   </div>
                   {collaborators.length > 1 && (
                     <button className="btn-danger" onClick={() => removeRow(i)}>
