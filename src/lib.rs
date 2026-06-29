@@ -162,16 +162,12 @@ impl RoyaltySplitter {
     }
 
     fn require_collaborators(env: &Env) -> Vec<Address> {
-        env.storage()
-            .instance()
-            .get(&StorageKey::Collaborators)
+        storage::persistent_get(env, &StorageKey::Collaborators)
             .unwrap_or_else(|| Self::fail(env, ContractError::NoCollaborators))
     }
 
     fn require_share_map(env: &Env) -> Map<Address, u32> {
-        env.storage()
-            .instance()
-            .get(&StorageKey::ShareMap)
+        storage::persistent_get(env, &StorageKey::ShareMap)
             .unwrap_or_else(|| Self::fail(env, ContractError::NoShareMap))
     }
 
@@ -464,12 +460,13 @@ impl RoyaltySplitter {
     fn hash_collaborators(env: &Env, collaborators: &Vec<Address>, salt: &BytesN<32>) -> BytesN<32> {
         let mut bytes = Bytes::new(env);
         bytes.append(salt.as_ref());
-        for i in 0..collaborators.len() {
-            let addr = collaborators.get(i).unwrap();
+        for addr in collaborators.iter() {
             let addr_str = addr.to_string();
             let addr_len = addr_str.len() as usize;
+
             let mut buf = [0u8; 56];
             addr_str.copy_into_slice(&mut buf[..addr_len]);
+
             bytes.extend_from_slice(&buf[..addr_len]);
         }
         env.crypto().sha256(&bytes)
