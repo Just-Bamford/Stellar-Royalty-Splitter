@@ -143,6 +143,7 @@ pub enum ContractError {
     RevealTooEarly = 29,
     CommitmentExists = 30,
     AdminTransferTimelockNotExpired = 31,
+    InvalidBatchSize = 33,
 }
 
 #[contract]
@@ -1326,6 +1327,10 @@ impl RoyaltySplitter {
 impl RoyaltySplitter {
     fn batch_distribute_impl(env: Env, tokens: Vec<Address>) {
         storage::extend_instance_ttl(&env);
+
+        if tokens.is_empty() || tokens.len() > 10 {
+            Self::fail(&env, ContractError::InvalidBatchSize);
+        }
 
         // Check admin auth once for the entire batch
         Self::check_admin_auth(&env, auth::msg::BATCH_DISTRIBUTE_ADMIN);

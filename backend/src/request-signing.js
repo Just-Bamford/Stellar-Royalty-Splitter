@@ -22,9 +22,9 @@ const MAX_SIGNATURE_AGE_MS = parseInt(
   10
 );
 
-/** When false, unsigned requests are allowed (backwards compatibility). */
+/** Signatures are required by default; set REQUEST_SIGNING_REQUIRED=false only for local/dev bypasses. */
 export function isRequestSigningRequired() {
-  return process.env.REQUEST_SIGNING_REQUIRED === "true";
+  return process.env.REQUEST_SIGNING_REQUIRED !== "false";
 }
 
 /** In-memory nonce cache with TTL to prevent replay attacks. */
@@ -183,6 +183,7 @@ export function verifyRequestSignatureMiddleware(req, res, next) {
     req.body &&
     typeof req.body === "object" &&
     "walletAddress" in req.body &&
+    !req.originalUrl.includes("/assign-role") &&
     !safeEqual(req.body.walletAddress, walletAddress)
   ) {
     return sendError(

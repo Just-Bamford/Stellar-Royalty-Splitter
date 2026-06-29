@@ -23,6 +23,11 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   getContractAdmin,
   getConfiguredContractId,
   getNetworkLabel,
+  checkAllHorizonEndpoints,
+  checkAllRpcEndpoints,
+  getCurrentHorizonUrl,
+  getCurrentRpcUrl,
+  getContractAdmin,
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -70,6 +75,18 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
         recommendations: ["Run EXPLAIN QUERY PLAN for this statement."],
       },
     ],
+  })),
+}));
+
+await jest.unstable_mockModule("../src/cache.js", () => ({
+  getCacheManager: jest.fn(() => ({
+    verifyAdminConsistency: jest.fn(async (fetchLiveAdmin) => ({
+      consistent: true,
+      cachedAdmin: "GADMIN",
+      liveAdmin: await fetchLiveAdmin(),
+      elapsedMs: 1,
+    })),
+    invalidateAdmin: jest.fn(),
   })),
 }));
 

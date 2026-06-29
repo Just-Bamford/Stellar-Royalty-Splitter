@@ -27,6 +27,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction: jest.fn(() => 1),
   addAuditLog: jest.fn(),
+  lookupCollaborators: jest.fn(() => []),
   recordNonceIfNew: jest.fn(() => true),
 }));
 

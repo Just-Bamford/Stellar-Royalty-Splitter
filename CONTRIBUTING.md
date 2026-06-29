@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing. This guide covers everything you need to get the project running locally, write and run tests, and open a pull request.
 
+If you run into problems during setup or development, check the **[Troubleshooting Guide](TROUBLESHOOTING.md)** first — it covers 25+ common issues with step-by-step fixes.
+
 ---
 
 ## Table of Contents

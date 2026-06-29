@@ -65,3 +65,56 @@ export function addAuditLog(contractId, action, user, details) {
   stmt.run(contractId, action, user, detailsJson, entryHash, prevHash, timestamp);
   countWrite();
 }
+
+export function exportAuditLogs(filters = {}, limit = 10000, offset = 0) {
+  const conditions = [];
+  const params = [];
+
+  if (filters.contractId) {
+    conditions.push("contractId = ?");
+    params.push(filters.contractId);
+  }
+
+  if (filters.action) {
+    conditions.push("action = ?");
+    params.push(filters.action);
+  }
+
+  if (filters.start) {
+    conditions.push("timestamp >= ?");
+    params.push(filters.start);
+  }
+
+  if (filters.end) {
+    conditions.push("timestamp <= ?");
+    params.push(filters.end);
+  }
+
+  let sql = `
+    SELECT 
+      timestamp,
+      action,
+      contractId,
+      user AS actor,
+      details
+    FROM audit_log
+  `;
+
+  if (conditions.length > 0) {
+    sql += " WHERE " + conditions.join(" AND ");
+  }
+
+  sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?";
+  params.push(limit, offset);
+
+  const stmt = db.prepare(sql);
+  return stmt.all(...params).map((row) => {
+    let details = null;
+    try {
+      details = JSON.parse(row.details || "{}");
+    } catch (_) {
+      // Keep malformed legacy audit details readable as null.
+    }
+    return { ...row, details };
+  });
+}

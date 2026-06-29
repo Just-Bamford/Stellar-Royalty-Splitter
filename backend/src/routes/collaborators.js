@@ -3,8 +3,16 @@ import StellarSdk from "@stellar/stellar-sdk";
 import { server, networkPassphrase, getNetworkLabel } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
+import { lookupCollaborators } from "../database/index.js";
 import { sendError } from "../error-response.js";
 import { recordCacheHit, recordCacheMiss } from "../metrics.js";
+import {
+  _resetCollaboratorsCache,
+  getCachedCollaborators,
+  getCollaboratorsCacheKey,
+  invalidateCollaboratorsCache,
+  setCachedCollaborators,
+} from "../collaborators-cache.js";
 
 const {
   Address,
@@ -16,27 +24,16 @@ const {
 } = StellarSdk;
 
 export const collaboratorsRouter = Router();
+export { _resetCollaboratorsCache, invalidateCollaboratorsCache };
 
-// Issue #422: collaborator shares are effectively immutable once a contract
-// is initialized, so we cache them for 5 minutes — far longer than the 30s
-// contract-state cache — and invalidate immediately on (re-)initialize
-// rather than relying solely on the TTL.
-const COLLABORATORS_CACHE_TTL_MS = 5 * 60 * 1000;
-const collaboratorsCache = new Map();
-
-/** Cache key format: `contract:{network}:{contractId}:collaborators` (#422). */
-function getCollaboratorsCacheKey(contractId) {
-  return `contract:${getNetworkLabel()}:${contractId}:collaborators`;
-}
-
-export function _resetCollaboratorsCache() {
-  collaboratorsCache.clear();
-}
-
-/** Invalidate the cached collaborator list for a contract (#422). */
-export function invalidateCollaboratorsCache(contractId) {
-  collaboratorsCache.delete(getCollaboratorsCacheKey(contractId));
-}
+/**
+ * GET /api/collaborators/lookup?q=G...&limit=10
+ * Returns collaborator address suggestions from previous initialize and payout history.
+ */
+collaboratorsRouter.get("/lookup", (req, res) => {
+  const suggestions = lookupCollaborators(req.query.q, req.query.limit);
+  res.json({ suggestions });
+});
 
 /**
  * GET /api/collaborators/:contractId
@@ -48,13 +45,12 @@ export function invalidateCollaboratorsCache(contractId) {
 collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
-    const cacheKey = getCollaboratorsCacheKey(contractId);
-    const cached = collaboratorsCache.get(cacheKey);
-    const now = Date.now();
+    const cacheKey = getCollaboratorsCacheKey(getNetworkLabel(), contractId);
+    const cached = getCachedCollaborators(cacheKey);
 
-    if (cached && now - cached.fetchedAt < COLLABORATORS_CACHE_TTL_MS) {
+    if (cached) {
       recordCacheHit("collaborators");
-      return res.json(cached.data);
+      return res.json(cached);
     }
 
     recordCacheMiss("collaborators");
@@ -90,7 +86,7 @@ collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req
     }));
 
     logger.info(`get_all_shares returned ${results.length} collaborators for ${contractId}`);
-    collaboratorsCache.set(cacheKey, { data: results, fetchedAt: now });
+    setCachedCollaborators(cacheKey, results);
     res.json(results);
   } catch (err) {
     next(err);

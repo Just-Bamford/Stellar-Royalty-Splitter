@@ -41,7 +41,10 @@ export {
 } from "./webhooks.js";
 
 // Audit logging
-export { getAuditLog, addAuditLog } from "./audit.js";
+export { getAuditLog, addAuditLog, exportAuditLogs } from "./audit.js";
+
+// Collaborator lookup
+export { lookupCollaborators } from "./collaborator-lookup.js";
 
 // Request nonce dedup (#421)
 export { recordNonceIfNew } from "./request-nonces.js";
@@ -71,3 +74,4 @@ export { getQueryProfilerMetrics, resetQueryProfilerMetrics } from "../query-pro
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
+
