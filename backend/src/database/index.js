@@ -76,6 +76,19 @@ export {
 // Analytics
 export { getAnalyticsData } from "./analytics.js";
 
+// Batch processing (#521)
+export {
+  createBatchJob,
+  getBatchJob,
+  listBatchJobs,
+  getBatchJobChunks,
+  getPendingChunks,
+  markChunkProcessing,
+  markChunkCompleted,
+  markChunkFailed,
+  getBatchMonitoringStats,
+} from "./batch-jobs.js";
+
 // Query profiling (#500)
 export { getQueryProfilerMetrics, resetQueryProfilerMetrics } from "../query-profiler.js";
 
