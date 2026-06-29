@@ -3,7 +3,7 @@
  * Tests for RPC endpoint health checking, circuit breaker, and failover logic
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "@jest/globals";
 import assert from "node:assert";
 import {
   _resetRpcEndpointHealth,

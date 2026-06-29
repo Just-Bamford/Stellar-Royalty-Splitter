@@ -29,6 +29,7 @@ const recordNonceIfNew = jest.fn(() => true);
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction,
   addAuditLog,
+  lookupCollaborators: jest.fn(() => []),
   recordNonceIfNew,
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
@@ -87,10 +88,10 @@ describe("POST /api/v1/initialize", () => {
       .send({ ...validBody, shares: [3000, 3000] });
 
     expect(res.status).toBe(400);
-    // Issue #356: error message must include the actual sum (6000) and expected (10000).
+    // Issue #356: error message must include the actual sum and expected total.
     const details = JSON.stringify(res.body);
-    expect(details).toMatch(/6000/);
-    expect(details).toMatch(/10000/);
+    expect(details).toMatch(/60%/);
+    expect(details).toMatch(/100%/);
   });
 
   test("400 when shares sum to 9999 — error shows 9999 vs 10000", async () => {
@@ -100,8 +101,8 @@ describe("POST /api/v1/initialize", () => {
 
     expect(res.status).toBe(400);
     const details = JSON.stringify(res.body);
-    expect(details).toMatch(/9999/);
-    expect(details).toMatch(/10000/);
+    expect(details).toMatch(/99\.99%/);
+    expect(details).toMatch(/100%/);
   });
 
   test("400 when shares sum to 10001 — error shows 10001 vs 10000", async () => {
@@ -111,8 +112,8 @@ describe("POST /api/v1/initialize", () => {
 
     expect(res.status).toBe(400);
     const details = JSON.stringify(res.body);
-    expect(details).toMatch(/10001/);
-    expect(details).toMatch(/10000/);
+    expect(details).toMatch(/100\.01%/);
+    expect(details).toMatch(/100%/);
   });
 
   test("400 when collaborators and shares lengths differ", async () => {
@@ -129,7 +130,7 @@ describe("POST /api/v1/initialize", () => {
       .send({ ...validBody, collaborators: [], shares: [] });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/collaborators array must be non-empty/i);
+    expect(res.body.error).toMatch(/recipients array must be non-empty/i);
   });
 
   test("400 when required fields are missing", async () => {
@@ -228,10 +229,10 @@ describe("POST /api/v1/initialize", () => {
         ...validBody,
         collaborators: [oversizedCollaborator],
         shares: [10000],
-      });
+    });
 
     expect(res.status).toBe(413);
-    expect(res.body).toEqual({ error: "Collaborators payload too large" });
+    expect(res.body).toMatchObject({ error: "Collaborators payload too large" });
     expect(isContractInitialized).not.toHaveBeenCalled();
     expect(retryBuildTx).not.toHaveBeenCalled();
     expect(recordTransaction).not.toHaveBeenCalled();

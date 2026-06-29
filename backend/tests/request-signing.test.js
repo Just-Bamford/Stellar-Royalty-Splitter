@@ -43,6 +43,12 @@ describe("request-signing (issue #392)", () => {
     _resetNonceCache();
   });
 
+  test("request signing is required by default", () => {
+    delete process.env.REQUEST_SIGNING_REQUIRED;
+
+    expect(isRequestSigningRequired()).toBe(true);
+  });
+
   test("valid signature is accepted", async () => {
     const app = createTestApp();
     const body = {
@@ -190,5 +196,7 @@ describe("request-signing (issue #392)", () => {
     expect(isRequestSigningRequired()).toBe(true);
     process.env.REQUEST_SIGNING_REQUIRED = "false";
     expect(isRequestSigningRequired()).toBe(false);
+    delete process.env.REQUEST_SIGNING_REQUIRED;
+    expect(isRequestSigningRequired()).toBe(true);
   });
 });

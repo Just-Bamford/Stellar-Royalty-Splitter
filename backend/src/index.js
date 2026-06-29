@@ -7,6 +7,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
 import { correlationMiddleware } from "./correlation.js";
+import { auditExportRouter } from "./routes/audit-export.js";
 import { recordHttpRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
@@ -78,8 +79,22 @@ app.use((req, res, next) => {
 // normalizing into a different protected path.
 app.use(createLegacyApiRedirectMiddleware({ logger }));
 
-// Security headers
-app.use(helmet());
+// Security headers. #499: set an explicit Content-Security-Policy so a reflected
+// or stored payload cannot execute inline scripts even if it reaches the DOM.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+  })
+);
 
 const corsPreflightMaxAge = parseInt(process.env.CORS_PREFLIGHT_MAX_AGE ?? "86400", 10);
 
@@ -103,7 +118,13 @@ app.use(
       "X-Signature",
       "X-API-Key",
     ],
-    exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    exposedHeaders: [
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "X-RateLimit-Reset",
+      "X-Export-Signature",
+      "X-Export-Public-Key",
+    ],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })
 );
@@ -203,6 +224,7 @@ app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/admin", auditExportRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 

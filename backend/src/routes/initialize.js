@@ -15,9 +15,11 @@ import {
   validateRoyaltySplitMiddleware,
 } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
+import { invalidateCollaboratorsCache } from "./collaborators.js";
 import { createRequestLogger } from "../logger.js";
 import { recordNonceIfNew } from "../database/index.js";
 import { sendError } from "../error-response.js";
+import { invalidateCollaboratorsCache } from "../collaborators-cache.js";
 
 export const initializeRouter = Router();
 
@@ -67,7 +69,7 @@ initializeRouter.post(
         transactionType: "initialize",
         scvlArgs: [collaboratorVec, sharesVec],
         auditAction: "contract_initialized",
-        auditMetadata: { collaboratorCount: collaborators.length, shares },
+        auditMetadata: { collaboratorCount: collaborators.length, collaborators, shares },
         transactionMetadata: { requestedAmount: null, tokenId: null },
         correlationId: req.correlationId,
       });
@@ -138,7 +140,7 @@ initializeRouter.post(
         contractMethod: "reveal_initialize",
         scvlArgs: [collaboratorVec, sharesVec, bytesN32HexToScVal(salt)],
         auditAction: "initialize_revealed",
-        auditMetadata: { collaboratorCount: collaborators.length, shares },
+        auditMetadata: { collaboratorCount: collaborators.length, collaborators, shares },
         transactionMetadata: { requestedAmount: null, tokenId: null },
         correlationId: req.correlationId,
       });

@@ -14,6 +14,10 @@ async function sha256Hex(text: string): Promise<string> {
     .join("");
 }
 
+function base64Encode(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
 export function buildCanonicalMessage({
   method,
   path,
@@ -120,11 +124,11 @@ export async function signWriteRequestWithSecret({
     nonce,
     bodyHash,
   });
-  const sig = keypair.sign(Buffer.from(message, "utf8"));
+  const sig = keypair.sign(new TextEncoder().encode(message));
   return {
     "X-Wallet-Address": keypair.publicKey(),
     "X-Timestamp": String(timestamp),
     "X-Nonce": nonce,
-    "X-Signature": sig.toString("base64"),
+    "X-Signature": base64Encode(sig),
   };
 }

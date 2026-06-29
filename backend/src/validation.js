@@ -301,7 +301,8 @@ export function validateRoyaltySplitMiddleware(req, res, next) {
   }
 
   if (items.length === 0) {
-    return sendError(res, 400, "validation_error", "Validation failed: Recipients array must be non-empty");
+    const collectionName = Array.isArray(body.collaborators) ? "Collaborators" : "Recipients";
+    return sendError(res, 400, "validation_error", `Validation failed: ${collectionName} array must be non-empty`);
   }
 
   if (items.length > 20) {
@@ -333,7 +334,7 @@ export function validateRoyaltySplitMiddleware(req, res, next) {
     const actualPct = totalShares / 100;
     return sendValidationError(res, [{
       field: "shares",
-      message: `Validation failed: percentages must sum to exactly 100 (got ${actualPct}%, expected 100%)`,
+      message: `Validation failed: percentages must sum to exactly 100 (got ${actualPct}% / ${totalShares} basis points, expected 100% / 10000 basis points)`,
     }]);
   }
 

@@ -71,9 +71,12 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
 
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((address) => address),
+  bytesN32HexToScVal: jest.fn((h) => h),
   isContractInitialized: jest.fn(),
   networkPassphrase: "Test SDF Network ; September 2015",
   retryBuildTx: jest.fn(),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
   server: {
     simulateTransaction,
   },
@@ -85,6 +88,7 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
   initializeDatabase: jest.fn(),
+  lookupCollaborators: jest.fn(() => []),
   recordTransaction: jest.fn(() => "tx-456"),
   recordNonceIfNew: jest.fn(() => true),
 }));

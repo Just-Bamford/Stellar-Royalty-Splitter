@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { api } from "../api";
+import React, { useEffect, useMemo, useState } from "react";
+import { api, type CollaboratorSuggestion } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
 import FormStatus from "./FormStatus";
@@ -166,6 +166,14 @@ export default function InitializeForm({
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState<InitPhase>("form");
   const [pendingCommit, setPendingCommit] = useState<InitCommitState | null>(null);
+  const [suggestions, setSuggestions] = useState<Record<number, CollaboratorSuggestion[]>>({});
+  const [focusedAddressIndex, setFocusedAddressIndex] = useState<number | null>(null);
+  const [lookupLoading, setLookupLoading] = useState<Record<number, boolean>>({});
+
+  const selectedAddresses = useMemo(
+    () => new Set(collaborators.map((collaborator) => collaborator.address.trim()).filter(Boolean)),
+    [collaborators],
+  );
 
   useEffect(() => {
     const saved = loadCommitState(contractId);
@@ -175,10 +183,41 @@ export default function InitializeForm({
     }
   }, [contractId]);
 
+  useEffect(() => {
+    const timers = collaborators.map((collaborator, index) => {
+      const query = collaborator.address.trim();
+      setLookupLoading((prev) => ({ ...prev, [index]: true }));
+
+      return window.setTimeout(async () => {
+        try {
+          const result = await api.lookupCollaborators(query, 8);
+          setSuggestions((prev) => ({
+            ...prev,
+            [index]: result.suggestions.filter(
+              (suggestion) => suggestion.address === query || !selectedAddresses.has(suggestion.address),
+            ),
+          }));
+        } catch {
+          setSuggestions((prev) => ({ ...prev, [index]: [] }));
+        } finally {
+          setLookupLoading((prev) => ({ ...prev, [index]: false }));
+        }
+      }, 250);
+    });
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [collaborators, selectedAddresses]);
+
   function update(i: number, field: keyof Collaborator, value: string) {
     setCollaborators((prev: Collaborator[]) =>
       prev.map((c: Collaborator, idx: number) => (idx === i ? { ...c, [field]: value } : c)),
     );
+  }
+
+  function selectSuggestion(i: number, address: string) {
+    update(i, "address", address);
+    validateRow(i, "address", address);
+    setFocusedAddressIndex(null);
   }
 
   function validateRow(
@@ -408,15 +447,65 @@ export default function InitializeForm({
               <div key={i}>
                 <div className="collaborator-row">
                   <div className="collaborator-address-field">
-                    <input
-                      placeholder="Wallet address (G...)"
-                      value={c.address}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
-                      onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "address", e.target.value)}
-                      style={{ marginBottom: errors[i]?.address ? "0.25rem" : undefined }}
-                    />
+                    <div className="autocomplete-field">
+                      <input
+                        placeholder="Wallet address (G...)"
+                        value={c.address}
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded={focusedAddressIndex === i && (suggestions[i]?.length ?? 0) > 0}
+                        aria-controls={`collaborator-${i}-suggestions`}
+                        aria-label={`Wallet address for collaborator ${i + 1}`}
+                        aria-invalid={Boolean(errors[i]?.address)}
+                        aria-describedby={
+                          errors[i]?.address
+                            ? `collaborator-${i}-address-error`
+                            : `collaborator-${i}-lookup-help`
+                        }
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
+                        onFocus={() => setFocusedAddressIndex(i)}
+                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+                          handleBlur(i, "address", e.target.value);
+                          window.setTimeout(() => setFocusedAddressIndex(null), 150);
+                        }}
+                        style={{ marginBottom: errors[i]?.address ? "0.25rem" : undefined }}
+                      />
+                      <span id={`collaborator-${i}-lookup-help`} className="sr-only">
+                        Start typing to search previous collaborators. Suggestions are filtered to avoid duplicate
+                        addresses.
+                      </span>
+                      {focusedAddressIndex === i && (suggestions[i]?.length ?? 0) > 0 && (
+                        <ul
+                          id={`collaborator-${i}-suggestions`}
+                          className="autocomplete-list"
+                          role="listbox"
+                          aria-label={`Collaborator suggestions for row ${i + 1}`}
+                        >
+                          {suggestions[i].map((suggestion) => (
+                            <li key={suggestion.address} role="option" aria-selected={false}>
+                              <button
+                                type="button"
+                                className="autocomplete-option"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => selectSuggestion(i, suggestion.address)}
+                              >
+                                <span>{suggestion.label}</span>
+                                <small>{suggestion.sources.includes("initialize_history") ? "History" : "Payout"}</small>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {focusedAddressIndex === i && lookupLoading[i] && (
+                        <span className="autocomplete-loading" aria-live="polite">
+                          Searching collaborators...
+                        </span>
+                      )}
+                    </div>
                     {errors[i]?.address && (
-                      <span className="field-error">{errors[i].address}</span>
+                      <span id={`collaborator-${i}-address-error`} className="field-error">
+                        {errors[i].address}
+                      </span>
                     )}
                   </div>
                   <div className="collaborator-share-field">

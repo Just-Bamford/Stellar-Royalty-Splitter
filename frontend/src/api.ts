@@ -1,6 +1,5 @@
 // Thin client that talks to the Express backend
 
-import { extractContractError } from "./lib/contract-errors";
 import { signWriteRequest } from "./lib/request-signing";
 
 const BASE = "/api/v1";
@@ -85,16 +84,6 @@ export class BackendApiError extends Error {
   }
 }
 
-function readErrorBody(status: number, data: unknown): BackendApiError {
-  const parsed = extractContractError(data ?? { error: "Request failed" });
-  return new BackendApiError(
-    status,
-    parsed.code,
-    parsed.message,
-    parsed.details,
-  );
-}
-
 async function post<T>(
   path: string,
   body: unknown,
@@ -104,17 +93,13 @@ async function post<T>(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   if (walletAddress && typeof body === "object" && body !== null) {
-    try {
-      const signingHeaders = await signWriteRequest({
-        method: "POST",
-        path: `${BASE}${path}`,
-        body,
-        walletAddress,
-      });
-      Object.assign(headers, signingHeaders);
-    } catch {
-      // Signing is optional when REQUEST_SIGNING_REQUIRED=false on the server.
-    }
+    const signingHeaders = await signWriteRequest({
+      method: "POST",
+      path: `${BASE}${path}`,
+      body,
+      walletAddress,
+    });
+    Object.assign(headers, signingHeaders);
   }
 
   if (extraHeaders) {
@@ -171,6 +156,14 @@ export interface AuditLogEntry {
   timestamp: string;
 }
 
+export interface CollaboratorSuggestion {
+  address: string;
+  label: string;
+  contractId: string | null;
+  lastSeen: string | null;
+  sources: string[];
+}
+
 export interface SecondarySale {
   id: number;
   nftId: string;
@@ -192,6 +185,14 @@ export interface RoyaltyStats {
     totalRoyaltiesDistributed: string;
     numberOfSales: number;
   } | null;
+}
+
+// #504: contract pause state for the distribution UI banner.
+export interface PauseState {
+  paused: boolean;
+  pauseTimestamp: number;
+  pauseSource: string | null;
+  remainingSeconds: number;
 }
 
 export type ContractStateCacheStatus = "cached" | "live" | "error";
@@ -255,6 +256,7 @@ export const api = {
       contractId: string;
       walletAddress: string;
       tokenId: string;
+      amount?: number;
     },
     idempotencyKey?: string,
   ) =>
@@ -273,6 +275,11 @@ export const api = {
   getCollaborators: (contractId: string) =>
     get<{ address: string; basisPoints: number }[]>(
       `/collaborators/${contractId}`,
+    ),
+
+  lookupCollaborators: (query = "", limit = 10) =>
+    get<{ suggestions: CollaboratorSuggestion[] }>(
+      `/collaborators/lookup?q=${encodeURIComponent(query)}&limit=${limit}`,
     ),
 
   // Transaction History & Audit Log APIs
@@ -418,6 +425,10 @@ export const api = {
     get<{ contractId: string; version: string }>(
       `/contract/version/${contractId}`,
     ),
+
+  // #504: Fetch the contract's pause state so the UI can warn and block.
+  getPauseState: (contractId: string) =>
+    get<PauseState>(`/contract/pause/${contractId}`),
 
   getContractState: (
     contractId: string,
