@@ -1,13 +1,20 @@
 import { describe, test, expect } from "vitest";
 import {
   isValidContractAddress,
+  isValidAccountAddress,
+  isValidStellarAddress,
   getContractAddressError,
+  getStellarAddressError,
+  truncateStellarAddress,
   CONTRACT_ADDRESS_REGEX,
+  ACCOUNT_ADDRESS_REGEX,
   INVALID_CONTRACT_ADDRESS_MESSAGE,
+  INVALID_STELLAR_ADDRESS_MESSAGE,
 } from "./stellar-address";
 
-// A structurally valid contract address: "C" + 55 base32 chars.
+// Valid addresses
 const VALID_C_ADDRESS = "C" + "A".repeat(55);
+const VALID_G_ADDRESS = "G" + "A".repeat(55);
 
 describe("stellar contract address validation (#361)", () => {
   test("accepts a well-formed C-address", () => {
@@ -62,5 +69,73 @@ describe("stellar contract address validation (#361)", () => {
 
   test("getContractAddressError returns null for a valid address", () => {
     expect(getContractAddressError(VALID_C_ADDRESS)).toBeNull();
+  });
+});
+
+describe("stellar account address validation (#479)", () => {
+  test("accepts a well-formed G-address", () => {
+    expect(isValidAccountAddress(VALID_G_ADDRESS)).toBe(true);
+    expect(ACCOUNT_ADDRESS_REGEX.test(VALID_G_ADDRESS)).toBe(true);
+  });
+
+  test("rejects a C-address for account validation", () => {
+    expect(isValidAccountAddress(VALID_C_ADDRESS)).toBe(false);
+  });
+
+  test("rejects wrong length G-address", () => {
+    expect(isValidAccountAddress("G" + "A".repeat(54))).toBe(false);
+    expect(isValidAccountAddress("G" + "A".repeat(56))).toBe(false);
+  });
+});
+
+describe("isValidStellarAddress (#479)", () => {
+  test("accepts C-address", () => {
+    expect(isValidStellarAddress(VALID_C_ADDRESS)).toBe(true);
+  });
+
+  test("accepts G-address", () => {
+    expect(isValidStellarAddress(VALID_G_ADDRESS)).toBe(true);
+  });
+
+  test("rejects other prefixes", () => {
+    expect(isValidStellarAddress("S" + "A".repeat(55))).toBe(false);
+  });
+
+  test("rejects empty string", () => {
+    expect(isValidStellarAddress("")).toBe(false);
+  });
+});
+
+describe("getStellarAddressError (#479)", () => {
+  test("returns null for empty input", () => {
+    expect(getStellarAddressError("")).toBeNull();
+  });
+
+  test("returns null for valid G-address", () => {
+    expect(getStellarAddressError(VALID_G_ADDRESS)).toBeNull();
+  });
+
+  test("returns null for valid C-address", () => {
+    expect(getStellarAddressError(VALID_C_ADDRESS)).toBeNull();
+  });
+
+  test("returns error message for invalid address", () => {
+    expect(getStellarAddressError("invalid")).toBe(INVALID_STELLAR_ADDRESS_MESSAGE);
+  });
+});
+
+describe("truncateStellarAddress (#479)", () => {
+  test("truncates a long address to first-4 + last-4 by default", () => {
+    const result = truncateStellarAddress(VALID_G_ADDRESS);
+    expect(result).toBe(`${VALID_G_ADDRESS.slice(0, 4)}…${VALID_G_ADDRESS.slice(-4)}`);
+  });
+
+  test("returns original string when shorter than 2*chars+1", () => {
+    expect(truncateStellarAddress("SHORT")).toBe("SHORT");
+  });
+
+  test("respects custom chars param", () => {
+    const result = truncateStellarAddress(VALID_G_ADDRESS, 6);
+    expect(result).toBe(`${VALID_G_ADDRESS.slice(0, 6)}…${VALID_G_ADDRESS.slice(-6)}`);
   });
 });
