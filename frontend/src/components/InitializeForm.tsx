@@ -42,7 +42,7 @@ interface Props {
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const MAX_COLLABORATORS = 50;
 const BASIS_POINTS_TOTAL = 10_000;
-const PERCENTAGE_INPUT_RE = /^(\d+(\.\d{0,2})?|\.\d{1,2})?$/;
+const PERCENTAGE_INPUT_RE = /^(\d+(\.\d*)?|\.\d+)?$/;
 const SIGNED_PERCENTAGE_INPUT_RE = /^-(\d+(\.\d*)?|\.\d+)$/;
 const PERCENTAGE_NAVIGATION_KEYS = [
   "Backspace",
@@ -63,15 +63,15 @@ function getPercentageError(value: string) {
   if (SIGNED_PERCENTAGE_INPUT_RE.test(value)) {
     return "Percentage must be between 0 and 100.";
   }
-  if (/^\d+(\.\d{3,})$|^\.\d{3,}$/.test(value)) {
-    return "Percentage supports up to 2 decimal places.";
-  }
-  if (!PERCENTAGE_INPUT_RE.test(value)) return "Percentage must be a number.";
-
   const numericValue = Number(value);
   if (Number.isNaN(numericValue)) return "Percentage must be a number.";
   if (numericValue < 0 || numericValue > 100) {
     return "Percentage must be between 0 and 100.";
+  }
+
+  const basisPoints = Number((numericValue * 100).toFixed(4));
+  if (!Number.isInteger(basisPoints)) {
+    return "Fractional basis points are not allowed.";
   }
 
   return "";
@@ -84,7 +84,7 @@ function isAllowedPercentageInput(value: string) {
 function parsePercentageToBasisPoints(value: string) {
   const error = getPercentageError(value);
   if (error) return null;
-  return Math.round(Number(value) * 100);
+  return Number((Number(value) * 100).toFixed(4));
 }
 
 function formatBasisPointsAsPercent(basisPoints: number) {

@@ -101,6 +101,7 @@ Build an unsigned `initialize` transaction XDR.
 All initialize and royalty split payloads pass through request validation middleware before reaching contract processing. The middleware verifies that:
 - All recipient addresses are valid Stellar public keys (`G...`)
 - Revenue allocations sum to exactly `100%` (or `10,000` basis points)
+- Shares/percentages must resolve to integer basis points (no fractional basis points allowed)
 **Body:** `{ contractId, walletAddress, collaborators, shares, nonce? }`
 
 | Field | Type | Description |

@@ -269,11 +269,11 @@ export function validateRoyaltySplitMiddleware(req, res, next) {
     items = body.recipients.map((r, idx) => ({
       address: r.address ?? r.recipient ?? r.walletAddress ?? "",
       percentage: typeof r.percentage === "number" ? r.percentage : (typeof r.share === "number" ? r.share / 100 : null),
-      share: typeof r.share === "number" ? r.share : (typeof r.percentage === "number" ? Math.round(r.percentage * 100) : null),
+      share: typeof r.share === "number" ? r.share : (typeof r.percentage === "number" ? Number((r.percentage * 100).toFixed(4)) : null),
       path: `recipients.${idx}`,
     }));
   } else if (Array.isArray(body.recipients) && typeof body.recipients[0] === "string") {
-    const shares = body.shares ?? body.percentages?.map((p) => Math.round(p * 100)) ?? [];
+    const shares = body.shares ?? body.percentages?.map((p) => Number((p * 100).toFixed(4))) ?? [];
     const percentages = body.percentages ?? body.shares?.map((s) => s / 100) ?? [];
     if (body.recipients.length !== (body.percentages ?? body.shares ?? []).length) {
       return sendError(res, 400, "validation_error", "Validation failed: recipients and percentages/shares arrays must be the same length");
@@ -285,7 +285,7 @@ export function validateRoyaltySplitMiddleware(req, res, next) {
       path: `recipients.${idx}`,
     }));
   } else if (Array.isArray(body.collaborators)) {
-    const shares = body.shares ?? body.percentages?.map((p) => Math.round(p * 100)) ?? [];
+    const shares = body.shares ?? body.percentages?.map((p) => Number((p * 100).toFixed(4))) ?? [];
     const percentages = body.percentages ?? body.shares?.map((s) => s / 100) ?? [];
     if (body.collaborators.length !== (body.shares ?? body.percentages ?? []).length) {
       return sendError(res, 400, "validation_error", "Validation failed: collaborators and shares/percentages arrays must be the same length");
@@ -320,6 +320,11 @@ export function validateRoyaltySplitMiddleware(req, res, next) {
       issues.push({
         field: `${item.path}.share`,
         message: "Validation failed: Percentage or share must be a positive number",
+      });
+    } else if (!Number.isInteger(item.share)) {
+      issues.push({
+        field: `${item.path}.share`,
+        message: "Validation failed: Share must be an integer (fractional basis points are not allowed)",
       });
     }
   }

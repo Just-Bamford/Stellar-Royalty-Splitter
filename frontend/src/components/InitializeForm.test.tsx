@@ -53,17 +53,33 @@ describe("InitializeForm", () => {
     expect(screen.getByRole("button", { name: /Commit initialization/i })).toBeDisabled();
   });
 
-  test("shows percentage validation error for unsupported decimal precision", () => {
+  test("shows percentage validation error for fractional basis points", () => {
     render(
       <InitializeForm contractId="dummy" walletAddress="GABC" onSuccess={vi.fn()} />,
     );
 
     const percentInput = screen.getByPlaceholderText(/% \(0–100\)/i);
+    
+    // 1. Test with 33.333 (fractional basis points)
     fireEvent.change(percentInput, { target: { value: "33.333" } });
     fireEvent.blur(percentInput);
-
-    expect(screen.getByText(/up to 2 decimal places/i)).toBeInTheDocument();
+    expect(screen.getByText(/Fractional basis points are not allowed/i)).toBeInTheDocument();
     expect(percentInput).toHaveClass("input-error");
+
+    // 2. Test with 0.005 (fractional basis points)
+    fireEvent.change(percentInput, { target: { value: "0.005" } });
+    fireEvent.blur(percentInput);
+    expect(screen.getByText(/Fractional basis points are not allowed/i)).toBeInTheDocument();
+
+    // 3. Test with 3333.33 (too large percentage, fractional basis points if it were allowed)
+    fireEvent.change(percentInput, { target: { value: "3333.33" } });
+    fireEvent.blur(percentInput);
+    expect(screen.getByText(/Percentage must be between 0 and 100/i)).toBeInTheDocument();
+
+    // 4. Test with -0.5 (negative decimal percentage)
+    fireEvent.change(percentInput, { target: { value: "-0.5" } });
+    fireEvent.blur(percentInput);
+    expect(screen.getByText(/Percentage must be between 0 and 100/i)).toBeInTheDocument();
   });
 
   test("adds a second collaborator row when Add collaborator is clicked", () => {
