@@ -209,6 +209,7 @@ export interface ContractState {
   cacheStatus: Exclude<ContractStateCacheStatus, "error">;
   cacheTtlMs: number;
   fetchedAt: string;
+  isDegraded?: boolean;
 }
 
 export const api = {
@@ -474,4 +475,11 @@ export const api = {
     }>(
       `/analytics/${contractId}${dateRange ? `?start=${dateRange.start}&end=${dateRange.end}` : ""}`,
     ),
+
+  // NEW: Fetch overall system health
+  getHealth: () => get<{ ok: boolean; horizon: { connected: boolean } }>("/health"),
+
+  // NEW: Fetch traces for a correlation ID
+  getTraces: (correlationId: string) =>
+    get<{ success: boolean; traces: Array<any> }>(`/traces/${correlationId}`),
 };

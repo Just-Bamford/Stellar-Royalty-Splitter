@@ -19,6 +19,7 @@ import { CopyButton } from "./components/CopyButton";
 import { ContractAddress } from "./components/ContractAddress";
 import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
+import { TraceDashboard } from "./components/TraceDashboard";
 
 import "./App.css";
 
@@ -45,6 +46,22 @@ export default function App() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionToast, setSessionToast] = useState<string | null>(null);
   const [tourTrigger, setTourTrigger] = useState(0);
+  const [isRpcDegraded, setIsRpcDegraded] = useState(false);
+
+  // Poll backend health to detect RPC degradation (#482)
+  useEffect(() => {
+    async function checkHealth() {
+      try {
+        const health = await api.getHealth();
+        setIsRpcDegraded(!health.horizon.connected);
+      } catch (err) {
+        setIsRpcDegraded(true); // If backend is totally unreachable or returns 5xx
+      }
+    }
+    checkHealth();
+    const id = setInterval(checkHealth, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   function handleWalletConnect(address: string) {
     setWalletAddress(address);
@@ -261,6 +278,8 @@ export default function App() {
             <p>Please select a contract first</p>
           </div>
         );
+      case "traces":
+        return <TraceDashboard />;
       case "settings":
         return <Settings contractId={contractId} onClearContract={clearSavedContract} />;
       case "secondary":
@@ -339,6 +358,12 @@ export default function App() {
         onDisconnect={handleDisconnect}
         onStartTour={() => setTourTrigger((n) => n + 1)}
       />
+
+      {isRpcDegraded && (
+        <div className="degraded-banner" style={{ background: "#ff9800", color: "#fff", padding: "10px", textAlign: "center", fontWeight: "bold" }}>
+          ⚠️ RPC Network is currently down. Showing cached data where possible. Operations may fail.
+        </div>
+      )}
 
       <div className="app-content">
         <div className="app-sidebar">
@@ -423,6 +448,14 @@ export default function App() {
                       onClick={() => handlePageChange("secondary")}
                     >
                       Secondary
+                    </button>
+                    <button
+                      className={`quick-action-btn ${
+                        currentPage === "traces" ? "active" : ""
+                      }`}
+                      onClick={() => handlePageChange("traces")}
+                    >
+                      Traces
                     </button>
                   </>
                 )}

@@ -20,6 +20,7 @@ import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
+import { tracesRouter } from "./routes/traces.js";
 import { closeDatabase, initializeDatabase, verifyAuditLogOnStartup } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
@@ -48,13 +49,23 @@ const app = express();
 app.use(correlationMiddleware);
 
 // #396: Request / response logging with correlation ID and timing
+import { startSpan } from "./tracing.js";
+
 app.use((req, res, next) => {
   const start = Date.now();
   const requestBytes = parseInt(req.headers["content-length"] ?? "0", 10) || 0;
+  
+  // Start OpenTelemetry-style trace
+  const span = startSpan(`${req.method} ${req.originalUrl}`, req.correlationId);
+  span.setAttribute("http.method", req.method);
+  span.setAttribute("http.url", req.originalUrl);
 
   res.on("finish", () => {
     const durationMs = Date.now() - start;
     const responseBytes = parseInt(res.getHeader("content-length") ?? "0", 10) || 0;
+
+    span.setAttribute("http.status_code", res.statusCode);
+    span.end();
 
     logger.info("HTTP request completed", {
       correlationId: req.correlationId,
@@ -224,6 +235,7 @@ app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/traces", tracesRouter);
 app.use("/api/v1/admin", auditExportRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);

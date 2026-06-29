@@ -61,7 +61,38 @@ function decodeShareMap(scVal) {
   }));
 }
 
+// --- Circuit Breaker & Exponential Backoff ---
+const MAX_FAILURES = 3;
+const RESET_TIMEOUT_MS = 10_000;
+let circuitState = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+let failureCount = 0;
+let nextAttemptMs = 0;
+
+function reportSuccess() {
+  circuitState = 'CLOSED';
+  failureCount = 0;
+}
+
+function reportFailure() {
+  failureCount++;
+  if (failureCount >= MAX_FAILURES) {
+    circuitState = 'OPEN';
+    nextAttemptMs = Date.now() + RESET_TIMEOUT_MS;
+  }
+}
+
 async function simulateContractRead(contractId, method, args = []) {
+  if (circuitState === 'OPEN') {
+    if (Date.now() > nextAttemptMs) {
+      circuitState = 'HALF_OPEN';
+    } else {
+      const err = new Error("RPC Circuit Breaker Open");
+      err.isCircuitBreaker = true;
+      err.status = 503;
+      throw err;
+    }
+  }
+
   const contract = new Contract(contractId);
   const dummyAccount = new Account(
     "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
@@ -75,14 +106,31 @@ async function simulateContractRead(contractId, method, args = []) {
     .setTimeout(30)
     .build();
 
-  const sim = await server.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(sim)) {
-    const error = new Error(sim.error ?? `${method} simulation failed`);
-    error.status = 400;
-    throw error;
+  let attempt = 0;
+  const maxAttempts = 3;
+  while (attempt < maxAttempts) {
+    try {
+      const sim = await server.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        reportSuccess();
+        const error = new Error(sim.error ?? `${method} simulation failed`);
+        error.status = 400;
+        throw error;
+      }
+      reportSuccess();
+      return sim.result?.retval ?? null;
+    } catch (err) {
+      if (err.status === 400) throw err;
+      
+      attempt++;
+      if (attempt >= maxAttempts) {
+        reportFailure();
+        err.status = 503;
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 100));
+    }
   }
-
-  return sim.result?.retval ?? null;
 }
 
 async function readContractState(contractId, tokenId) {
@@ -170,14 +218,26 @@ contractRouter.get("/state", async (req, res, next) => {
       return res.json(withCacheMetadata(cached.state, "cached", cached.fetchedAt));
     }
 
-    recordCacheMiss("contract_state");
-    const state = await readContractState(contractId, tokenId);
-    contractStateCache.set(cacheKey, { state, fetchedAt: now });
-    res.json(withCacheMetadata(state, "live", now));
-  } catch (err) {
-    if (err.status) {
-      return sendError(res, err.status, undefined, err.message);
+    try {
+      recordCacheMiss("contract_state");
+      const state = await readContractState(contractId, tokenId);
+      contractStateCache.set(cacheKey, { state, fetchedAt: now });
+      res.json(withCacheMetadata(state, "live", now));
+    } catch (err) {
+      if (err.status === 503 || err.isCircuitBreaker) {
+        if (cached) {
+          return res.json({
+            ...withCacheMetadata(cached.state, "cached", cached.fetchedAt),
+            isDegraded: true
+          });
+        }
+      }
+      if (err.status) {
+        return sendError(res, err.status, undefined, err.message);
+      }
+      next(err);
     }
+  } catch (err) {
     next(err);
   }
 });
