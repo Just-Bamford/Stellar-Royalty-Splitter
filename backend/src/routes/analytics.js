@@ -1,18 +1,27 @@
 import express from "express";
-import db from "../database/index.js";
-import logger from "../logger.js";
-import { validateContractIdMiddleware } from "../validation.js";
-import { sendError } from "../error-response.js";
-
-// Simple in-memory cache with TTL
-const cache = new Map();
-const CACHE_TTL = 60 * 1000; // 60 seconds
+import { getAnalyticsData } from "../database/index.js";
+import { createRequestLogger } from "../logger.js";
+import { validateContractIdMiddleware, analyticsQuerySchema } from "../validation.js";
+import { sendError, sendValidationError } from "../error-response.js";
 
 const router = express.Router();
 
 router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) => {
+  const log = createRequestLogger(req);
   const { contractId } = req.params;
-  const { start, end } = req.query;
+
+  const queryResult = analyticsQuerySchema.safeParse(req.query);
+  if (!queryResult.success) {
+    return sendValidationError(
+      res,
+      queryResult.error.issues.map((e) => ({
+        field: e.path.join(".") || "query",
+        message: e.message,
+      }))
+    );
+  }
+
+  const { start, end, collaboratorLimit = 10 } = queryResult.data;
 
   try {
     // Parse date range
@@ -21,86 +30,40 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
 
     // Validate parsed dates
     if (start && isNaN(startDate.getTime())) {
+      log.warn("analytics invalid start date", { contractId, start });
       return sendError(res, 400, "invalid_query_parameter", "Invalid start date. Use YYYY-MM-DD.");
     }
     if (end && isNaN(endDate.getTime())) {
+      log.warn("analytics invalid end date", { contractId, end });
       return sendError(res, 400, "invalid_query_parameter", "Invalid end date. Use YYYY-MM-DD.");
     }
     if (start && end && startDate > endDate) {
+      log.warn("analytics start date after end date", { contractId, start, end });
       return sendError(res, 400, "invalid_query_parameter", "start date must be before end date.");
     }
 
-    // Create cache key
-    const cacheKey = `${contractId}-${startDate.toISOString()}-${endDate.toISOString()}`;
+    log.info("analytics query started", {
+      contractId,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    });
 
-    // Check cache
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      res.set("Cache-Control", "max-age=60");
-      return res.json(cached.data);
-    }
+    const queryStart = Date.now();
 
-    // Run the same SQL-aggregated analytics that were previously provided
-    // by the database helper. Use the shared `db` instance.
-    const summary = db
-      .prepare(
-        `SELECT
-          COUNT(DISTINCT t.id) as totalTransactions,
-          COALESCE(SUM(CAST(dp.amountReceived as REAL)), 0) as totalDistributed,
-          COALESCE(AVG(CAST(dp.amountReceived as REAL)), 0) as averagePayout
-        FROM transactions t
-        LEFT JOIN distribution_payouts dp ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.type != 'initialize'
-          AND t.timestamp BETWEEN ? AND ?`
-      )
-      .get(contractId, startDate.toISOString(), endDate.toISOString());
+    // #503: single set-based query path (no per-transaction N+1) with a 60s
+    // cache, both owned by the data layer so every caller shares the same plan.
+    const { summary, trends, topEarners, collaboratorStats } = getAnalyticsData(
+      contractId,
+      startDate.toISOString(),
+      endDate.toISOString(),
+      collaboratorLimit
+    );
 
-    const trends = db
-      .prepare(
-        `SELECT
-          DATE(t.timestamp) as date,
-          SUM(CAST(dp.amountReceived as REAL)) as amount,
-          COUNT(*) as count
-        FROM distribution_payouts dp
-        JOIN transactions t ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.timestamp BETWEEN ? AND ?
-        GROUP BY DATE(t.timestamp)
-        ORDER BY date ASC`
-      )
-      .all(contractId, startDate.toISOString(), endDate.toISOString());
-
-    const topEarners = db
-      .prepare(
-        `SELECT
-          dp.collaboratorAddress as address,
-          SUM(CAST(dp.amountReceived as REAL)) as totalEarned,
-          COUNT(*) as payouts
-        FROM distribution_payouts dp
-        JOIN transactions t ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.timestamp BETWEEN ? AND ?
-        GROUP BY dp.collaboratorAddress
-        ORDER BY totalEarned DESC
-        LIMIT 10`
-      )
-      .all(contractId, startDate.toISOString(), endDate.toISOString());
-
-    const collaboratorStats = db
-      .prepare(
-        `SELECT
-          dp.collaboratorAddress as address,
-          SUM(CAST(dp.amountReceived as REAL)) as totalEarned,
-          COUNT(*) as payoutCount
-        FROM distribution_payouts dp
-        JOIN transactions t ON dp.transactionId = t.id
-        WHERE t.contractId = ? AND t.status = 'confirmed'
-          AND t.timestamp BETWEEN ? AND ?
-        GROUP BY dp.collaboratorAddress
-        ORDER BY totalEarned DESC`
-      )
-      .all(contractId, startDate.toISOString(), endDate.toISOString());
+    log.info("analytics query completed", {
+      contractId,
+      durationMs: Date.now() - queryStart,
+      totalTransactions: summary.totalTransactions,
+    });
 
     const data = {
       success: true,
@@ -129,7 +92,11 @@ router.get("/analytics/:contractId", validateContractIdMiddleware, (req, res) =>
     res.set("Cache-Control", "max-age=60");
     res.json(data);
   } catch (error) {
-    logger.error("Analytics error:", error);
+    log.error("analytics query failed", {
+      contractId,
+      error: error.message ?? String(error),
+      stack: error.stack,
+    });
     sendError(res, 500, "analytics_fetch_failed", "Failed to load analytics data");
   }
 });

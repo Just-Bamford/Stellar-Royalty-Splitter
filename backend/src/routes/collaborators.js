@@ -1,9 +1,18 @@
 import { Router } from "express";
 import StellarSdk from "@stellar/stellar-sdk";
-import { server, networkPassphrase } from "../stellar.js";
+import { server, networkPassphrase, getNetworkLabel } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
+import { lookupCollaborators } from "../database/index.js";
 import { sendError } from "../error-response.js";
+import { recordCacheHit, recordCacheMiss } from "../metrics.js";
+import {
+  _resetCollaboratorsCache,
+  getCachedCollaborators,
+  getCollaboratorsCacheKey,
+  invalidateCollaboratorsCache,
+  setCachedCollaborators,
+} from "../collaborators-cache.js";
 
 const {
   Address,
@@ -15,6 +24,16 @@ const {
 } = StellarSdk;
 
 export const collaboratorsRouter = Router();
+export { _resetCollaboratorsCache, invalidateCollaboratorsCache };
+
+/**
+ * GET /api/collaborators/lookup?q=G...&limit=10
+ * Returns collaborator address suggestions from previous initialize and payout history.
+ */
+collaboratorsRouter.get("/lookup", (req, res) => {
+  const suggestions = lookupCollaborators(req.query.q, req.query.limit);
+  res.json({ suggestions });
+});
 
 /**
  * GET /api/collaborators/:contractId
@@ -26,6 +45,15 @@ export const collaboratorsRouter = Router();
 collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
+    const cacheKey = getCollaboratorsCacheKey(getNetworkLabel(), contractId);
+    const cached = getCachedCollaborators(cacheKey);
+
+    if (cached) {
+      recordCacheHit("collaborators");
+      return res.json(cached);
+    }
+
+    recordCacheMiss("collaborators");
     const contract = new Contract(contractId);
 
     const dummyAccount = new Account(
@@ -58,6 +86,7 @@ collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req
     }));
 
     logger.info(`get_all_shares returned ${results.length} collaborators for ${contractId}`);
+    setCachedCollaborators(cacheKey, results);
     res.json(results);
   } catch (err) {
     next(err);

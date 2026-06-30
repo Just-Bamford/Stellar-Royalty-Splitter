@@ -57,9 +57,7 @@ The following components are in scope for security research:
 - Admin key / authorization bypass vulnerabilities
 - Re-entrancy or cross-contract call vulnerabilities
 - Integer overflow / underflow in share calculations
-- Ability to drain contract funds without calling `distribute`
-
-**Backend API (`backend/`)**
+- Ability to drain contract funds without calling `distribute`**Backend API (`backend/`)**
 - Authentication or authorization bypass on API endpoints
 - Exposure of `SERVER_SECRET_KEY` or `SIGNING_KEY_FILE` contents via API responses, logs, or errors
 - Injection vulnerabilities (SQL, command, header injection)
@@ -104,10 +102,10 @@ The following components are in scope for security research:
 
 - Never commit secrets, private keys, or `.env` files — `.gitignore` covers these, but verify
   before every push.
-- **Use encrypted secrets stores in production** — AWS Secrets Manager or HashiCorp Vault are
-  supported. Plaintext `SIGNING_KEY_FILE` or `SERVER_SECRET_KEY` should only be used for local
-  development.
-- Configure `SECRETS_ENCRYPTION_KEY` for at-rest encryption of cached secrets.
+- Use `SIGNING_KEY_FILE` (secrets-manager integration) rather than `SERVER_SECRET_KEY` in
+  production environments.
+- Require signed write requests with a nonce and timestamp so backend mutations can reject
+  tampered, stale, or replayed payloads.
 - Rotate `ADMIN_ROTATE_TOKEN` after any suspected compromise.
 - Keep the Stellar CLI and all dependencies up to date.
 - Review the `SECURITY_AUDIT.md` in this repository for known findings and their mitigations.
@@ -159,3 +157,50 @@ Secrets are encrypted at rest when `SECRETS_ENCRYPTION_KEY` is configured.
 
 *This policy follows the [responsible disclosure guidelines](https://cheatsheetseries.owasp.org/cheatsheets/Vulnerability_Disclosure_Cheat_Sheet.html)
 published by OWASP and is inspired by [GitHub's security advisory best practices](https://docs.github.com/en/code-security/security-advisories).*
+
+---
+
+## Re-entrancy and Initialization Guard Strategy
+
+### How the guard works
+
+The contract uses a single atomic check-then-write pattern in `apply_initialize`:
+
+```rust
+if env.storage().instance().has(&StorageKey::Admin) {
+    Self::fail(env, ContractError::AlreadyInitialized);
+}
+// ... validation ...
+storage::instance_set(env, &StorageKey::Admin, &admin); // written last
+```
+
+`StorageKey::Admin` is the sentinel. It is checked at the top of every initialization path and written only after all validation passes. Because Soroban execution is single-threaded and deterministic, there is no window between the check and the write where a second call could observe an uninitialized state.
+
+### All initialization paths are guarded
+
+| Entry point | Guard |
+|---|---|
+| `initialize` | `apply_initialize` checks `Admin` key before any write |
+| `commit_initialize` | Checks `Admin` key first; also checks `InitCH` to block double-commit |
+| `reveal_initialize` | Checks `Admin` key first; `NoPendingCommit` if no prior commit |
+
+### Why true concurrency is not possible
+
+Soroban smart contracts run in a single-threaded, deterministic Wasm sandbox. Each transaction is executed sequentially within a ledger. Two transactions in the same ledger targeting the same contract are ordered by the protocol — the second observes the state written by the first. There is no shared-memory concurrency, no preemption, and no cross-call re-entrancy within a single invocation.
+
+### What the tests cover (`tests/reentrancy_test.rs`)
+
+| # | Scenario | Expected result |
+|---|---|---|
+| 1 | Direct second call to `initialize` | `AlreadyInitialized` |
+| 2 | Three sequential re-init attempts | All return `AlreadyInitialized` |
+| 3 | Storage state after rejected attempt | All original entries unchanged |
+| 4 | `commit_initialize` after live contract | `AlreadyInitialized` |
+| 5 | `reveal_initialize` after live contract | `AlreadyInitialized` |
+| 6 | Double `commit_initialize` | `CommitmentExists` on second call |
+| 7 | `reveal_initialize` with no prior commit | `NoPendingCommit` |
+| 8 | `init` event count after rejections | Emitted exactly once |
+| 9 | `StorageKey::Admin` after 5 rejections | Original admin address unchanged |
+| 10 | Collaborator list after rejected re-init | Original 3-entry list unchanged |
+| 11 | Contract version after rejected re-init | Original version unchanged |
+| 12 | Guard fires before share validation | Returns `AlreadyInitialized`, not `InvalidShareTotal` |

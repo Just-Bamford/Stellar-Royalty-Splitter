@@ -1,64 +1,11 @@
 // Thin client that talks to the Express backend
 
 import { extractContractError } from "./lib/contract-errors";
+import { createSignedRequestHeaders } from "./request-signing";
+export { setRequestSigningSecret } from "./request-signing";
 
-const BASE = "/api";
+const BASE = "/api/v1";
 export const SESSION_EXPIRED_EVENT = "srs:session-expired";
-const SESSION_EXPIRED_MESSAGE =
-  "Your session has expired. Please connect your wallet again.";
-
-let sessionExpiryNotified = false;
-
-function notifySessionExpired() {
-  if (sessionExpiryNotified || typeof window === "undefined") return;
-  sessionExpiryNotified = true;
-  window.dispatchEvent(
-    new CustomEvent(SESSION_EXPIRED_EVENT, {
-      detail: { message: SESSION_EXPIRED_MESSAGE },
-    }),
-  );
-}
-
-async function readJson(res: Response): Promise<unknown> {
-  const text = await res.text();
-  if (!text) return null;
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function getErrorMessage(data: unknown, status: number) {
-  if (
-    data &&
-    typeof data === "object" &&
-    "error" in data &&
-    typeof data.error === "string"
-  ) {
-    return data.error;
-  }
-
-  return `Request failed (${status})`;
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
-  const data = await readJson(res);
-
-  if (res.status === 401) {
-    notifySessionExpired();
-    throw new Error(SESSION_EXPIRED_MESSAGE);
-  }
-
-  if (res.ok) {
-    sessionExpiryNotified = false;
-    return data as T;
-  }
-
-  throw new Error(getErrorMessage(data, res.status));
-}
 
 // #279: surface a structured `code + message + details` shape from
 // the backend's error response instead of just `data.error`. The
@@ -84,26 +31,64 @@ export class BackendApiError extends Error {
   }
 }
 
-function readErrorBody(status: number, data: unknown): BackendApiError {
-  const parsed = extractContractError(data ?? { error: "Request failed" });
-  return new BackendApiError(
-    status,
-    parsed.code,
-    parsed.message,
-    parsed.details,
-  );
-}
+async function post<T>(
+  path: string,
+  body: unknown,
+  walletAddress?: string,
+  extraHeaders?: Record<string, string>,
+): Promise<T> {
+  const requestPath = `${BASE}${path}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+  if (walletAddress) {
+    Object.assign(
+      headers,
+      createSignedRequestHeaders({
+        method: "POST",
+        path: requestPath,
+        body,
+      }),
+    );
+  }
+
+  if (extraHeaders) {
+    Object.assign(headers, extraHeaders);
+  }
+
   return request<T>(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
 }
 
-async function get<T>(path: string): Promise<T> {
-  return request<T>(path);
+/**
+ * Generate a fresh idempotency key for retry-safe POST requests.
+ * Generate once per user action, then pass the same key on every retry.
+ */
+export function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, signal ? { signal } : undefined);
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, init);
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const extracted = extractContractError(data);
+    throw new BackendApiError(
+      res.status,
+      extracted.code,
+      extracted.message || res.statusText,
+      extracted.details,
+    );
+  }
+
+  return data as T;
 }
 
 export interface TransactionRecord {
@@ -137,6 +122,14 @@ export interface AuditLogEntry {
   timestamp: string;
 }
 
+export interface CollaboratorSuggestion {
+  address: string;
+  label: string;
+  contractId: string | null;
+  lastSeen: string | null;
+  sources: string[];
+}
+
 export interface SecondarySale {
   id: number;
   nftId: string;
@@ -160,19 +153,92 @@ export interface RoyaltyStats {
   } | null;
 }
 
+// #504: contract pause state for the distribution UI banner.
+export interface PauseState {
+  paused: boolean;
+  pauseTimestamp: number;
+  pauseSource: string | null;
+  remainingSeconds: number;
+}
+
+export type ContractStateCacheStatus = "cached" | "live" | "error";
+
+export interface ContractState {
+  contractId: string;
+  adminAddress: string | null;
+  royaltyRate: number;
+  recipients: Array<{ address: string; basisPoints: number }>;
+  balance: string;
+  tokenId: string;
+  network: string;
+  networkPassphrase?: string;
+  cacheStatus: Exclude<ContractStateCacheStatus, "error">;
+  cacheTtlMs: number;
+  fetchedAt: string;
+  isDegraded?: boolean;
+}
+
 export const api = {
   initialize: (body: {
     contractId: string;
     walletAddress: string;
     collaborators: string[];
     shares: number[];
-  }) => post<{ xdr: string; transactionId: number }>("/initialize", body),
+    nonce?: string;
+  }) =>
+    post<{ xdr: string; transactionId: number }>(
+      "/initialize",
+      body,
+      body.walletAddress,
+    ),
+
+  commitInitialize: (body: {
+    contractId: string;
+    walletAddress: string;
+    collaboratorsHash: string;
+    sharesHash: string;
+    nonce: string;
+  }) =>
+    post<{ xdr: string; transactionId: number; phase: string }>(
+      "/initialize/commit",
+      body,
+      body.walletAddress,
+    ),
+
+  revealInitialize: (body: {
+    contractId: string;
+    walletAddress: string;
+    collaborators: string[];
+    shares: number[];
+    salt: string;
+  }) =>
+    post<{ xdr: string; transactionId: number; phase: string }>(
+      "/initialize/reveal",
+      body,
+      body.walletAddress,
+    ),
 
   distribute: (body: {
     contractId: string;
     walletAddress: string;
     tokenId: string;
-  }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
+    amount: number;
+  }) =>
+  distribute: (
+    body: {
+      contractId: string;
+      walletAddress: string;
+      tokenId: string;
+      amount?: number;
+    },
+    idempotencyKey?: string,
+  ) =>
+    post<{ xdr: string; transactionId: number }>(
+      "/distribute",
+      body,
+      body.walletAddress,
+      idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    ),
 
   getContractBalance: (contractId: string, tokenId: string) =>
     get<{ balance: string }>(
@@ -184,6 +250,11 @@ export const api = {
       `/collaborators/${contractId}`,
     ),
 
+  lookupCollaborators: (query = "", limit = 10) =>
+    get<{ suggestions: CollaboratorSuggestion[] }>(
+      `/collaborators/lookup?q=${encodeURIComponent(query)}&limit=${limit}`,
+    ),
+
   // Transaction History & Audit Log APIs
   getTransactionHistory: (contractId: string, limit = 50, offset = 0) =>
     get<{
@@ -192,9 +263,10 @@ export const api = {
       pagination: { limit: number; offset: number; total: number };
     }>(`/history/${contractId}?limit=${limit}&offset=${offset}`),
 
-  getTransactionDetails: (txHash: string) =>
+  getTransactionDetails: (txHash: string, signal?: AbortSignal) =>
     get<{ success: boolean; data: TransactionDetails }>(
       `/transaction/${txHash}`,
+      signal,
     ),
 
   confirmTransaction: (
@@ -205,10 +277,12 @@ export const api = {
       errorMessage?: string;
       transactionId?: number;
     },
+    walletAddress?: string,
   ) =>
     post<{ success: boolean; message: string }>(
       `/transaction/confirm/${txHash}`,
       body,
+      walletAddress,
     ),
 
   getAuditLog: (contractId: string, limit = 100, offset = 0) =>
@@ -224,7 +298,11 @@ export const api = {
       details?: Record<string, unknown>;
     },
   ) =>
-    post<{ success: boolean; message: string }>(`/audit/${contractId}`, body),
+    post<{ success: boolean; message: string }>(
+      `/audit/${contractId}`,
+      body,
+      body.user,
+    ),
 
   // Secondary Royalty APIs
   recordSecondarySale: (body: {
@@ -240,6 +318,7 @@ export const api = {
     post<{ xdr: string; transactionId: number; royaltyAmount: number }>(
       "/secondary-royalty",
       body,
+      body.walletAddress,
     ),
 
   setRoyaltyRate: (body: {
@@ -250,19 +329,28 @@ export const api = {
     post<{ xdr: string; transactionId: number }>(
       "/secondary-royalty/set-rate",
       body,
+      body.walletAddress,
     ),
 
-  distributeSecondaryRoyalties: (body: {
-    contractId: string;
-    walletAddress: string;
-    tokenId: string;
-  }) =>
+  distributeSecondaryRoyalties: (
+    body: {
+      contractId: string;
+      walletAddress: string;
+      tokenId: string;
+    },
+    idempotencyKey?: string,
+  ) =>
     post<{
       xdr: string;
       transactionId: number;
       numberOfSales: number;
       totalRoyalties: string;
-    }>("/secondary-royalty/distribute", body),
+    }>(
+      "/secondary-royalty/distribute",
+      body,
+      body.walletAddress,
+      idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    ),
 
   getRoyaltyStats: (contractId: string) =>
     get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
@@ -306,15 +394,23 @@ export const api = {
   getContractStatus: (contractId: string) =>
     get<{ initialized: boolean }>(`/contract/status/${contractId}`),
 
-  getContractBalance: (contractId: string, tokenId: string) =>
-    get<{ balance: string }>(
-      `/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`,
-    ),
-
   getContractVersion: (contractId: string) =>
     get<{ contractId: string; version: string }>(
       `/contract/version/${contractId}`,
     ),
+
+  // #504: Fetch the contract's pause state so the UI can warn and block.
+  getPauseState: (contractId: string) =>
+    get<PauseState>(`/contract/pause/${contractId}`),
+
+  getContractState: (
+    contractId: string,
+    options: { bypassCache?: boolean } = {},
+  ) => {
+    const params = new URLSearchParams({ contractId });
+    if (options.bypassCache) params.set("cache", "false");
+    return get<ContractState>(`/contract/state?${params.toString()}`);
+  },
 
   // NEW: Fetch royalty rate from contract
   getRoyaltyRate: (contractId: string) =>
@@ -351,4 +447,11 @@ export const api = {
     }>(
       `/analytics/${contractId}${dateRange ? `?start=${dateRange.start}&end=${dateRange.end}` : ""}`,
     ),
+
+  // NEW: Fetch overall system health
+  getHealth: () => get<{ ok: boolean; horizon: { connected: boolean } }>("/health"),
+
+  // NEW: Fetch traces for a correlation ID
+  getTraces: (correlationId: string) =>
+    get<{ success: boolean; traces: Array<any> }>(`/traces/${correlationId}`),
 };

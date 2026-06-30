@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { AddressCopy } from "./AddressCopy";
 
 interface Collaborator {
   address: string;
@@ -19,7 +20,6 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("share");
-  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
     if (!contractId) return;
@@ -31,13 +31,6 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [contractId, refreshKey]);
-
-  function copyAddress(address: string) {
-    navigator.clipboard.writeText(address).then(() => {
-      setCopied(address);
-      setTimeout(() => setCopied(null), 1500);
-    });
-  }
 
   if (!contractId) return null;
   if (loading) return <div className="card status info">Loading collaborators…</div>;
@@ -97,20 +90,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
           {filtered.map((c) => (
             <tr key={c.address}>
               <td>
-                <span title={c.address}>
-                  {c.address.slice(0, 8)}...{c.address.slice(-6)}
-                </span>
-                <button
-                  className="copy-btn-sm"
-                  onClick={() => copyAddress(c.address)}
-                  title={copied === c.address ? "Address copied" : "Copy address"}
-                  aria-label={copied === c.address ? "Address copied" : "Copy collaborator address"}
-                  className={`copy-btn-sm${copied === c.address ? " copied" : ""}`}
-                  onClick={() => copyAddress(c.address)}
-                  title={copied === c.address ? "Address copied" : "Copy address"}
-                >
-                  {copied === c.address ? "✓" : "⧉"}
-                </button>
+                <AddressCopy address={c.address} label="collaborator address" />
               </td>
               <td style={{ textAlign: "right" }}>
                 <span>{(c.basisPoints / 100).toFixed(2)}%</span>

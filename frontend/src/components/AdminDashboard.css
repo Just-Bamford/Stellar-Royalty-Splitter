@@ -67,7 +67,7 @@
 }
 
 .info-btn {
-  padding: 0.6rem 1rem;
+  padding: 0.75rem 1rem;
   background: linear-gradient(
     135deg,
     var(--accent-primary) 0%,
@@ -80,6 +80,9 @@
   font-weight: 500;
   transition: all var(--transition-base);
   box-shadow: var(--shadow-md);
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
 }
 
 .info-btn:hover {
@@ -168,6 +171,90 @@
   transition: all var(--transition-base);
 }
 
+.contract-state-panel {
+  display: grid;
+  gap: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.contract-state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 32px;
+}
+
+.contract-state-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.contract-state-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.contract-state-admin {
+  max-width: min(100%, 520px);
+  overflow-wrap: anywhere;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-family: "Courier New", monospace;
+  font-size: 0.85rem;
+}
+
+.auto-refresh-control select {
+  min-width: 110px;
+  min-height: 36px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--spacing-sm);
+}
+
+.cache-status-badge {
+  padding: 0.3rem var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.cache-status-badge.cached {
+  background: var(--warning-light);
+  color: var(--warning-dark);
+}
+
+.cache-status-badge.live {
+  background: var(--success-light);
+  color: var(--success-dark);
+}
+
+.cache-status-badge.error {
+  background: var(--error-light);
+  color: var(--error-dark);
+}
+
+.contract-state-error {
+  color: var(--error-dark);
+  background: var(--error-light);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.9rem;
+}
+
 .copy-btn {
   padding: var(--spacing-xs) var(--spacing-md);
   background: var(--bg-secondary);
@@ -178,6 +265,9 @@
   font-weight: 500;
   transition: all var(--transition-base);
   white-space: nowrap;
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
 }
 
 .copy-btn:hover {
@@ -260,6 +350,9 @@
   cursor: pointer;
   font-size: 1rem;
   transition: all var(--transition-base);
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
 }
 
 .refresh-mini-btn:hover {
@@ -805,6 +898,7 @@
   gap: var(--spacing-sm);
   margin-top: var(--spacing-md);
   flex-wrap: wrap;
+  align-items: stretch;
 }
 
 .action-btn {
@@ -816,9 +910,12 @@
   cursor: pointer;
   font-size: 0.9rem;
   transition: all var(--transition-base);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
 }
 
 .action-btn:hover {
@@ -828,10 +925,34 @@
   box-shadow: var(--shadow-sm);
 }
 
+.action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+}
+
+.refresh-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.refresh-spinner.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
 .action-btn.copied {
   background: var(--success-color);
   color: white;
   border-color: var(--success-color);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* QR Modal Styles */

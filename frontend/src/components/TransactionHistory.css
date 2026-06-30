@@ -328,6 +328,110 @@
   background: #2563eb;
 }
 
+.transactions-table {
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+.transactions-table table {
+  min-width: 100%;
+}
+
+.transactions-table td,
+.transactions-table th {
+  white-space: normal;
+  word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .history-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .history-header button {
+    width: 100%;
+  }
+
+  .pagination {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .pagination button {
+    width: 100%;
+  }
+
+  .transactions-table table,
+  .transactions-table thead,
+  .transactions-table tbody,
+  .transactions-table th,
+  .transactions-table td,
+  .transactions-table tr {
+    display: block;
+  }
+
+  .transactions-table thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+
+  .transactions-table tr {
+    margin-bottom: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: white;
+    padding: 0.75rem;
+  }
+
+  .transactions-table td {
+    padding: 0.75rem 0.5rem;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .transactions-table td::before {
+    content: attr(data-label);
+    width: 35%;
+    flex: 0 0 35%;
+    color: #6b7280;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .transactions-table td[data-label="TX Hash"],
+  .transactions-table td[data-label="Initiator"] {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .transactions-table td[data-label="TX Hash"] .tx-hash-cell {
+    width: 100%;
+  }
+
+  .transactions-table td:last-child {
+    border-bottom: none;
+  }
+
+  .history-header button,
+  .pagination button,
+  .tx-copy-btn,
+  .copy-btn,
+  .copy-btn-sm {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 .tx-detail-error {
   background: #fef2f2;
   border: 1px solid #fecaca;
@@ -374,8 +478,96 @@
   letter-spacing: 0.5px;
 }
 
+[data-theme="dark"] .transaction-history {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .history-header h2,
+[data-theme="dark"] .tx-table th,
+[data-theme="dark"] .tx-payouts-table th {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .tx-table td,
+[data-theme="dark"] .tx-payouts-table td,
+[data-theme="dark"] .tx-meta {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .tx-table tr:hover {
+  background: var(--bg-tertiary);
+}
+
 .tx-payouts-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+}
   padding: 8px 12px;
   border-top: 1px solid #e5e7eb;
   color: #4b5563;
+}
+
+/* Transaction filters (#413) */
+.tx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.tx-filter-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  background: var(--input-bg, transparent);
+  color: inherit;
+}
+.tx-filter-select {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  background: var(--input-bg, transparent);
+  color: inherit;
+}
+.tx-filter-clear {
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.tx-filter-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+.tx-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(92, 124, 250, 0.15);
+  color: #5c7cfa;
+}
+.tx-filter-badge button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+}
+.tx-result-count {
+  font-size: 0.82rem;
+  opacity: 0.75;
+  margin-bottom: 0.5rem;
 }

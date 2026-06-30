@@ -1,0 +1,240 @@
+/* AddressCopy component styles (#479) */
+
+.ac-root {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 100%;
+}
+
+/* ── Address row ──────────────────────────────────────────────────────────── */
+
+.ac-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+}
+
+.ac-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+  color: var(--text-primary, #e2e8f0);
+  cursor: default;
+  user-select: text;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ac-address-full {
+  word-break: break-all;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.ac-address-truncated {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+.ac-addr-start,
+.ac-addr-end {
+  color: var(--text-primary, #e2e8f0);
+  font-weight: 600;
+}
+
+.ac-addr-dots {
+  color: var(--text-secondary, #94a3b8);
+  padding: 0 0.1em;
+}
+
+.ac-invalid-badge {
+  color: var(--color-warning, #f59e0b);
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.ac-copy-btn,
+.ac-qr-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.ac-copy-btn:hover,
+.ac-qr-btn:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #e2e8f0);
+  border-color: var(--border-active, rgba(255, 255, 255, 0.3));
+}
+
+.ac-copy-btn--copied {
+  color: var(--color-success, #10b981);
+  border-color: var(--color-success, #10b981);
+}
+
+/* ── QR Modal ─────────────────────────────────────────────────────────────── */
+
+.ac-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.ac-modal {
+  background: var(--card-bg, #1e2433);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+}
+
+.ac-modal-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ac-modal-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+  margin: 0;
+}
+
+.ac-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ac-modal-close:hover {
+  color: var(--text-primary, #e2e8f0);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.ac-qr-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ac-modal-address {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  color: var(--text-secondary, #94a3b8);
+  word-break: break-all;
+  text-align: center;
+  margin: 0;
+  max-width: 100%;
+}
+
+.ac-modal-copy-btn {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary, #e2e8f0);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ac-modal-copy-btn:hover {
+  background: var(--surface-active, rgba(255, 255, 255, 0.1));
+}
+
+/* ── Paste Validator ─────────────────────────────────────────────────────── */
+
+.ac-paste-validator {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.ac-paste-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.ac-paste-input {
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  background: var(--input-bg, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary, #e2e8f0);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ac-paste-input:focus {
+  border-color: var(--color-primary, #6366f1);
+}
+
+.ac-paste-input--valid {
+  border-color: var(--color-success, #10b981);
+}
+
+.ac-paste-input--invalid,
+.ac-paste-input--mismatch {
+  border-color: var(--color-danger, #ef4444);
+}
+
+.ac-paste-feedback {
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.ac-paste-ok {
+  color: var(--color-success, #10b981);
+}
+
+.ac-paste-error,
+.ac-paste-warn {
+  color: var(--color-danger, #ef4444);
+}
+
+.ac-paste-warn {
+  color: var(--color-warning, #f59e0b);
+}

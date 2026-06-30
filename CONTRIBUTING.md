@@ -1,6 +1,25 @@
 # Contributing Guide
 
-Thank you for contributing to the Stellar Royalty Splitter! This guide will help you set up your development environment and follow our contribution workflow.
+Thanks for your interest in contributing. This guide covers everything you need to get the project running locally, write and run tests, and open a pull request.
+
+If you run into problems during setup or development, check the **[Troubleshooting Guide](TROUBLESHOOTING.md)** first — it covers 25+ common issues with step-by-step fixes.
+
+---
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Fork and clone](#fork-and-clone)
+- [Smart contract setup](#smart-contract-setup)
+- [Backend setup](#backend-setup)
+- [Frontend setup](#frontend-setup)
+- [Running tests](#running-tests)
+- [Branch naming](#branch-naming)
+- [Commit message standards](#commit-message-standards)
+- [PR guidelines](#pr-guidelines)
+- [Windows auth guard caveat](#windows-auth-guard-caveat)
+
+---
 
 ## Prerequisites
 

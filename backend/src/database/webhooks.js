@@ -1,10 +1,12 @@
 /**
- * Webhook registration storage for distribute completion callbacks (#295).
+ * Webhook registration and dead-letter queue storage (#295, #401).
  */
 
 import { db, countWrite } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
 
 export function registerWebhook(contractId, url) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO webhooks (contractId, url, enabled)
     VALUES (?, ?, 1)
@@ -25,6 +27,7 @@ export function registerWebhook(contractId, url) {
 }
 
 export function listWebhooks(contractId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT id, contractId, url, enabled, createdAt
     FROM webhooks
@@ -36,6 +39,7 @@ export function listWebhooks(contractId) {
 }
 
 export function deleteWebhook(contractId, webhookId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     UPDATE webhooks
     SET enabled = 0
@@ -47,48 +51,83 @@ export function deleteWebhook(contractId, webhookId) {
   return result.changes > 0;
 }
 
-export function recordDeliveryAttempt({ webhookId, contractId, success, statusCode, errorMessage, durationMs, attempt }) {
+// ---------------------------------------------------------------------------
+// Dead-letter queue (#401)
+// ---------------------------------------------------------------------------
+
+export function enqueueDeadLetter(webhookId, contractId, url, payload, errorMessage) {
+  assertValidContractId(contractId);
   db.prepare(`
-    INSERT INTO webhook_deliveries (webhookId, contractId, success, statusCode, errorMessage, durationMs, attempt)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(webhookId, contractId, success ? 1 : 0, statusCode ?? null, errorMessage ?? null, durationMs ?? null, attempt);
+    INSERT INTO webhook_dead_letters (webhookId, contractId, url, payload, errorMessage)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(webhookId, contractId, url, JSON.stringify(payload), errorMessage);
   countWrite();
 }
 
-export function getDeliveryAttempts(webhookId, limit = 20) {
-  return db.prepare(`
-    SELECT id, webhookId, contractId, success, statusCode, errorMessage, durationMs, attempt, timestamp
-    FROM webhook_deliveries
-    WHERE webhookId = ?
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `).all(webhookId, limit);
+export function listDeadLetters(contractId, limit = 50) {
+  assertValidContractId(contractId);
+  return db
+    .prepare(
+      `SELECT id, webhookId, contractId, url, payload, errorMessage, retryCount, createdAt, lastAttemptAt
+       FROM webhook_dead_letters
+       WHERE contractId = ? AND retryCount < 10
+       ORDER BY createdAt ASC
+       LIMIT ?`,
+    )
+    .all(contractId, limit);
 }
 
-export function getDeliveryStats(webhookId) {
-  return db.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(success) as successes,
-      AVG(CASE WHEN success = 1 THEN durationMs END) as avgLatencyMs,
-      MAX(timestamp) as lastAttempt
-    FROM webhook_deliveries
-    WHERE webhookId = ?
-  `).get(webhookId);
+export function listAllPendingDeadLetters(limit = 100) {
+  return db
+    .prepare(
+      `SELECT id, webhookId, contractId, url, payload, errorMessage, retryCount, createdAt, lastAttemptAt
+       FROM webhook_dead_letters
+       WHERE retryCount < 10
+       ORDER BY createdAt ASC
+       LIMIT ?`,
+    )
+    .all(limit);
 }
 
-export function getContractDeliveryStats(contractId) {
-  return db.prepare(`
-    SELECT
-      w.id as webhookId,
-      w.url,
-      COUNT(d.id) as total,
-      SUM(d.success) as successes,
-      AVG(CASE WHEN d.success = 1 THEN d.durationMs END) as avgLatencyMs,
-      MAX(d.timestamp) as lastAttempt
-    FROM webhooks w
-    LEFT JOIN webhook_deliveries d ON d.webhookId = w.id
-    WHERE w.contractId = ? AND w.enabled = 1
-    GROUP BY w.id
-  `).all(contractId);
+/**
+ * Mark a dead-letter entry as retried.
+ * - succeeded=true  → delete the record (delivery succeeded, no longer needed)
+ * - succeeded=false → increment retryCount + update lastAttemptAt
+ * - permanent=true  → set retryCount to a sentinel value (255) so it is never
+ *   picked up again by the retry scheduler (#428).
+ */
+export function markDeadLetterRetried(id, succeeded, permanent = false) {
+  if (succeeded) {
+    db.prepare(`DELETE FROM webhook_dead_letters WHERE id = ?`).run(id);
+  } else if (permanent) {
+    // Sentinel: value higher than any WEBHOOK_MAX_ATTEMPTS to ensure the
+    // scheduler never picks this entry up again.
+    db.prepare(
+      `UPDATE webhook_dead_letters
+       SET retryCount = 255, lastAttemptAt = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+    ).run(id);
+  } else {
+    db.prepare(
+      `UPDATE webhook_dead_letters
+       SET retryCount = retryCount + 1, lastAttemptAt = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+    ).run(id);
+  }
+  countWrite();
+}
+
+/**
+ * #428: Delete dead-letter records older than `retentionDays` days.
+ * Returns the number of rows deleted.
+ */
+export function deleteOldDeadLetters(retentionDays = 30) {
+  const result = db
+    .prepare(
+      `DELETE FROM webhook_dead_letters
+       WHERE createdAt < datetime('now', ? || ' days')`,
+    )
+    .run(`-${retentionDays}`);
+  if (result.changes > 0) countWrite();
+  return result.changes;
 }

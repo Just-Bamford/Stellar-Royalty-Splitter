@@ -8,17 +8,25 @@ import {
   getRoyaltyRateFromContract,
   server,
 } from "../stellar.js";
+import logger from "../logger.js";
 import {
+  db,
   recordTransaction,
   recordSecondarySale,
-  recordSecondaryRoyaltyDistribution,
   getSecondarySales,
   getSecondaryRoyaltyDistributions,
   getRoyaltyStatistics,
-  markSalesDistributed,
   countSecondarySales,
   addAuditLog,
+  applyLargestRemainder,
+  commitSecondaryDistributionAtomic,
+  addToRetryQueue,
+  getRetryQueueStats,
+  getDeadLetterQueueStats,
+  getDeadLetterItems,
 } from "../database/index.js";
+import { idempotencyMiddleware } from "../idempotency.js";
+import { assertValidXdr } from "./_shared.js";
 import {
   validate,
   recordSecondarySaleSchema,
@@ -57,7 +65,7 @@ secondaryRoyaltyRouter.get("/pool/:contractId", validateContractIdMiddleware, as
  * Body: { contractId, walletAddress, nftId, previousOwner, newOwner, salePrice, saleToken, royaltyRate }
  * Returns: { xdr, transactionId, royaltyAmount }
  */
-secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req, res, next) => {
+secondaryRoyaltyRouter.post("/", idempotencyMiddleware, validate(recordSecondarySaleSchema), async (req, res, next) => {
   try {
     const {
       contractId,
@@ -106,26 +114,34 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
       return sendError(res, 400, "bad_request", "Calculated royalty amount is zero.");
     }
 
-    const transactionId = recordTransaction(contractId, "secondary_royalty", walletAddress, {
-      salePrice: salePrice.toString(),
-      nftId,
-      saleToken,
-      royaltyRate: onChainRate,
-    });
-
+    let transactionId;
     try {
-      recordSecondarySale(
-        contractId,
-        nftId,
-        previousOwner,
-        newOwner,
-        salePrice,
-        saleToken,
-        royaltyAmount,
-        onChainRate
-      );
+      const insertRecord = db.transaction(() => {
+        transactionId = recordTransaction(contractId, "secondary_royalty", walletAddress, {
+          salePrice: salePrice.toString(),
+          nftId,
+          saleToken,
+          royaltyRate: onChainRate,
+        });
+        recordSecondarySale(
+          contractId,
+          nftId,
+          previousOwner,
+          newOwner,
+          salePrice,
+          saleToken,
+          royaltyAmount,
+          onChainRate
+        );
+      });
+      insertRecord();
     } catch (err) {
-      if (err.code === "SQLITE_CONSTRAINT_UNIQUE") {
+      if (err.code && err.code.startsWith("SQLITE_CONSTRAINT")) {
+        logger.warn("SQLite constraint violation recording secondary sale", {
+          code: err.code,
+          contractId,
+          nftId,
+        });
         return sendError(res, 409, "conflict", "This sale has already been recorded.");
       }
       throw err;
@@ -134,6 +150,9 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
     const txXdr = await buildTx(walletAddress, contractId, "record_secondary_royalty", [
       i128ToScVal(salePrice),
     ]);
+
+    // Reject invalid XDR before it ever reaches the client (#XDR validation).
+    assertValidXdr(txXdr);
 
     addAuditLog(contractId, "secondary_sale_recorded", walletAddress, {
       transactionId,
@@ -187,6 +206,9 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
       u32ToScVal(royaltyRate),
     ]);
 
+    // Reject invalid XDR before it ever reaches the client (#XDR validation).
+    assertValidXdr(txXdr);
+
     addAuditLog(contractId, "royalty_rate_set", walletAddress, {
       transactionId,
       royaltyRate,
@@ -216,54 +238,137 @@ secondaryRoyaltyRouter.get("/rate/:contractId", async (req, res, next) => {
 
 /**
  * POST /api/secondary-royalty/distribute
- * Body: { contractId, walletAddress, tokenId }
+ * Body: { contractId, walletAddress, tokenId, collaborators? }
+ * `collaborators` is an optional array of { address, basisPoints } objects.
+ * When provided, the total royalty pool is split using the largest-remainder
+ * algorithm (#427) so that every lamport is accounted for and dust is
+ * deterministically allocated to collaborators with the largest fractional share.
  * Returns: { xdr, transactionId } — unsigned transaction to distribute secondary royalties
  */
-secondaryRoyaltyRouter.post("/distribute", validate(distributeSecondarySchema), async (req, res, next) => {
-  try {
-    const { contractId, walletAddress, tokenId } = req.body;
+secondaryRoyaltyRouter.post(
+  "/distribute",
+  idempotencyMiddleware,
+  validate(distributeSecondarySchema),
+  async (req, res, next) => {
+    try {
+      const { contractId, walletAddress, tokenId, collaborators } = req.body;
 
-    // Get pending (undistributed) secondary sales
-    const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
+      // Get pending (undistributed) secondary sales
+      const pendingSales = getSecondarySales(contractId, 1000, 0, null, true);
 
-    if (pendingSales.length === 0) {
-      return sendError(res, 400, "bad_request", "No pending secondary royalties to distribute.");
+      if (pendingSales.length === 0) {
+        return sendError(res, 400, "bad_request", "No pending secondary royalties to distribute.");
+      }
+
+      // Calculate total royalties (BigInt for precision)
+      const totalRoyalties = pendingSales.reduce((sum, sale) => {
+        return sum + BigInt(sale.royaltyAmount);
+      }, 0n);
+
+      // ---------------------------------------------------------------------------
+      // #427: Apply largest-remainder rounding when collaborator shares are provided
+      // ---------------------------------------------------------------------------
+      let roundingAllocations = null;
+      let totalDustAllocated = 0n;
+      let dustAuditData = null;
+
+      if (Array.isArray(collaborators) && collaborators.length > 0) {
+        const bpSum = collaborators.reduce((s, c) => s + (c.basisPoints ?? 0), 0);
+        if (bpSum !== 10000) {
+          return sendError(
+            res,
+            400,
+            "invalid_collaborators",
+            `collaborators basisPoints must sum to 10000, got ${bpSum}.`
+          );
+        }
+
+        roundingAllocations = applyLargestRemainder(totalRoyalties, collaborators);
+        totalDustAllocated = roundingAllocations.reduce((s, a) => s + a.dustReceived, 0n);
+
+        if (totalDustAllocated > 0n) {
+          dustAuditData = {
+            totalDust: totalDustAllocated.toString(),
+            dustRecipients: roundingAllocations
+              .filter((a) => a.dustReceived > 0n)
+              .map((a) => ({ address: a.address, dust: a.dustReceived.toString() })),
+          };
+        }
+      }
+
+      // Build the Stellar XDR *before* any DB writes so that a Stellar failure
+      // never leaves sales in an inconsistent state (#471).
+      let txXdr;
+      try {
+        txXdr = await buildTx(walletAddress, contractId, "distribute_secondary_royalties", [
+          addressToScVal(tokenId),
+        ]);
+      } catch (buildError) {
+        // Token validation or contract call failed - add to retry queue
+        const errorMessage = buildError.message || String(buildError);
+        addToRetryQueue({
+          contractId,
+          walletAddress,
+          tokenId,
+          collaborators,
+          totalRoyalties,
+          numberOfSales: pendingSales.length,
+          pendingSaleIds: pendingSales.map((s) => s.id),
+          totalDustAllocated,
+          dustAuditData,
+          errorMessage,
+        });
+        
+        logger.error("Secondary royalty distribution failed, added to retry queue", {
+          contractId,
+          tokenId,
+          error: errorMessage,
+        });
+
+        return sendError(
+          res,
+          503,
+          "distribution_failed_retry_queued",
+          `Distribution failed and queued for retry: ${errorMessage}`
+        );
+      }
+
+      // Reject invalid XDR before committing any DB state or returning it to
+      // the client. An invalid envelope is a deterministic failure, so it is
+      // surfaced as an error rather than queued for retry.
+      assertValidXdr(txXdr);
+
+      // All DB writes are atomic: if any step fails, the transaction rolls back
+      // and pending sales remain undistributed (#471).
+      const transactionId = commitSecondaryDistributionAtomic({
+        contractId,
+        walletAddress,
+        totalRoyalties,
+        numberOfSales: pendingSales.length,
+        pendingSaleIds: pendingSales.map((s) => s.id),
+        totalDustAllocated,
+        dustAuditData,
+      });
+
+      res.json({
+        xdr: txXdr,
+        transactionId,
+        numberOfSales: pendingSales.length,
+        totalRoyalties: totalRoyalties.toString(),
+        dustAllocated: totalDustAllocated.toString(),
+        ...(roundingAllocations && {
+          allocations: roundingAllocations.map((a) => ({
+            address: a.address,
+            amount: a.amount.toString(),
+            dustReceived: a.dustReceived.toString(),
+          })),
+        }),
+      });
+    } catch (err) {
+      next(err);
     }
-
-    // Calculate total royalties
-    const totalRoyalties = pendingSales.reduce((sum, sale) => {
-      return sum + BigInt(sale.royaltyAmount);
-    }, 0n);
-
-    const transactionId = recordTransaction(contractId, "secondary_distribute", walletAddress, {
-      totalRoyalties: totalRoyalties.toString(),
-      numberOfSales: pendingSales.length,
-    });
-
-    // Build transaction to distribute secondary royalties
-    const txXdr = await buildTx(walletAddress, contractId, "distribute_secondary_royalties", [
-      addressToScVal(tokenId),
-    ]);
-
-    // Mark sales as distributed
-    markSalesDistributed(pendingSales.map((s) => s.id));
-
-    addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
-      transactionId,
-      numberOfSales: pendingSales.length,
-      totalRoyalties: totalRoyalties.toString(),
-    });
-
-    res.json({
-      xdr: txXdr,
-      transactionId,
-      numberOfSales: pendingSales.length,
-      totalRoyalties: totalRoyalties.toString(),
-    });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 /**
  * GET /api/secondary-royalty/stats/:contractId
@@ -301,7 +406,7 @@ secondaryRoyaltyRouter.get("/sales/:contractId", (req, res, next) => {
     const { contractId } = req.params;
     if (!validateContractId(contractId, res)) return;
 
-    const pagination = parsePagination(req.query, res, 50, 100);
+    const pagination = parsePagination(req.query, res);
     if (!pagination) return;
     const { limit, offset } = pagination;
 
@@ -343,15 +448,67 @@ secondaryRoyaltyRouter.get(
   (req, res, next) => {
     try {
       const { contractId } = req.params;
-      const { limit = 50, offset = 0 } = req.query;
+      const pagination = parsePagination(req.query, res);
+      if (!pagination) return;
+      const { limit, offset } = pagination;
 
       const distributions = getSecondaryRoyaltyDistributions(
         contractId,
-        parseInt(limit),
-        parseInt(offset)
+        limit,
+        offset
       );
 
-      res.json({ distributions });
+      res.json({ distributions, pagination });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/secondary-royalty/retry-stats
+ * Returns statistics about the retry queue
+ */
+secondaryRoyaltyRouter.get("/retry-stats", (req, res, next) => {
+  try {
+    const stats = getRetryQueueStats();
+    res.json(stats);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/secondary-royalty/dlq-stats
+ * Returns statistics about the dead-letter queue
+ */
+secondaryRoyaltyRouter.get("/dlq-stats", (req, res, next) => {
+  try {
+    const stats = getDeadLetterQueueStats();
+    res.json(stats);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/secondary-royalty/dlq/:contractId
+ * Query params: limit, offset
+ * Returns paginated list of dead-letter queue items for a contract
+ */
+secondaryRoyaltyRouter.get(
+  "/dlq/:contractId",
+  validateContractIdMiddleware,
+  (req, res, next) => {
+    try {
+      const { contractId } = req.params;
+      const pagination = parsePagination(req.query, res);
+      if (!pagination) return;
+      const { limit, offset } = pagination;
+
+      const dlqItems = getDeadLetterItems(contractId, limit, offset);
+
+      res.json({ items: dlqItems, pagination });
     } catch (err) {
       next(err);
     }

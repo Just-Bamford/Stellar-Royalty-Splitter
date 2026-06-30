@@ -1,20 +1,71 @@
 /**
  * Idempotency middleware for preventing duplicate transaction submissions.
  *
- * Uses an in-memory cache with TTL to deduplicate requests based on
- * Idempotency-Key header. When a duplicate key is detected within the
- * configured window, returns the cached response instead of processing
- * the request again.
+ * Uses an in-memory cache with TTL to deduplicate requests based on a
+ * composite key derived from the request content and user. The client-
+ * supplied Idempotency-Key header is still required to opt into caching,
+ * but the actual cache key is content-derived to prevent collisions.
+ *
+ * Cache key format:
+ *   {walletAddress}:{sha256}
+ *
+ * Components:
+ *   - walletAddress:  Per-user scope extracted from req.body.walletAddress.
+ *                      Falls back to "unknown" when not present.
+ *   - sha256:         SHA-256 hex digest of the full request body serialized
+ *                      with stable (sorted-key) JSON. This provides content-
+ *                      based deduplication — two requests with different bodies
+ *                      produce different hashes even when contractId alone matches.
+ *
+ * Hashing: SHA-256 via Node.js crypto module.
+ * Ordering: Object keys are sorted lexicographically before serialization
+ *           to ensure the same logical object always produces the same hash.
  *
  * Configuration:
  * - IDEMPOTENCY_CACHE_TTL_MS: How long to cache responses (default: 24 hours)
  * - IDEMPOTENCY_MAX_ENTRIES: Max cache entries before eviction (default: 10000)
  */
 
+import crypto from "crypto";
 import logger from "./logger.js";
 import { sendError } from "./error-response.js";
 
-// In-memory cache: Map<idempotencyKey, { response, expiresAt }>
+/**
+ * Stable JSON serialization with sorted keys for deterministic hashing.
+ * Nested objects also have their keys sorted recursively.
+ */
+function stableStringify(obj) {
+  if (typeof obj !== "object" || obj === null) {
+    return JSON.stringify(obj);
+  }
+  if (Array.isArray(obj)) {
+    return `[${obj.map(stableStringify).join(",")}]`;
+  }
+  const keys = Object.keys(obj).sort();
+  const pairs = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
+  return `{${pairs.join(",")}}`;
+}
+
+/**
+ * Build an idempotency cache key from the request.
+ *
+ * The key is derived from:
+ *   1. walletAddress — per-user scope (req.body.walletAddress, falls back to "unknown")
+ *   2. SHA-256 hex digest of stable (sorted-key) JSON of the full req.body
+ *
+ * The client-supplied Idempotency-Key header is NOT part of the cache key;
+ * it only opts the request into caching. This prevents collisions between
+ * different legitimate requests whose clients happen to derive their keys
+ * from overlapping fields (e.g. just contractId + amount).
+ */
+export function buildIdempotencyKey(req) {
+  const walletAddress = req.body?.walletAddress || "unknown";
+  const bodyStr = stableStringify(req.body || {});
+  const hash = crypto.createHash("sha256").update(bodyStr, "utf8").digest("hex");
+  return `${walletAddress}:${hash}`;
+}
+
+// In-memory cache: Map<cacheKey, { response, expiresAt }>
 const cache = new Map();
 
 // Configuration
@@ -103,8 +154,13 @@ export function cacheResponse(idempotencyKey, response) {
 /**
  * Express middleware for idempotency support.
  *
- * Checks for Idempotency-Key header and returns cached response if found.
- * Otherwise, intercepts the response and caches it for future requests.
+ * Requires an Idempotency-Key header to opt into caching. The actual cache
+ * key is a composite of the user's wallet address and a SHA-256 hash of the
+ * full request body (stable JSON), preventing collisions between different
+ * legitimate requests whose clients happen to use the same key.
+ *
+ * Returns cached response if found, otherwise intercepts the response
+ * and caches it for future requests.
  *
  * Usage:
  *   router.post("/endpoint", idempotencyMiddleware, handler);
@@ -127,10 +183,15 @@ export function idempotencyMiddleware(req, res, next) {
     );
   }
 
+  // Build composite cache key from request content + user account.
+  // Two requests with the same Idempotency-Key header but different body
+  // content or different users will NOT collide.
+  const cacheKey = buildIdempotencyKey(req);
+
   // Check cache for existing response
-  const cachedResponse = getCachedResponse(idempotencyKey);
+  const cachedResponse = getCachedResponse(cacheKey);
   if (cachedResponse) {
-    logger.info(`Returning cached response for idempotency key: ${idempotencyKey}`);
+    logger.info(`Returning cached response for idempotency key: ${idempotencyKey} (cacheKey: ${cacheKey})`);
     return res.status(cachedResponse.status).json(cachedResponse.body);
   }
 
@@ -150,7 +211,7 @@ export function idempotencyMiddleware(req, res, next) {
   res.json = function (body) {
     // Only cache successful responses (2xx status codes)
     if (statusCode >= 200 && statusCode < 300) {
-      cacheResponse(idempotencyKey, {
+      cacheResponse(cacheKey, {
         status: statusCode,
         body,
       });
