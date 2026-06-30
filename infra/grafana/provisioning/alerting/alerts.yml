@@ -226,3 +226,39 @@ groups:
         labels:
           severity: info
           team: backend
+
+      # ── Contract state consistency ────────────────────────────────────────
+      - uid: srs-contract-state-inconsistent
+        title: Contract State Inconsistency Detected
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: stellar_contract_consistency_last_discrepancy_count
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "DB state differs from on-chain contract state"
+          description: "Latest consistency check found {{ $values.A.Value | printf \"%.0f\" }} discrepancy/discrepancies. Inspect backend logs for contract_state_discrepancy_detected."
+          runbook: "Run GET /api/v1/contract/verify?contractId=<contract_id> and compare expected vs actual fields."
+        labels:
+          severity: critical
+          team: backend

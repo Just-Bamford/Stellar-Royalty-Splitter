@@ -36,6 +36,13 @@ const metrics = {
   // ── #422: RPC response cache hit/miss tracking ─────────────────────────
   /** Map<cacheName> → { hits, misses } */
   cacheStats: new Map(),
+
+  // #510: Contract state consistency verification
+  contractConsistencyChecksTotal: 0,
+  contractConsistencyFailuresTotal: 0,
+  contractConsistencyDiscrepanciesTotal: 0,
+  contractConsistencyLastDiscrepancyCount: 0,
+  contractConsistencyLastRunTimestamp: 0,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -143,6 +150,19 @@ export function recordCacheMiss(cacheName) {
   getCacheEntry(cacheName).misses += 1;
 }
 
+export function recordContractConsistencyCheck({ success, discrepancyCount = 0 } = {}) {
+  const count = Number.isFinite(discrepancyCount) ? Math.max(0, discrepancyCount) : 0;
+
+  metrics.contractConsistencyChecksTotal += 1;
+  metrics.contractConsistencyLastRunTimestamp = Math.floor(Date.now() / 1000);
+  metrics.contractConsistencyLastDiscrepancyCount = count;
+  metrics.contractConsistencyDiscrepanciesTotal += count;
+
+  if (!success) {
+    metrics.contractConsistencyFailuresTotal += 1;
+  }
+}
+
 // ── Snapshot ──────────────────────────────────────────────────────────────
 
 export function getMetricsSnapshot() {
@@ -179,6 +199,14 @@ export function getMetricsSnapshot() {
 
     // #422
     cacheStats: Object.fromEntries(metrics.cacheStats),
+
+    // #510
+    contractConsistencyChecksTotal: metrics.contractConsistencyChecksTotal,
+    contractConsistencyFailuresTotal: metrics.contractConsistencyFailuresTotal,
+    contractConsistencyDiscrepanciesTotal: metrics.contractConsistencyDiscrepanciesTotal,
+    contractConsistencyLastDiscrepancyCount:
+      metrics.contractConsistencyLastDiscrepancyCount,
+    contractConsistencyLastRunTimestamp: metrics.contractConsistencyLastRunTimestamp,
   };
 }
 
@@ -272,6 +300,25 @@ export function prometheusMetrics() {
     lines.push(`stellar_cache_misses_total{cache="${cache}"} ${v.misses}`);
   }
 
+  // #510 — contract state consistency alerts
+  lines.push(
+    "# HELP stellar_contract_consistency_checks_total Contract state consistency verification runs.",
+    "# TYPE stellar_contract_consistency_checks_total counter",
+    `stellar_contract_consistency_checks_total ${snapshot.contractConsistencyChecksTotal}`,
+    "# HELP stellar_contract_consistency_failures_total Contract state consistency verification runs that failed before comparison completed.",
+    "# TYPE stellar_contract_consistency_failures_total counter",
+    `stellar_contract_consistency_failures_total ${snapshot.contractConsistencyFailuresTotal}`,
+    "# HELP stellar_contract_consistency_discrepancies_total Total DB versus on-chain state discrepancies found.",
+    "# TYPE stellar_contract_consistency_discrepancies_total counter",
+    `stellar_contract_consistency_discrepancies_total ${snapshot.contractConsistencyDiscrepanciesTotal}`,
+    "# HELP stellar_contract_consistency_last_discrepancy_count Discrepancies found during the latest consistency verification run.",
+    "# TYPE stellar_contract_consistency_last_discrepancy_count gauge",
+    `stellar_contract_consistency_last_discrepancy_count ${snapshot.contractConsistencyLastDiscrepancyCount}`,
+    "# HELP stellar_contract_consistency_last_run_timestamp_seconds Unix timestamp for the latest consistency verification run.",
+    "# TYPE stellar_contract_consistency_last_run_timestamp_seconds gauge",
+    `stellar_contract_consistency_last_run_timestamp_seconds ${snapshot.contractConsistencyLastRunTimestamp}`,
+  );
+
   lines.push("");
   return lines.join("\n");
 }
@@ -290,4 +337,9 @@ export function resetMetrics() {
   metrics.responseBytesTotal = 0;
   metrics.stellarRpcCalls.clear();
   metrics.cacheStats.clear();
+  metrics.contractConsistencyChecksTotal = 0;
+  metrics.contractConsistencyFailuresTotal = 0;
+  metrics.contractConsistencyDiscrepanciesTotal = 0;
+  metrics.contractConsistencyLastDiscrepancyCount = 0;
+  metrics.contractConsistencyLastRunTimestamp = 0;
 }

@@ -911,6 +911,106 @@ export async function getContractVersionFromContract(contractId) {
   }
 }
 
+async function simulateReadOnlyContractCall(contractId, method, args = []) {
+  const contract = new Contract(contractId);
+  const dummyAccount = new Account(
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+    "0",
+  );
+  const tx = new TransactionBuilder(dummyAccount, {
+    fee: BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(contract.call(method, ...args))
+    .setTimeout(30)
+    .build();
+
+  const sim = await withTimeout(
+    server.simulateTransaction(tx),
+    SOROBAN_RPC_TIMEOUT_MS,
+    `Soroban simulateTransaction ${method}`,
+  );
+
+  if (SorobanRpc.Api.isSimulationError(sim)) {
+    const error = new Error(sim.error ?? `${method} simulation failed`);
+    error.status = 400;
+    throw error;
+  }
+
+  return sim.result?.retval ?? null;
+}
+
+function i128ScValToString(scVal) {
+  const native = StellarSdk.scValToNative(scVal);
+  if (typeof native === "bigint") return native.toString();
+  if (typeof native === "number") return String(native);
+
+  const i128 = scVal?.i128?.();
+  if (!i128) return "0";
+  const hi = BigInt(i128.hi());
+  const lo = BigInt(i128.lo());
+  return ((hi << 64n) | lo).toString();
+}
+
+function decodeRecipientShares(scVal) {
+  const native = StellarSdk.scValToNative(scVal);
+  if (native instanceof Map) {
+    return [...native.entries()].map(([address, basisPoints]) => ({
+      address: String(address),
+      basisPoints: Number(basisPoints),
+    }));
+  }
+
+  const mapEntries = scVal?.map?.()?.entries ?? [];
+  return mapEntries.map((entry) => ({
+    address: Address.fromScVal(entry.key()).toString(),
+    basisPoints: entry.val().u32(),
+  }));
+}
+
+export async function getContractStateSnapshot(contractId) {
+  const initialized = await isContractInitialized(contractId);
+  if (!initialized) {
+    return {
+      contractId,
+      initialized: false,
+      adminAddress: null,
+      version: null,
+      royaltyRate: 0,
+      recipients: [],
+      totalShares: 0,
+      secondaryPool: "0",
+    };
+  }
+
+  const [
+    adminVal,
+    versionVal,
+    royaltyRateVal,
+    recipientsVal,
+    totalSharesVal,
+    secondaryPoolVal,
+  ] = await Promise.all([
+    simulateReadOnlyContractCall(contractId, "get_admin"),
+    simulateReadOnlyContractCall(contractId, "get_version"),
+    simulateReadOnlyContractCall(contractId, "get_royalty_rate"),
+    simulateReadOnlyContractCall(contractId, "get_all_shares"),
+    simulateReadOnlyContractCall(contractId, "get_total_shares"),
+    simulateReadOnlyContractCall(contractId, "get_secondary_pool"),
+  ]);
+
+  return {
+    contractId,
+    initialized: true,
+    adminAddress: adminVal ? Address.fromScVal(adminVal).toString() : null,
+    version: versionVal ? StellarSdk.scValToNative(versionVal)?.toString?.() ?? null : null,
+    royaltyRate: royaltyRateVal?.u32?.() ?? Number(StellarSdk.scValToNative(royaltyRateVal) ?? 0),
+    recipients: decodeRecipientShares(recipientsVal),
+    totalShares: totalSharesVal?.u32?.() ?? Number(StellarSdk.scValToNative(totalSharesVal) ?? 0),
+    secondaryPool: i128ScValToString(secondaryPoolVal),
+  };
+}
+
 // ── Test exports ───────────────────────────────────────────────────────────
 // Internal config snapshot for the test layer.
 export const _config = {

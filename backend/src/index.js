@@ -37,6 +37,10 @@ import { AdminEventListener } from "./events/adminEventListener.js";
 import EventIndexer from "./events/EventIndexer.js";
 import { getConfiguredContractId } from "./stellar.js";
 import { startRecoveryJob, stopRecoveryJob } from "./jobs/secondary-royalty-recovery.js";
+import {
+  startContractStateConsistencyJob,
+  stopContractStateConsistencyJob,
+} from "./jobs/contract-state-consistency.js";
 import { verifySignedWriteRequest } from "./request-signature.js";
 import eventsRouter from "./routes/events.js";
 import { batchRouter } from "./routes/batch-distribute.js";
@@ -339,6 +343,18 @@ if (process.env.NODE_ENV !== "test" && !process.env.DISABLE_RECOVERY_JOB) {
   }
 }
 
+// Start hourly contract state consistency verification (#510)
+if (process.env.NODE_ENV !== "test" && !process.env.DISABLE_CONSISTENCY_JOB) {
+  try {
+    startContractStateConsistencyJob();
+    logger.info("[Startup] Contract state consistency job started");
+  } catch (err) {
+    logger.error("[Startup] Failed to start contract state consistency job", {
+      error: err.message,
+    });
+  }
+}
+
 // Graceful shutdown — include event indexer, admin event listener, cache cleanup, and recovery job
 const originalShutdown = createGracefulShutdownHandler({
   server,
@@ -355,6 +371,7 @@ const handleShutdown = (signal) => {
     adminEventListener.stop();
   }
   stopRecoveryJob();
+  stopContractStateConsistencyJob();
   const cache = getCacheManager();
   cache.disconnect().catch(() => {});
   originalShutdown(signal);
