@@ -354,6 +354,42 @@ export function initializeDatabase() {
           ON transactions(contractId, timestamp DESC);
       `,
     },
+    {
+      // Issue #521: batch processing for large distributions
+      version: 11,
+      sql: `
+        CREATE TABLE IF NOT EXISTS batch_jobs (
+          id TEXT PRIMARY KEY,
+          contractId TEXT NOT NULL,
+          walletAddress TEXT NOT NULL,
+          tokenId TEXT NOT NULL,
+          totalCollaborators INTEGER NOT NULL,
+          totalChunks INTEGER NOT NULL,
+          completedChunks INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'processing', 'completed', 'failed', 'partial')),
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_batch_jobs_contractId ON batch_jobs(contractId);
+        CREATE INDEX IF NOT EXISTS idx_batch_jobs_status ON batch_jobs(status);
+
+        CREATE TABLE IF NOT EXISTS batch_job_chunks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batchJobId TEXT NOT NULL,
+          chunkIndex INTEGER NOT NULL,
+          collaborators TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+          transactionId INTEGER,
+          errorMessage TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          startedAt DATETIME,
+          completedAt DATETIME,
+          FOREIGN KEY(batchJobId) REFERENCES batch_jobs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_batch_job_chunks_batchJobId ON batch_job_chunks(batchJobId);
+        CREATE INDEX IF NOT EXISTS idx_batch_job_chunks_status ON batch_job_chunks(status);
+      `,
+    },
   ];
 
   const applied = db
