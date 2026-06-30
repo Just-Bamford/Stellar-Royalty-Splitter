@@ -101,13 +101,10 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                   {c.address.slice(0, 8)}...{c.address.slice(-6)}
                 </span>
                 <button
-                  className="copy-btn-sm"
-                  onClick={() => copyAddress(c.address)}
-                  title={copied === c.address ? "Address copied" : "Copy address"}
-                  aria-label={copied === c.address ? "Address copied" : "Copy collaborator address"}
                   className={`copy-btn-sm${copied === c.address ? " copied" : ""}`}
                   onClick={() => copyAddress(c.address)}
                   title={copied === c.address ? "Address copied" : "Copy address"}
+                  aria-label={copied === c.address ? "Address copied" : "Copy collaborator address"}
                 >
                   {copied === c.address ? "✓" : "⧉"}
                 </button>

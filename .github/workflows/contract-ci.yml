@@ -21,11 +21,53 @@ on:
       - ".github/workflows/contract-ci.yml"
 
 jobs:
+  format:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+        continue-on-error: false
+
+  build:
+    name: Build (wasm32-unknown-unknown)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+        continue-on-error: false
+
   test:
-    name: cargo test (wasm32-unknown-unknown)
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 25
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,18 +89,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Add wasm32 target (idempotent)
+      - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
 
-      - name: cargo build (wasm32-unknown-unknown)
-        run: cargo build --target wasm32-unknown-unknown --release
-
-      - name: cargo test (host)
-        # The broader integration suite contains existing Soroban contract panic
-        # cases that abort the native test process. Keep CI on the storage
-        # snapshot coverage added for this change while preserving the wasm
-        # build above as the deployment compile check.
+      - name: Run tests
         run: cargo test --workspace --locked --features testutils test_storage_snapshot -- --nocapture
-
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
+        continue-on-error: false

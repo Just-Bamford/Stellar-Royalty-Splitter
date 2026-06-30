@@ -168,16 +168,36 @@ describe("contract state routes", () => {
     const first = await request(app).get("/api/v1/contract/state");
     expect(first.status).toBe(200);
     expect(simulateTransaction).toHaveBeenCalledTimes(4);
+    expect(first.body.cacheStatus).toBe("live");
+    expect(first.body.cacheTtlMs).toBe(30_000);
+    expect(first.body.fetchedAt).toBe(new Date(1_000).toISOString());
 
     nowSpy.mockReturnValue(30_999);
     const cached = await request(app).get("/api/v1/contract/state");
     expect(cached.status).toBe(200);
     expect(simulateTransaction).toHaveBeenCalledTimes(4);
+    expect(cached.body.cacheStatus).toBe("cached");
+    expect(cached.body.fetchedAt).toBe(new Date(1_000).toISOString());
 
     nowSpy.mockReturnValue(31_001);
     const refreshed = await request(app).get("/api/v1/contract/state");
     expect(refreshed.status).toBe(200);
     expect(simulateTransaction).toHaveBeenCalledTimes(8);
+    expect(refreshed.body.cacheStatus).toBe("live");
+    expect(refreshed.body.fetchedAt).toBe(new Date(31_001).toISOString());
+  });
+
+  test("bypasses cached contract state when cache=false", async () => {
+    jest.spyOn(Date, "now").mockReturnValue(2_000);
+
+    const first = await request(app).get("/api/v1/contract/state");
+    expect(first.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(4);
+
+    const refreshed = await request(app).get("/api/v1/contract/state?cache=false");
+    expect(refreshed.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(8);
+    expect(refreshed.body.cacheStatus).toBe("live");
   });
 
   test("400 when no contract ID is configured or provided", async () => {

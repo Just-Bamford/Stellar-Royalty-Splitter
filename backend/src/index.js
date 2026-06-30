@@ -6,6 +6,9 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
+import { correlationMiddleware } from "./correlation.js";
+import { auditExportRouter } from "./routes/audit-export.js";
+import { recordHttpRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
@@ -17,38 +20,101 @@ import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
-import { closeDatabase, initializeDatabase } from "./database/index.js";
+import { tracesRouter } from "./routes/traces.js";
+import { closeDatabase, initializeDatabase, verifyAuditLogOnStartup } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
-import { initializeDatabase } from "./database/index.js";
-import db from "./database/index.js";
 import { initializeSigningKey } from "./signing-key.js";
-import { sendError, normalizeErrorCode } from "./error-response.js";
+import { sendError } from "./error-response.js";
+import { verifyRequestSignatureMiddleware } from "./request-signing.js";
+import { apiKeyRateLimiter } from "./api-key-rate-limit.js";
+import { createLegacyApiRedirectMiddleware } from "./legacy-api-redirect.js";
+
+// #399: Cache and event listener imports
+import { getCacheManager } from "./cache.js";
+import { AdminEventListener } from "./events/adminEventListener.js";
+import EventIndexer from "./events/EventIndexer.js";
+import { getConfiguredContractId } from "./stellar.js";
+import { startRecoveryJob, stopRecoveryJob } from "./jobs/secondary-royalty-recovery.js";
+import {
+  startContractStateConsistencyJob,
+  stopContractStateConsistencyJob,
+} from "./jobs/contract-state-consistency.js";
+import { verifySignedWriteRequest } from "./request-signature.js";
+import eventsRouter from "./routes/events.js";
+import { batchRouter } from "./routes/batch-distribute.js";
 
 // Initialize database on startup
 initializeDatabase();
 initializeSigningKey();
 
+// Issue #395: Verify audit log integrity on startup
+verifyAuditLogOnStartup();
+
 const app = express();
 
-// Request logging middleware
+// #396: Correlation ID — must be first so every subsequent middleware has req.correlationId
+app.use(correlationMiddleware);
+
+// #396: Request / response logging with correlation ID and timing
+import { startSpan } from "./tracing.js";
+
 app.use((req, res, next) => {
   const start = Date.now();
+  const requestBytes = parseInt(req.headers["content-length"] ?? "0", 10) || 0;
+  
+  // Start OpenTelemetry-style trace
+  const span = startSpan(`${req.method} ${req.originalUrl}`, req.correlationId);
+  span.setAttribute("http.method", req.method);
+  span.setAttribute("http.url", req.originalUrl);
+
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    logger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`, {
+    const durationMs = Date.now() - start;
+    const responseBytes = parseInt(res.getHeader("content-length") ?? "0", 10) || 0;
+
+    span.setAttribute("http.status_code", res.statusCode);
+    span.end();
+
+    logger.info("HTTP request completed", {
+      correlationId: req.correlationId,
       method: req.method,
       path: req.originalUrl,
       status: res.statusCode,
-      duration,
+      durationMs,
+      requestBytes,
+      responseBytes,
+    });
+
+    recordHttpRequest(req.method, req.originalUrl, res.statusCode, durationMs, {
+      requestBytes,
+      responseBytes,
     });
   });
   next();
 });
 
-// Security headers
-app.use(helmet());
+// Guard raw legacy /api request targets before any route can see them so
+// traversal attempts like /api/%2e%2e/admin are rejected instead of
+// normalizing into a different protected path.
+app.use(createLegacyApiRedirectMiddleware({ logger }));
+
+// Security headers. #499: set an explicit Content-Security-Policy so a reflected
+// or stored payload cannot execute inline scripts even if it reaches the DOM.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+  })
+);
 
 const corsPreflightMaxAge = parseInt(process.env.CORS_PREFLIGHT_MAX_AGE ?? "86400", 10);
 
@@ -61,7 +127,24 @@ logger.info("CORS origin configured", { origin: corsOrigin });
 app.use(
   cors({
     origin: corsOrigin,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "DELETE"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Idempotency-Key",
+      "X-Wallet-Address",
+      "X-Timestamp",
+      "X-Nonce",
+      "X-Signature",
+      "X-API-Key",
+    ],
+    exposedHeaders: [
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "X-RateLimit-Reset",
+      "X-Export-Signature",
+      "X-Export-Public-Key",
+    ],
     maxAge: Number.isNaN(corsPreflightMaxAge) ? 86400 : corsPreflightMaxAge,
   })
 );
@@ -72,7 +155,8 @@ const generalLimiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_MAX ?? "100"),
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res) => sendError(res, 429, "too_many_requests", "Too many requests, please try again later."),
+  handler: (_req, res) =>
+    sendError(res, 429, "too_many_requests", "Too many requests, please try again later."),
   skip: (req) => req.path === "/api/v1/health" || req.path === "/api/health",
 });
 
@@ -82,11 +166,41 @@ const writeLimiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_WRITE_MAX ?? "10"),
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res) => sendError(res, 429, "too_many_requests", "Too many write requests, please slow down."),
+  handler: (_req, res) =>
+    sendError(res, 429, "too_many_requests", "Too many write requests, please slow down."),
+});
+
+// Read limiter for history/analytics: 30 req / 1 min per IP (issue #394)
+const readAnalyticsLimiter = rateLimit({
+  windowMs: 60_000,
+  max: parseInt(process.env.RATE_LIMIT_ANALYTICS_MAX ?? "30"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) =>
+    sendError(
+      res,
+      429,
+      "too_many_requests",
+      "Too many analytics/history requests, please slow down."
+    ),
 });
 
 app.use(generalLimiter);
+
+// Per-API-key sliding window rate limiting (#420) — independent of the
+// per-IP limiters above. No-op when X-API-Key is absent.
+app.use(apiKeyRateLimiter);
+
 app.use(express.json({ limit: "10kb" }));
+
+// Ed25519 request signature verification for write operations (#392)
+app.use((req, res, next) => {
+  if (req.path.startsWith("/admin")) return next();
+  if (["POST", "PUT", "DELETE"].includes(req.method)) {
+    return verifyRequestSignatureMiddleware(req, res, next);
+  }
+  next();
+});
 
 // Enforce Content-Type: application/json on POST requests
 app.use((req, res, next) => {
@@ -113,18 +227,32 @@ app.use((req, res, next) => {
 app.use("/api/v1/initialize", writeLimiter);
 app.use("/api/v1/distribute", writeLimiter);
 app.use("/api/v1/secondary-royalty", writeLimiter);
-app.use("/api/v1/webhooks", writeLimiter);
+app.use("/api/v1/transaction", writeLimiter);
+app.use("/api/v1/audit", writeLimiter);
+app.use("/api/v1/batch-distribute", writeLimiter);
+
+// Require Ed25519 request signatures for mutating client API operations.
+app.use("/api/v1/initialize", verifySignedWriteRequest);
+app.use("/api/v1/distribute", verifySignedWriteRequest);
+app.use("/api/v1/secondary-royalty", verifySignedWriteRequest);
+app.use("/api/v1/transaction", verifySignedWriteRequest);
+app.use("/api/v1/audit", verifySignedWriteRequest);
+app.use("/api/v1/batch-distribute", verifySignedWriteRequest);
 
 app.use("/api/v1/initialize", initializeRouter);
 app.use("/api/v1/distribute", distributeRouter);
+app.use("/api/v1/batch-distribute", batchRouter);
 app.use("/api/v1/collaborators", collaboratorsRouter);
 app.use("/api/v1/secondary-royalty", secondaryRoyaltyRouter);
 app.use("/api/v1/simulate", simulateRouter);
 app.use("/api/v1", historyRouter);
 app.use("/api/v1", webhooksRouter);
 app.use("/api/v1", analyticsRouter);
+app.use("/api/v1", eventsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/traces", tracesRouter);
+app.use("/api/v1/admin", auditExportRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 
@@ -134,22 +262,22 @@ const adminLimiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_ADMIN_MAX ?? "5"),
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res) => sendError(res, 429, "too_many_requests", "Too many admin requests, please slow down."),
+  handler: (_req, res) =>
+    sendError(res, 429, "too_many_requests", "Too many admin requests, please slow down."),
 });
 app.use("/admin", adminLimiter);
 app.use("/admin", adminRouter);
 
-// Legacy /api/* redirect to /api/v1/*
-app.use("/api", (req, res) => {
-  res.redirect(308, `/api/v1${req.url}`);
-});
-
 // Central error handler
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   if (err.type === "entity.too.large") {
     return sendError(res, 413, "payload_too_large", "Payload too large");
   }
-  logger.error(err);
+  logger.error("Unhandled error", {
+    correlationId: req.correlationId,
+    error: err.message ?? String(err),
+    stack: err.stack,
+  });
 
   // Structured errors thrown by stellar.js (Soroban / RPC errors)
   if (err.status && err.code) {
@@ -172,11 +300,82 @@ const server = app.listen(PORT, () => logger.info(`API listening on http://local
 server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS ?? "35000");
 server.headersTimeout = parseInt(process.env.HEADERS_TIMEOUT_MS ?? "40000");
 
-const handleShutdown = createGracefulShutdownHandler({
+// #399: Initialize cache manager and admin event listener
+const contractId = getConfiguredContractId();
+let adminEventListener = null;
+let eventIndexer = null;
+
+if (contractId) {
+  try {
+    const cache = getCacheManager();
+    logger.info("[Startup] Cache manager initialized");
+
+    // Start event listener for admin transfer events
+    const { getSorobanRpcClient } = await import("./stellar.js");
+    const sorobanRpc = getSorobanRpcClient();
+    
+    // Start event indexer for all contract events
+    eventIndexer = new EventIndexer(sorobanRpc, contractId);
+    eventIndexer.start();
+    logger.info("[Startup] Event indexer started", { contractId });
+
+    // Start admin event listener for admin transfer events
+    adminEventListener = new AdminEventListener(sorobanRpc, contractId);
+    adminEventListener.start();
+    logger.info("[Startup] Admin event listener started", { contractId });
+  } catch (err) {
+    logger.error("[Startup] Failed to initialize cache/event indexer/listeners", {
+      error: err.message,
+      contractId,
+    });
+  }
+}
+
+// Start secondary royalty recovery job
+if (process.env.NODE_ENV !== "test" && !process.env.DISABLE_RECOVERY_JOB) {
+  try {
+    startRecoveryJob();
+    logger.info("[Startup] Secondary royalty recovery job started");
+  } catch (err) {
+    logger.error("[Startup] Failed to start recovery job", {
+      error: err.message,
+    });
+  }
+}
+
+// Start hourly contract state consistency verification (#510)
+if (process.env.NODE_ENV !== "test" && !process.env.DISABLE_CONSISTENCY_JOB) {
+  try {
+    startContractStateConsistencyJob();
+    logger.info("[Startup] Contract state consistency job started");
+  } catch (err) {
+    logger.error("[Startup] Failed to start contract state consistency job", {
+      error: err.message,
+    });
+  }
+}
+
+// Graceful shutdown — include event indexer, admin event listener, cache cleanup, and recovery job
+const originalShutdown = createGracefulShutdownHandler({
   server,
   closeDatabase,
   logger,
 });
+
+const handleShutdown = (signal) => {
+  logger.info(`[Shutdown] ${signal} received, cleaning up...`);
+  if (eventIndexer) {
+    eventIndexer.stop();
+  }
+  if (adminEventListener) {
+    adminEventListener.stop();
+  }
+  stopRecoveryJob();
+  stopContractStateConsistencyJob();
+  const cache = getCacheManager();
+  cache.disconnect().catch(() => {});
+  originalShutdown(signal);
+};
 
 process.once("SIGTERM", () => handleShutdown("SIGTERM"));
 process.once("SIGINT", () => handleShutdown("SIGINT"));

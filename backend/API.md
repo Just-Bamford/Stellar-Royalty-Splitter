@@ -5,6 +5,27 @@ Base URL: `http://localhost:3001` (default)
 All JSON POST bodies must use `Content-Type: application/json`.
 JSON request bodies are limited to `10kb`; oversized requests return `413 Payload Too Large`.
 
+## Standardized Error Response Format (#227)
+
+All API routes consistently return structured error responses matching the standardized shape:
+
+```json
+{
+  "status": 400,
+  "code": "bad_request",
+  "message": "Human-readable error description",
+  "error": "Human-readable error description",
+  "timestamp": "2026-06-26T14:00:00.000Z"
+}
+```
+
+- `status`: The HTTP status code (integer)
+- `code`: Machine-readable snake_case error code (e.g. `bad_request`, `validation_error`, `conflict`, `payload_too_large`, `internal_server_error`)
+- `message`: Human-readable error message (string)
+- `error`: Maintained alongside `message` for 100% backward compatibility with legacy clients
+
+---
+
 ## Health
 
 ### `GET /api/v1/health`
@@ -28,6 +49,12 @@ Operator health check for the backend and Stellar connectivity.
     "deployed": true,
     "initialized": true,
     "status": "initialized"
+  },
+  "queryProfiler": {
+    "enabled": true,
+    "thresholdMs": 100,
+    "totalQueries": 12,
+    "slowQueries": 1
   }
 }
 ```
@@ -40,10 +67,71 @@ Operator health check for the backend and Stellar connectivity.
 | `horizon.connected` | Whether Horizon responded successfully |
 | `horizon.url` | Configured `HORIZON_URL` |
 | `contract.status` | `not_configured`, `deployed`, `initialized`, `unreachable`, or `error` |
+| `queryProfiler` | In-process database query profiling summary |
 
 Configure the default contract with `ROYALTY_CONTRACT_ID` or `CONTRACT_ID`. Responses are cached for `HEALTH_CACHE_TTL_MS` (default 30s).
 
+### `GET /api/v1/health/query-performance`
+
+Returns the in-process query profiler metrics used to diagnose slow SQLite
+statements. Queries at or above `SLOW_QUERY_THRESHOLD_MS` are logged and sampled.
+The default threshold is `100`.
+
+**Response**
+
+```json
+{
+  "enabled": true,
+  "thresholdMs": 100,
+  "totalQueries": 12,
+  "slowQueries": 1,
+  "averageDurationMs": 22.4,
+  "maxDurationMs": 132.1,
+  "operations": {
+    "all": {
+      "count": 5,
+      "slowCount": 1,
+      "averageDurationMs": 44.8,
+      "maxDurationMs": 132.1
+    }
+  },
+  "slowQuerySamples": [
+    {
+      "sql": "SELECT ...",
+      "operation": "all",
+      "durationMs": 132.1,
+      "thresholdMs": 100,
+      "observedAt": "2026-01-01T00:00:00.000Z",
+      "recommendations": ["Run EXPLAIN QUERY PLAN for this statement and consider a targeted composite index."]
+    }
+  ]
+}
+```
+
 Legacy `/api/*` paths redirect to `/api/v1/*`.
+
+## Request signing (#392)
+
+Write operations (`POST`, `PUT`, `DELETE`) require Ed25519 request signatures by default. Set `REQUEST_SIGNING_REQUIRED=false` only for local development or controlled compatibility testing.
+
+**Headers:**
+
+| Header | Description |
+| ------ | ----------- |
+| `X-Wallet-Address` | Stellar `G...` address of the signer |
+| `X-Timestamp` | Unix epoch seconds (max age 5 minutes) |
+| `X-Nonce` | Unique UUID per request (replay protection) |
+| `X-Signature` | Base64 Ed25519 signature |
+
+**Canonical message:**
+
+```
+METHOD\nPATH\nTIMESTAMP\nNONCE\nSHA256_HEX(body)
+```
+
+Example path: `/api/v1/initialize`. Unsigned requests are allowed when signing is not required (default in development).
+
+Invalid or missing signatures return `401`.
 
 ## Initialize
 
@@ -51,11 +139,39 @@ Legacy `/api/*` paths redirect to `/api/v1/*`.
 
 Build an unsigned `initialize` transaction XDR.
 
-**Body:** `{ contractId, walletAddress, collaborators, shares }`
+**Body:** `{ contractId, walletAddress, collaborators, shares }` OR `{ contractId, walletAddress, recipients: [{ address, percentage }] }`
+
+**Validation Middleware (#228):**
+All initialize and royalty split payloads pass through request validation middleware before reaching contract processing. The middleware verifies that:
+- All recipient addresses are valid Stellar public keys (`G...`)
+- Revenue allocations sum to exactly `100%` (or `10,000` basis points)
+- Shares/percentages must resolve to integer basis points (no fractional basis points allowed)
+**Body:** `{ contractId, walletAddress, collaborators, shares, nonce? }`
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `nonce` | string (optional) | UUID v4. When provided, permanently deduplicates this request per contract (#421) — see below. |
 
 **Response:** `{ xdr, transactionId }`
 
-Initialize requests are rejected before contract processing when the request body is too large or when the serialized `collaborators` array exceeds the initialize payload guard.
+Initialize requests are rejected before contract processing when validation fails, when the request body is too large, or when the serialized `collaborators` array exceeds the initialize payload guard.
+
+**Request deduplication by nonce (#421):**
+
+`nonce` is distinct from the `Idempotency-Key` header used on `/distribute`:
+
+- **`Idempotency-Key`** (see Distribute below) caches the *response* for a TTL window (default 24h) and *replays* it on a repeated request with the same key.
+- **`nonce`** is *permanently* recorded per `(contractId, nonce)` pair. A second request reusing the same nonce for the same contract is rejected outright — it is never re-processed and the original response is never replayed. This lets a client distinguish an intentional retry (reuse a nonce on purpose to confirm rejection) from an accidental duplicate submission, without relying on a cache TTL.
+
+If `(contractId, nonce)` has already been seen, the request is rejected before any transaction is built or recorded:
+
+**Response:** `409 Conflict`
+
+```json
+{ "error": "A request with this nonce has already been processed for this contract." }
+```
+
+The same `nonce` value may be reused across *different* contracts — the uniqueness constraint is scoped to `(contractId, nonce)`, not `nonce` alone. Generate a nonce on the frontend with `crypto.randomUUID()` (see `frontend/src/lib/request-nonce.ts`).
 
 **Oversized payload response:** `413 Payload Too Large`
 
@@ -72,6 +188,22 @@ Collaborator-specific payload limit responses use:
   "error": "Collaborators payload too large"
 }
 ```
+
+### `POST /api/v1/initialize/commit` (#403)
+
+Commit-reveal phase 1 — stores hashed collaborator/share data on-chain.
+
+**Body:** `{ contractId, walletAddress, collaboratorsHash, sharesHash, nonce }` (64-char hex strings)
+
+**Response:** `{ xdr, transactionId, phase: "commit" }`
+
+### `POST /api/v1/initialize/reveal` (#403)
+
+Commit-reveal phase 2 — reveals collaborators and initializes after ≥1 ledger delay.
+
+**Body:** `{ contractId, walletAddress, collaborators, shares, salt }`
+
+**Response:** `{ xdr, transactionId, phase: "reveal" }`
 
 ## Distribute
 
@@ -94,6 +226,22 @@ The distribute endpoint supports idempotency to prevent duplicate transaction su
 2. Subsequent requests with the same key within 24 hours return the cached response
 3. Cached responses are automatically expired after 24 hours
 4. Only successful responses (2xx status codes) are cached
+
+**Cache key format:**
+
+The cache key is a composite of the user's wallet address and a SHA-256 hash of the full request body, not the raw `Idempotency-Key` header value. This prevents collisions between different legitimate requests whose clients happen to derive their keys from overlapping fields (e.g. just `contractId` + `amount`).
+
+```
+{walletAddress}:{sha256-hex-of-stable-json-body}
+```
+
+Components:
+- **walletAddress** — Per-user scope extracted from `req.body.walletAddress`. Falls back to `"unknown"` when not present.
+- **sha256** — SHA-256 hex digest of the full request body serialized with stable (sorted-key) JSON. Object keys are sorted lexicographically so the same logical object always produces the same hash.
+
+**Prevents these collision scenarios:**
+- Two requests with the same `contractId` + `amount` but different `tokenId` or other body fields produce different cache keys (body hash differs).
+- Two identical requests from different wallet addresses produce different cache keys (wallet prefix differs).
 
 **Example:**
 
@@ -145,11 +293,24 @@ The endpoint only calls Soroban RPC simulation. It does not submit the transacti
 
 Returns on-chain collaborator addresses and shares.
 
+Cached in memory for 5 minutes (#422) — far longer than the 30s contract-state cache, since collaborator shares are effectively immutable once a contract is initialized. Cache key format: `contract:{network}:{contractId}:collaborators`. The cache is invalidated immediately whenever `/api/v1/initialize` or `/api/v1/initialize/reveal` successfully builds a transaction for that contract, rather than relying solely on the 5-minute TTL to pick up the new collaborator list.
+
+## Caching strategy (#422)
+
+| Cache | TTL | Key format | Invalidation |
+| ----- | --- | ---------- | ------------- |
+| Contract state (`GET /contract/state`) | 30s | `contract:{network}:{contractId}:state:{tokenId}` | TTL only — state (balance, royalty rate) can change at any time, so a short TTL is the primary defense. |
+| Collaborator list (`GET /collaborators/:contractId`) | 5min | `contract:{network}:{contractId}:collaborators` | TTL, plus explicit invalidation on successful initialize/reveal for that contract. |
+
+Both caches are in-memory `Map`s local to a single backend process (no Redis/shared cache layer). Cache hit/miss counts are exposed on the `/metrics` endpoint as `stellar_cache_hits_total{cache="..."}` / `stellar_cache_misses_total{cache="..."}` with `cache` values `contract_state` and `collaborators`.
+
 ## Contract
 
 ### `GET /api/v1/contract/state`
 
-Returns the configured contract's current state for frontend displays: admin address, royalty rate, recipient shares, token balance, and network details. Responses are cached for 30 seconds to reduce Soroban RPC calls.
+Returns the configured contract's current state for frontend displays: admin address, royalty rate, recipient shares, token balance, and network details. Responses are cached in memory for 30 seconds to reduce Soroban RPC calls.
+
+Cache key format: `contract:{network}:{contractId}:state:{tokenId}` (#422). The network segment is included because the same `contractId` string can be queried against both testnet and mainnet; without it, those two distinct on-chain states would alias to the same cache entry.
 
 Uses `ROYALTY_CONTRACT_ID` or `CONTRACT_ID` by default. Pass `contractId` to override. Uses `ROYALTY_TOKEN_ID`, `TOKEN_CONTRACT_ID`, or `TOKEN_ID` by default for the balance token. Pass `tokenId` to override.
 
@@ -223,6 +384,8 @@ Exposes:
 - `stellar_transactions_failed_total`
 - `stellar_horizon_response_time_average_ms`
 - `stellar_horizon_response_time_count`
+- `stellar_cache_hits_total{cache="..."}` (#422)
+- `stellar_cache_misses_total{cache="..."}` (#422)
 
 ## Local Seed
 
@@ -250,12 +413,131 @@ Required environment:
 
 ## Secondary royalty
 
-See route module `src/routes/secondary-royalty.js` for pool, sales, and distribution endpoints.
+### `POST /api/secondary-royalty`
+
+Record a secondary (resale) NFT sale and build an unsigned `record_secondary_royalty` transaction XDR.
+
+**Body:** `{ contractId, walletAddress, nftId, previousOwner, newOwner, salePrice, saleToken, royaltyRate }`
+
+**Response:** `{ xdr, transactionId, royaltyAmount, royaltyRateUsed }`
+
+Returns `409 Conflict` if the sale has already been recorded (SQLite unique constraint).
+
+### `POST /api/secondary-royalty/distribute`
+
+Build an unsigned `distribute_secondary_royalties` transaction XDR and mark pending sales as distributed.
+
+**Body:** `{ contractId, walletAddress, tokenId, collaborators? }`
+
+Optionally pass `collaborators` (array of `{ address, basisPoints }` summing to 10000) to split using the largest-remainder algorithm (#427).
+
+**Response:** `{ xdr, transactionId, numberOfSales, totalRoyalties, dustAllocated, allocations? }`
+
+### `POST /api/secondary-royalty/set-rate`
+
+Build an unsigned `set_royalty_rate` transaction XDR.
+
+**Body:** `{ contractId, walletAddress, royaltyRate }` (`royaltyRate` in basis points, 0–10000)
+
+**Response:** `{ xdr, transactionId }`
+
+### `GET /api/secondary-royalty/rate/:contractId`
+
+Returns the current on-chain royalty rate.
+
+**Response:** `{ contractId, royaltyRate }`
+
+### `GET /api/secondary-royalty/pool/:contractId`
+
+Returns the current secondary royalty pool balance.
+
+**Response:** `{ poolBalance }`
+
+### `GET /api/secondary-royalty/stats/:contractId`
+
+Returns aggregated royalty statistics. Results are cached in-memory for 60 seconds.
+
+**Response:** `{ totalSecondarySales, totalRoyaltiesGenerated, totalVolume, pendingRoyaltyPool, lastDistribution }`
+
+### `GET /api/secondary-royalty/sales/:contractId`
+
+Paginated list of secondary sales with optional date-range and NFT filtering.
+
+**Query parameters:**
+
+| Param | Type | Default | Constraints |
+| ----- | ---- | ------- | ----------- |
+| `limit` | integer | `10` | `1`–`100` |
+| `offset` | integer | `0` | `0`–`1000000` |
+| `nftId` | string | — | Optional NFT identifier filter |
+| `startDate` | ISO 8601 string | — | Optional lower bound on `timestamp` |
+| `endDate` | ISO 8601 string | — | Optional upper bound on `timestamp`; must be ≥ `startDate` |
+
+Invalid `limit` or `offset` values return `400` with validation details. Invalid date strings or `startDate > endDate` also return `400`.
+
+**Response:** `{ sales: [...], total: number }`
+
+### `GET /api/secondary-royalty/distributions/:contractId`
+
+Paginated list of secondary royalty distribution records.
+
+**Query parameters:**
+
+| Param | Type | Default | Constraints |
+| ----- | ---- | ------- | ----------- |
+| `limit` | integer | `10` | `1`–`100` |
+| `offset` | integer | `0` | `0`–`1000000` |
+
+**Response:** `{ distributions: [...], pagination: { limit, offset } }`
 
 ## History & analytics
 
-- `GET /api/v1/history/:contractId`
-- `GET /api/v1/analytics/:contractId`
+### `GET /api/v1/history/:contractId`
+
+Paginated transaction history for a contract.
+
+**Query parameters:**
+
+| Param | Type | Default | Constraints |
+| ----- | ---- | ------- | ----------- |
+| `limit` | integer | `10` | `1`–`100` |
+| `offset` | integer | `0` | `0`–`1000000` |
+
+Invalid pagination returns `400` with validation details.
+
+**Example:**
+
+```bash
+curl "http://localhost:3001/api/v1/history/C...?limit=10&offset=0"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [],
+  "pagination": { "limit": 10, "offset": 0, "total": 0 }
+}
+```
+
+### `GET /api/v1/audit/:contractId`
+
+Paginated audit log. Same `limit` / `offset` constraints as history.
+
+### `GET /api/v1/analytics/:contractId`
+
+Aggregated analytics for a contract.
+
+**Query parameters:**
+
+| Param | Type | Default | Constraints |
+| ----- | ---- | ------- | ----------- |
+| `start` | ISO date | 90 days ago | Valid date string |
+| `end` | ISO date | now | Valid date string |
+| `collaboratorLimit` | integer | `10` | `1`–`100` — caps `collaboratorStats` rows |
+
+**Rate limiting:** History, audit, and analytics endpoints share a dedicated limiter (default 30 req/min per IP) in addition to the general API limiter.
 
 ## Transaction confirmation
 
@@ -410,3 +692,249 @@ Hot-reload the server signing key without redeploying the backend (#293). The in
 | `RATE_LIMIT_ADMIN_MAX` | `5` | Per-IP rate limit for admin routes (per minute) |
 
 Key rotation events are written to structured logs (`signing_key_rotated`) with previous and new **public** keys only — secret material is never logged.
+
+## Admin — API keys & per-key rate limiting (#420)
+
+Per-IP rate limiting (`generalLimiter`, `writeLimiter`, etc. — see Operational configuration) is shared across every client behind the same IP, so a single bad actor can exhaust another tenant's quota, and there's no way to give a programmatic/API-key client its own independent quota. API keys solve this: each key gets its own sliding-window rate limit, tracked separately from the IP-based limiters (both apply — the API-key limit is additive, not a replacement).
+
+### `POST /admin/generate-key`
+
+Issue a new API key. **The raw key is only ever returned in this response** — only its SHA-256 hash is persisted, so it can never be retrieved again. If it's lost, revoke it and generate a new one.
+
+**Authentication:** `Authorization: Bearer <ADMIN_ROTATE_TOKEN>` (same token as `/admin/rotate-key`)
+
+**Body (JSON):** `{ "label"?: string }` (max 100 characters)
+
+**Response:**
+
+```json
+{
+  "id": 1,
+  "apiKey": "srs_9f2c...",
+  "label": "ci-bot",
+  "createdAt": "2026-05-30T12:00:00.000Z"
+}
+```
+
+### `GET /admin/keys`
+
+List all API keys. Never includes the raw key or its hash.
+
+**Authentication:** `Authorization: Bearer <ADMIN_ROTATE_TOKEN>`
+
+**Response:**
+
+```json
+{
+  "keys": [
+    { "id": 1, "label": "ci-bot", "createdAt": "2026-05-30T12:00:00.000Z", "revokedAt": null, "lastUsedAt": "2026-05-30T12:05:00.000Z" }
+  ]
+}
+```
+
+### `POST /admin/keys/:id/revoke`
+
+Revoke a key by id. Revoked keys are rejected immediately on their next request.
+
+**Authentication:** `Authorization: Bearer <ADMIN_ROTATE_TOKEN>`
+
+**Response:** `{ "success": true, "id": 1 }`, or `404` if the id doesn't exist or is already revoked.
+
+### Using an API key
+
+Send the raw key on the `X-API-Key` request header on any `/api/v1/*` call. Every response (success, 401, or 429) includes:
+
+| Header | Meaning |
+| ------ | ------- |
+| `X-RateLimit-Limit` | Max requests allowed per window for this key (`API_KEY_RATE_LIMIT_MAX`) |
+| `X-RateLimit-Remaining` | Requests remaining in the current sliding window |
+| `X-RateLimit-Reset` | Unix seconds when the oldest counted request falls out of the window |
+
+An unknown or revoked key returns `401 invalid_api_key`. Exceeding the limit returns `429 too_many_requests` (still with the three headers above, `X-RateLimit-Remaining: 0`). Requests with no `X-API-Key` header are unaffected — they continue to be limited only by the per-IP limiters.
+
+The limiter uses a true sliding window (a per-key timestamp log, not a fixed-window approximation): the oldest entries are dropped as the window moves rather than the count resetting all at once at a fixed boundary.
+
+**Configuration:**
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `API_KEY_RATE_LIMIT_WINDOW_MS` | `60000` (1 minute) | Sliding window size |
+| `API_KEY_RATE_LIMIT_MAX` | `60` | Max requests per key per window |
+
+## Error Reference (#470)
+
+All error responses share a common envelope:
+
+```json
+{
+  "status": 400,
+  "code": "validation_error",
+  "message": "Human-readable description of what went wrong.",
+  "error": "Human-readable description of what went wrong.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+`code` is a machine-readable string clients can switch on. `message` and `error` carry the same value and are both present for backwards compatibility.
+
+### Error code enum
+
+| Code | HTTP status | Meaning |
+| ---- | ----------- | ------- |
+| `bad_request` | 400 | The request body or parameters are malformed or logically invalid. |
+| `validation_error` | 400 | Schema validation failed; a `details` array is included with per-field errors. |
+| `invalid_idempotency_key` | 400 | `Idempotency-Key` header value contains disallowed characters or exceeds 255 chars. |
+| `invalid_sale_price` | 400 | Secondary-royalty sale price is zero or negative. |
+| `invalid_royalty_rate` | 400 | Royalty rate is outside the allowed `0`–`10000` basis-point range. |
+| `invalid_collaborators` | 400 | Collaborator `basisPoints` values do not sum to exactly 10000. |
+| `invalid_query_parameter` | 400 | A query-string value (e.g. `startDate`, `endDate`) is invalid. |
+| `unauthorized` | 401 | Request signing verification failed or no valid session. |
+| `auth_error` | 401 | Authentication error (missing or invalid credentials). |
+| `invalid_api_key` | 401 | The `X-API-Key` header is missing, unknown, or revoked. |
+| `forbidden` | 403 | Authenticated but not permitted to perform this action. |
+| `not_found` | 404 | The requested resource does not exist. |
+| `method_not_allowed` | 405 | HTTP method not allowed on this endpoint. |
+| `conflict` | 409 | Duplicate request: the resource already exists or has already been processed. |
+| `gone` | 410 | The resource existed but has been permanently removed. |
+| `payload_too_large` | 413 | Request body exceeds the 10 KB limit. |
+| `unsupported_media_type` | 415 | `Content-Type` must be `application/json`. |
+| `unprocessable_entity` | 422 | Request is syntactically valid but semantically unprocessable. |
+| `too_many_requests` | 429 | Per-IP or per-API-key rate limit exceeded. |
+| `internal_server_error` | 500 | Unexpected server-side error. |
+| `database_error` | 500 | A database operation failed. |
+| `not_implemented` | 501 | Feature not yet implemented. |
+| `service_unavailable` | 503 | Stellar RPC or Horizon is unreachable. |
+| `gateway_timeout` | 504 | Stellar RPC or Horizon did not respond within the configured timeout. |
+| `contract_error` | 400/500 | The Soroban contract rejected the call or returned an unexpected error. |
+| `webhook_error` | 400/500 | Webhook registration or delivery operation failed. |
+
+### HTTP status code reference
+
+| Status | When it appears |
+| ------ | --------------- |
+| `200 OK` | Success. |
+| `400 Bad Request` | Validation failure, bad parameters, or domain-rule violation. |
+| `401 Unauthorized` | Missing or invalid authentication (signing headers, API key). |
+| `403 Forbidden` | Authenticated but not authorized. |
+| `404 Not Found` | Resource does not exist. |
+| `405 Method Not Allowed` | Wrong HTTP verb. |
+| `409 Conflict` | Duplicate request (nonce already used, sale already recorded, transaction already settled). |
+| `410 Gone` | Resource permanently removed. |
+| `413 Payload Too Large` | Body exceeds 10 KB. |
+| `415 Unsupported Media Type` | Missing or wrong `Content-Type`. |
+| `422 Unprocessable Entity` | Semantically invalid request. |
+| `429 Too Many Requests` | Rate limit hit (per-IP or per-API-key). |
+| `500 Internal Server Error` | Unhandled exception, database failure. |
+| `501 Not Implemented` | Feature not available. |
+| `503 Service Unavailable` | Stellar RPC / Horizon unreachable. |
+| `504 Gateway Timeout` | Stellar RPC / Horizon response timed out. |
+
+### Example error responses
+
+**Validation failure (400)**
+
+```json
+{
+  "status": 400,
+  "code": "validation_error",
+  "message": "walletAddress must be a valid Stellar address",
+  "error": "walletAddress must be a valid Stellar address",
+  "timestamp": "2026-06-01T12:00:00.000Z",
+  "details": [
+    { "field": "walletAddress", "message": "walletAddress must be a valid Stellar address", "constraint": null }
+  ]
+}
+```
+
+**Rate limit exceeded (429)**
+
+```json
+{
+  "status": 429,
+  "code": "too_many_requests",
+  "message": "Too many requests, please try again later.",
+  "error": "Too many requests, please try again later.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+Headers on a 429 from the API-key limiter:
+
+| Header | Meaning |
+| ------ | ------- |
+| `X-RateLimit-Limit` | Max requests per window for this key |
+| `X-RateLimit-Remaining` | Requests remaining (`0` on 429) |
+| `X-RateLimit-Reset` | Unix seconds when the window resets |
+
+**Invalid idempotency key (400)**
+
+```json
+{
+  "status": 400,
+  "code": "invalid_idempotency_key",
+  "message": "Invalid Idempotency-Key format. Must be 1-255 alphanumeric characters, hyphens, or underscores.",
+  "error": "Invalid Idempotency-Key format. Must be 1-255 alphanumeric characters, hyphens, or underscores.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+**Conflict — duplicate nonce (409)**
+
+```json
+{
+  "status": 409,
+  "code": "conflict",
+  "message": "A request with this nonce has already been processed for this contract.",
+  "error": "A request with this nonce has already been processed for this contract.",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+**Stellar RPC timeout (504)**
+
+```json
+{
+  "status": 504,
+  "code": "gateway_timeout",
+  "message": "Soroban RPC timed out after 10000ms",
+  "error": "Soroban RPC timed out after 10000ms",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+**Service unavailable (503)**
+
+```json
+{
+  "status": 503,
+  "code": "service_unavailable",
+  "message": "Stellar RPC is currently unavailable",
+  "error": "Stellar RPC is currently unavailable",
+  "timestamp": "2026-06-01T12:00:00.000Z"
+}
+```
+
+### Retry policy
+
+| Code / Status | Retry? | Strategy |
+| ------------- | ------ | -------- |
+| `validation_error` / 400 | No | Fix the request before retrying. |
+| `bad_request` / 400 | No | Fix the request before retrying. |
+| `unauthorized` / 401 | After re-auth | Re-authenticate (rotate key or reconnect wallet), then retry once. |
+| `forbidden` / 403 | No | Retrying will not change the outcome. |
+| `not_found` / 404 | No | The resource does not exist. |
+| `conflict` / 409 | No | The operation already completed or the resource already exists. |
+| `too_many_requests` / 429 | Yes | Wait until `X-RateLimit-Reset`, then retry with exponential backoff. |
+| `internal_server_error` / 500 | Yes | Retry up to 3 times with exponential backoff (e.g. 1 s, 2 s, 4 s). |
+| `service_unavailable` / 503 | Yes | Retry with backoff; the Stellar network may be temporarily degraded. |
+| `gateway_timeout` / 504 | Yes | Retry with backoff; use an `Idempotency-Key` to prevent duplicate submissions. |
+
+### Client error-handling guide
+
+1. **Always send `Content-Type: application/json`** on POST/PUT/DELETE requests.
+2. **Parse `code`**, not `status`, for programmatic error handling — HTTP status codes can overlap across error types.
+3. **Use `Idempotency-Key`** on `/distribute` and `/secondary-royalty/distribute` before any retry. Generate the key once (`crypto.randomUUID()`) and reuse it on each retry attempt so the server returns the cached first-success response instead of creating a duplicate transaction.
+4. **Do not retry 4xx errors** (except 429) — they indicate a request problem that retrying will not fix.
+5. **Back off exponentially** on 429, 500, 503, and 504 responses. Start with a 1-second delay and double on each retry, up to a maximum of 30 seconds.
+6. **Check `details`** on `validation_error` (400) — the array identifies which fields failed and why, enabling targeted error messages in the UI.
+7. **Re-authenticate on 401** — the signing session or API key may have expired or been revoked.

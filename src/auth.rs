@@ -5,6 +5,8 @@ use soroban_sdk::{symbol_short, Address, Env, String};
 /// Static auth failure messages (function context + role).
 pub mod msg {
     pub const INITIALIZE_ADMIN: &str = "initialize: admin authorization required";
+    pub const COMMIT_INITIALIZE_ADMIN: &str = "commit_initialize: admin authorization required";
+    pub const REVEAL_INITIALIZE_ADMIN: &str = "reveal_initialize: admin authorization required";
     pub const SET_ROYALTY_RATE_ADMIN: &str = "set_royalty_rate: admin authorization required";
     pub const PAUSE_ADMIN: &str = "pause: admin authorization required";
     pub const UNPAUSE_ADMIN: &str = "unpause: admin authorization required";
@@ -27,6 +29,7 @@ pub mod msg {
     pub const RECORD_SECONDARY_PAYER: &str =
         "record_secondary_royalty: payer authorization required";
     pub const SET_ADMINS_ADMIN: &str = "set_admins: admin authorization required";
+    pub const PAUSE_COLLABORATOR: &str = "pause_collaborator_distributions: collaborator authorization required";
 }
 
 /// Requires admin authorization; panics with `message` if missing.

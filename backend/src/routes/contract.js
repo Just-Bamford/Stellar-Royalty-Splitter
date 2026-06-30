@@ -11,6 +11,7 @@ import {
 } from "../stellar.js";
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
 import { sendError } from "../error-response.js";
+import { recordCacheHit, recordCacheMiss } from "../metrics.js";
 
 const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
 
@@ -32,6 +33,20 @@ function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function shouldBypassCache(value) {
+  const normalized = String(firstQueryValue(value) ?? "").toLowerCase();
+  return normalized === "false" || normalized === "0" || normalized === "no";
+}
+
+function withCacheMetadata(state, cacheStatus, fetchedAt) {
+  return {
+    ...state,
+    cacheStatus,
+    cacheTtlMs: CONTRACT_STATE_CACHE_TTL_MS,
+    fetchedAt: new Date(fetchedAt).toISOString(),
+  };
+}
+
 function i128ScValToString(scVal) {
   const i128 = scVal?.i128?.();
   if (!i128) return "0";
@@ -46,7 +61,38 @@ function decodeShareMap(scVal) {
   }));
 }
 
+// --- Circuit Breaker & Exponential Backoff ---
+const MAX_FAILURES = 3;
+const RESET_TIMEOUT_MS = 10_000;
+let circuitState = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+let failureCount = 0;
+let nextAttemptMs = 0;
+
+function reportSuccess() {
+  circuitState = 'CLOSED';
+  failureCount = 0;
+}
+
+function reportFailure() {
+  failureCount++;
+  if (failureCount >= MAX_FAILURES) {
+    circuitState = 'OPEN';
+    nextAttemptMs = Date.now() + RESET_TIMEOUT_MS;
+  }
+}
+
 async function simulateContractRead(contractId, method, args = []) {
+  if (circuitState === 'OPEN') {
+    if (Date.now() > nextAttemptMs) {
+      circuitState = 'HALF_OPEN';
+    } else {
+      const err = new Error("RPC Circuit Breaker Open");
+      err.isCircuitBreaker = true;
+      err.status = 503;
+      throw err;
+    }
+  }
+
   const contract = new Contract(contractId);
   const dummyAccount = new Account(
     "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
@@ -60,14 +106,31 @@ async function simulateContractRead(contractId, method, args = []) {
     .setTimeout(30)
     .build();
 
-  const sim = await server.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(sim)) {
-    const error = new Error(sim.error ?? `${method} simulation failed`);
-    error.status = 400;
-    throw error;
+  let attempt = 0;
+  const maxAttempts = 3;
+  while (attempt < maxAttempts) {
+    try {
+      const sim = await server.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        reportSuccess();
+        const error = new Error(sim.error ?? `${method} simulation failed`);
+        error.status = 400;
+        throw error;
+      }
+      reportSuccess();
+      return sim.result?.retval ?? null;
+    } catch (err) {
+      if (err.status === 400) throw err;
+      
+      attempt++;
+      if (attempt >= maxAttempts) {
+        reportFailure();
+        err.status = 503;
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 100));
+    }
   }
-
-  return sim.result?.retval ?? null;
 }
 
 async function readContractState(contractId, tokenId) {
@@ -90,8 +153,15 @@ async function readContractState(contractId, tokenId) {
   };
 }
 
+/**
+ * Cache key format: `contract:{network}:{contractId}:state:{tokenId}` (#422).
+ * The network segment is required (not just cosmetic): the same `contractId`
+ * string can be queried against both testnet and mainnet, and without a
+ * network discriminator those two distinct on-chain states would alias to
+ * the same cache entry.
+ */
 function getContractStateCacheKey(contractId, tokenId) {
-  return `${getNetworkLabel()}:${networkPassphrase}:${contractId}:${tokenId}`;
+  return `contract:${getNetworkLabel()}:${contractId}:state:${tokenId}`;
 }
 
 function resolveStateRequest(req, res) {
@@ -99,18 +169,14 @@ function resolveStateRequest(req, res) {
   const tokenId = firstQueryValue(req.query.tokenId) ?? getConfiguredTokenId();
 
   if (!contractId) {
-    res.status(400).json({
-      error: "contractId query param required when no default contract is configured",
-    });
+    sendError(res, 400, "bad_request", "contractId query param required when no default contract is configured");
     return null;
   }
 
   if (!validateContractId(contractId, res)) return null;
 
   if (!tokenId) {
-    res.status(400).json({
-      error: "tokenId query param required when no default token is configured",
-    });
+    sendError(res, 400, "bad_request", "tokenId query param required when no default token is configured");
     return null;
   }
 
@@ -123,6 +189,20 @@ export function _resetContractStateCache() {
   contractStateCache.clear();
 }
 
+/**
+ * Invalidate cached state for a contract across all cached token ids (#422).
+ * The 30s TTL already self-heals quickly, but this lets callers (e.g. a
+ * successful initialize) clear stale data immediately instead of waiting
+ * out the TTL.
+ */
+export function invalidateContractStateCache(contractId) {
+  for (const key of contractStateCache.keys()) {
+    if (key.includes(`:${contractId}:`)) {
+      contractStateCache.delete(key);
+    }
+  }
+}
+
 contractRouter.get("/state", async (req, res, next) => {
   try {
     const stateRequest = resolveStateRequest(req, res);
@@ -132,18 +212,32 @@ contractRouter.get("/state", async (req, res, next) => {
     const cacheKey = getContractStateCacheKey(contractId, tokenId);
     const cached = contractStateCache.get(cacheKey);
     const now = Date.now();
+    const bypassCache = shouldBypassCache(req.query.cache);
 
-    if (cached && now - cached.fetchedAt < CONTRACT_STATE_CACHE_TTL_MS) {
-      return res.json(cached.state);
+    if (!bypassCache && cached && now - cached.fetchedAt < CONTRACT_STATE_CACHE_TTL_MS) {
+      return res.json(withCacheMetadata(cached.state, "cached", cached.fetchedAt));
     }
 
-    const state = await readContractState(contractId, tokenId);
-    contractStateCache.set(cacheKey, { state, fetchedAt: now });
-    res.json(state);
+    try {
+      recordCacheMiss("contract_state");
+      const state = await readContractState(contractId, tokenId);
+      contractStateCache.set(cacheKey, { state, fetchedAt: now });
+      res.json(withCacheMetadata(state, "live", now));
+    } catch (err) {
+      if (err.status === 503 || err.isCircuitBreaker) {
+        if (cached) {
+          return res.json({
+            ...withCacheMetadata(cached.state, "cached", cached.fetchedAt),
+            isDegraded: true
+          });
+        }
+      }
+      if (err.status) {
+        return sendError(res, err.status, undefined, err.message);
+      }
+      next(err);
+    }
   } catch (err) {
-    if (err.status) {
-      return res.status(err.status).json({ error: err.message });
-    }
     next(err);
   }
 });
@@ -166,12 +260,116 @@ contractRouter.get("/info", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/v1/contract/verify?contractId=...
+ * Manually verifies DB-derived contract state against live on-chain state.
+ */
+contractRouter.get("/verify", async (req, res, next) => {
+  try {
+    const contractId = firstQueryValue(req.query.contractId) ?? getConfiguredContractId();
+    if (!contractId) {
+      return sendError(
+        res,
+        400,
+        "bad_request",
+        "contractId query param required when no default contract is configured",
+      );
+    }
+    if (!validateContractId(contractId, res)) return;
+
+    const { verifyContractStateConsistency } = await import(
+      "../contract-state-consistency.js"
+    );
+    const result = await verifyContractStateConsistency(contractId, {
+      audit: req.query.audit !== "false",
+    });
+    res.status(result.consistent ? 200 : 409).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/contract/verify
+ * Body: { contractIds?: string[], audit?: boolean }
+ * Manual batch consistency verification endpoint.
+ */
+contractRouter.post("/verify", async (req, res, next) => {
+  try {
+    const contractIds = Array.isArray(req.body?.contractIds)
+      ? req.body.contractIds
+      : [req.body?.contractId ?? getConfiguredContractId()].filter(Boolean);
+
+    if (contractIds.length === 0) {
+      return sendError(
+        res,
+        400,
+        "bad_request",
+        "contractId or contractIds required when no default contract is configured",
+      );
+    }
+
+    for (const contractId of contractIds) {
+      if (!validateContractId(contractId, res)) return;
+    }
+
+    const { verifyAllContractStateConsistency } = await import(
+      "../contract-state-consistency.js"
+    );
+    const result = await verifyAllContractStateConsistency(contractIds, {
+      audit: req.body?.audit !== false,
+    });
+    res.status(result.inconsistentCount === 0 ? 200 : 409).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
     const initialized = await isContractInitialized(contractId);
     res.json({ initialized });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/contract/pause/:contractId
+ * #504: Returns the contract's pause state so the UI can warn users (and disable
+ * distribution) before they sign a transaction that would panic on-chain.
+ *
+ * Response: {
+ *   paused: boolean,
+ *   pauseTimestamp: number,   // unix seconds the pause began (0 if not paused)
+ *   pauseSource: string|null, // address that initiated the pause
+ *   remainingSeconds: number  // seconds until an emergency pause auto-expires
+ * }
+ */
+contractRouter.get("/pause/:contractId", validateContractIdMiddleware, async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    const [pausedVal, infoVal] = await Promise.all([
+      simulateContractRead(contractId, "is_paused"),
+      simulateContractRead(contractId, "get_pause_info"),
+    ]);
+
+    const paused = pausedVal ? Boolean(StellarSdk.scValToNative(pausedVal)) : false;
+    const [timestamp = 0n, source = null, remaining = 0n] = infoVal
+      ? StellarSdk.scValToNative(infoVal)
+      : [];
+
+    res.json({
+      paused,
+      pauseTimestamp: Number(timestamp),
+      pauseSource: source ? String(source) : null,
+      remainingSeconds: Number(remaining),
+    });
+  } catch (err) {
+    if (err.status) {
+      return sendError(res, err.status, undefined, err.message);
+    }
     next(err);
   }
 });

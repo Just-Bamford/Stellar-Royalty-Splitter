@@ -1,5 +1,6 @@
 import type { Network } from "../context/NetworkContext";
 import { getStellarExpertTxUrl, formatTxHash } from "../lib/explorer";
+import { sanitizeErrorMessage } from "../lib/sanitize";
 
 export type FormStatusType = "ok" | "error" | "info";
 
@@ -52,7 +53,8 @@ ${distributionData?.recipientCount ? `Recipients: ${distributionData.recipientCo
 
   return (
     <div className={`form-status form-status--${type}`}>
-      <span>{message}</span>
+      {/* #499: backend/contract error text is sanitised to inert plain text. */}
+      <span>{sanitizeErrorMessage(message)}</span>
       {showTxLink && (
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <a

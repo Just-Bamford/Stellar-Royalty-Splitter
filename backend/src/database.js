@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import logger from "./logger.js";
+import { assertValidContractId } from "./contract-id.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "audit.db");
@@ -88,15 +89,16 @@ export function initializeDatabase() {
     },
   ];
 
-  const applied = db
+  const applied = new Set(db
     .prepare("SELECT version FROM schema_migrations")
     .all()
-    .map((r) => r.version);
+    .map((r) => r.version));
 
   for (const migration of migrations) {
-    if (!applied.includes(migration.version)) {
+    if (!applied.has(migration.version)) {
       db.exec(migration.sql);
       db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
+      applied.add(migration.version);
       logger.info(`Applied migration v${migration.version}`);
     }
   }
@@ -187,6 +189,7 @@ export function initializeDatabase() {
 
 // Transaction tracking functions
 export function recordTransaction(contractId, type, initiatorAddress, data) {
+  assertValidContractId(contractId);
   const { requestedAmount, tokenId } = data;
 
   const stmt = db.prepare(`
@@ -228,6 +231,7 @@ export function addDistributionPayout(
   collaboratorAddress,
   amountReceived
 ) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO distribution_payouts 
     (transactionId, contractId, collaboratorAddress, amountReceived)
@@ -239,11 +243,13 @@ export function addDistributionPayout(
 }
 
 export function getTransactionCount(contractId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`SELECT COUNT(*) as total FROM transactions WHERE contractId = ?`);
   return stmt.get(contractId).total;
 }
 
 export function getTransactionHistory(contractId, limit = 50, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       t.id,
@@ -308,6 +314,7 @@ export function getTransactionDetails(txHash) {
 }
 
 export function getAuditLog(contractId, limit = 100, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       id,
@@ -334,6 +341,9 @@ export function getAuditLog(contractId, limit = 100, offset = 0) {
 }
 
 export function addAuditLog(contractId, action, user, details) {
+  if (contractId !== "global") {
+    assertValidContractId(contractId);
+  }
   const stmt = db.prepare(`
     INSERT INTO audit_log 
     (contractId, action, user, details)
@@ -361,6 +371,7 @@ export function recordSecondarySale(
   royaltyRate,
   transactionHash = null
 ) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO secondary_sales 
     (contractId, nftId, previousOwner, newOwner, salePrice, saleToken, royaltyAmount, royaltyRate, transactionHash)
@@ -396,8 +407,31 @@ export function getSecondarySales(
   startDate = null,
   endDate = null
 ) {
-  let query = `
-    SELECT 
+  assertValidContractId(contractId);
+  const conditions = ["contractId = ?"];
+  const params = [contractId];
+
+  if (nftId) {
+    conditions.push("nftId = ?");
+    params.push(nftId);
+  }
+
+  if (undistributedOnly) {
+    conditions.push("distributed = 0");
+  }
+
+  if (startDate) {
+    conditions.push("timestamp >= ?");
+    params.push(startDate);
+  }
+
+  if (endDate) {
+    conditions.push("timestamp <= ?");
+    params.push(endDate);
+  }
+
+  const query = `
+    SELECT
       id,
       nftId,
       previousOwner,
@@ -410,30 +444,9 @@ export function getSecondarySales(
       timestamp,
       transactionHash
     FROM secondary_sales
-    WHERE contractId = ?
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY timestamp DESC LIMIT ? OFFSET ?
   `;
-  const params = [contractId];
-
-  if (nftId) {
-    query += ` AND nftId = ?`;
-    params.push(nftId);
-  }
-
-  if (undistributedOnly) {
-    query += ` AND distributed = 0`;
-  }
-
-  if (startDate) {
-    query += ` AND timestamp >= ?`;
-    params.push(startDate);
-  }
-
-  if (endDate) {
-    query += ` AND timestamp <= ?`;
-    params.push(endDate);
-  }
-
-  query += ` ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
   return db.prepare(query).all(...params);
@@ -444,24 +457,26 @@ export function getSecondarySales(
  * Supports optional date range filtering with startDate and endDate.
  */
 export function countSecondarySales(contractId, nftId = null, startDate = null, endDate = null) {
-  let query = `SELECT COUNT(*) as total FROM secondary_sales WHERE contractId = ?`;
+  assertValidContractId(contractId);
+  const conditions = ["contractId = ?"];
   const params = [contractId];
 
   if (nftId) {
-    query += ` AND nftId = ?`;
+    conditions.push("nftId = ?");
     params.push(nftId);
   }
 
   if (startDate) {
-    query += ` AND timestamp >= ?`;
+    conditions.push("timestamp >= ?");
     params.push(startDate);
   }
 
   if (endDate) {
-    query += ` AND timestamp <= ?`;
+    conditions.push("timestamp <= ?");
     params.push(endDate);
   }
 
+  const query = `SELECT COUNT(*) as total FROM secondary_sales WHERE ${conditions.join(" AND ")}`;
   return db.prepare(query).get(...params).total;
 }
 
@@ -469,10 +484,11 @@ export function countSecondarySales(contractId, nftId = null, startDate = null, 
  * Mark an array of secondary sale IDs as distributed.
  */
 export function markSalesDistributed(ids) {
-  const placeholders = ids.map(() => "?").join(",");
-  db.prepare(`UPDATE secondary_sales SET distributed = 1 WHERE id IN (${placeholders})`).run(
-    ...ids
-  );
+  db.prepare(`
+    UPDATE secondary_sales
+    SET distributed = 1
+    WHERE id IN (SELECT value FROM json_each(?))
+  `).run(JSON.stringify(ids));
   countWrite();
 }
 
@@ -485,6 +501,7 @@ export function recordSecondaryRoyaltyDistribution(
   totalRoyaltiesDistributed,
   numberOfSales
 ) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO secondary_royalty_distributions 
     (transactionId, contractId, totalRoyaltiesDistributed, numberOfSales)
@@ -505,6 +522,7 @@ export function recordSecondaryRoyaltyDistribution(
  * Get secondary royalty distribution history for a contract.
  */
 export function getSecondaryRoyaltyDistributions(contractId, limit = 50, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       srd.id,
@@ -531,6 +549,7 @@ export function getSecondaryRoyaltyDistributions(contractId, limit = 50, offset 
  * counts are integers, and null is never returned for aggregates.
  */
 export function getRoyaltyStatistics(contractId) {
+  assertValidContractId(contractId);
   const totalSalesStmt = db.prepare(`
     SELECT
       COUNT(*) as count,
@@ -575,6 +594,7 @@ export function getRoyaltyStatistics(contractId) {
  * SQL-aggregated analytics — replaces in-memory JS loops in the route handler.
  */
 export function getAnalyticsData(contractId, startDate, endDate) {
+  assertValidContractId(contractId);
   const summary = db
     .prepare(
       `SELECT

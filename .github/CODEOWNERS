@@ -1,0 +1,34 @@
+# Stellar Royalty Splitter Code Owners
+# This file defines who should be notified and required to review changes
+
+# Default owners for all files
+* @owner-username
+
+# Backend code - requires backend maintainers
+/backend/src/                   @backend-team
+/backend/tests/                 @backend-team
+/backend/package.json           @backend-team
+/backend/.eslintrc.json         @backend-team
+
+# Smart Contract code - requires contract maintainers
+/src/                           @contract-team
+/tests/                         @contract-team
+/Cargo.toml                     @contract-team
+/Cargo.lock                     @contract-team
+
+# CI/CD and workflows - requires all maintainers
+/.github/workflows/             @maintainers
+/.github/CODEOWNERS             @maintainers
+
+# Root configuration files
+/README.md                      @maintainers
+/CONTRIBUTING.md               @maintainers
+/GITHUB_SETUP.md               @maintainers
+
+# Documentation
+/docs/                         @maintainers
+/backend/API.md                @backend-team
+/backend/SECRETS_MANAGER.md    @backend-team
+
+# Note: Replace @owner-username, @backend-team, @contract-team, @maintainers 
+# with actual GitHub usernames or team names
