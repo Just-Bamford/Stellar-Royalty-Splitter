@@ -7,7 +7,8 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import logger from "./logger.js";
 import { correlationMiddleware } from "./correlation.js";
-import { auditExportRouter } from "./routes/audit-export.js";
+import { transactionTrackingMiddleware } from "./transaction-tracking.js";
+import { transactionRouter } from "./routes/transaction.js";
 import { recordHttpRequest } from "./metrics.js";
 import { resolveCorsOrigin } from "./cors-config.js";
 import { initializeRouter } from "./routes/initialize.js";
@@ -56,6 +57,9 @@ const app = express();
 
 // #396: Correlation ID — must be first so every subsequent middleware has req.correlationId
 app.use(correlationMiddleware);
+
+// #425: Transaction ID Tracking middleware
+app.use(transactionTrackingMiddleware);
 
 // #396: Request / response logging with correlation ID and timing
 import { startSpan } from "./tracing.js";
@@ -137,6 +141,13 @@ app.use(
       "X-Nonce",
       "X-Signature",
       "X-API-Key",
+      "X-Transaction-ID",
+    ],
+    exposedHeaders: [
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "X-RateLimit-Reset",
+      "X-Transaction-ID",
     ],
     exposedHeaders: [
       "X-RateLimit-Limit",

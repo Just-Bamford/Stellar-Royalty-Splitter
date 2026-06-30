@@ -46,19 +46,21 @@ export function normalizeErrorCode(status, code) {
   return code || defaultErrorCodes[status] || "error";
 }
 
-export function buildErrorPayload(status, code, message, extra = {}) {
+export function buildErrorPayload(status, code, message, extra = {}, req = null) {
+  const transactionId = req?.transactionId || null;
   return {
     status,
     code: normalizeErrorCode(status, code),
     message,
     error: message,
     timestamp: new Date().toISOString(),
+    ...(transactionId ? { transactionId } : {}),
     ...extra,
   };
 }
 
 export function sendError(res, status, code, message, extra = {}) {
-  return res.status(status).json(buildErrorPayload(status, code, message, extra));
+  return res.status(status).json(buildErrorPayload(status, code, message, extra, res?.req));
 }
 
 export function sendValidationError(res, issues) {

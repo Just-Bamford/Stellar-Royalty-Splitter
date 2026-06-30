@@ -231,6 +231,24 @@ export function initializeDatabase() {
       `,
     },
     {
+      // Issue #425: request tracking table for transaction ID tracking
+      version: 9,
+      sql: `
+        CREATE TABLE IF NOT EXISTS request_tracking (
+          transactionId TEXT PRIMARY KEY,
+          correlationId TEXT NOT NULL,
+          method TEXT NOT NULL,
+          path TEXT NOT NULL,
+          requestBody TEXT,
+          responseStatus INTEGER,
+          responseBody TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_request_tracking_correlationId ON request_tracking(correlationId);
+        CREATE INDEX IF NOT EXISTS idx_request_tracking_timestamp ON request_tracking(timestamp);
+      `,
+    },
+    {
       // Issue #427: track dust allocated per secondary-royalty distribution round
       // Issue #428: add max_attempts to webhooks; add cleanup index on DLQ
       version: 7,
