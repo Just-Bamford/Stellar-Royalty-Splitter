@@ -45,6 +45,18 @@ export {
 // Analytics
 export { getAnalyticsData } from "./analytics.js";
 
+// Contract event archival
+export {
+  DEFAULT_ARCHIVE_BATCH_SIZE,
+  DEFAULT_ARCHIVE_RETENTION_DAYS,
+  archiveContractEvents,
+  getArchiveCutoffDate,
+  getArchivePolicy,
+  getArchivedEventCount,
+  getArchivedEvents,
+  updateArchivePolicy,
+} from "./archive.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;

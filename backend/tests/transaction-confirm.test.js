@@ -23,6 +23,11 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog: jest.fn(),
   updateTransactionStatus,
   updateTransactionHash,
+  archiveContractEvents: jest.fn(),
+  getArchivePolicy: jest.fn(),
+  getArchivedEventCount: jest.fn(),
+  getArchivedEvents: jest.fn(),
+  updateArchivePolicy: jest.fn(),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 3),
 }));

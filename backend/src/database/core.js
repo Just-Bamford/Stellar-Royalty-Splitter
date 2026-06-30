@@ -116,6 +116,46 @@ export function initializeDatabase() {
         PRAGMA foreign_keys = ON;
       `,
     },
+    {
+      version: 4,
+      sql: `
+        CREATE TABLE IF NOT EXISTS contract_event_archive (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          originalTransactionId INTEGER NOT NULL,
+          txHash TEXT,
+          contractId TEXT NOT NULL,
+          type TEXT NOT NULL,
+          initiatorAddress TEXT NOT NULL,
+          requestedAmount TEXT,
+          tokenId TEXT,
+          timestamp DATETIME,
+          blockTime DATETIME,
+          status TEXT NOT NULL,
+          errorMessage TEXT,
+          payoutCount INTEGER NOT NULL DEFAULT 0,
+          payoutsJson TEXT NOT NULL DEFAULT '[]',
+          archivedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(originalTransactionId)
+        );
+
+        CREATE TABLE IF NOT EXISTS event_archive_policy (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          retentionDays INTEGER NOT NULL DEFAULT 90,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO event_archive_policy (id, enabled, retentionDays)
+        VALUES (1, 1, 90);
+
+        CREATE INDEX IF NOT EXISTS idx_contract_event_archive_contractId
+          ON contract_event_archive(contractId);
+        CREATE INDEX IF NOT EXISTS idx_contract_event_archive_timestamp
+          ON contract_event_archive(COALESCE(blockTime, timestamp));
+        CREATE INDEX IF NOT EXISTS idx_contract_event_archive_contract_time
+          ON contract_event_archive(contractId, COALESCE(blockTime, timestamp));
+      `,
+    },
   ];
 
   const applied = db
@@ -192,6 +232,7 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_transactions_contractId ON transactions(contractId);
     CREATE INDEX IF NOT EXISTS idx_transactions_txHash ON transactions(txHash);
     CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+    CREATE INDEX IF NOT EXISTS idx_transactions_event_time ON transactions(COALESCE(blockTime, timestamp));
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_contractId ON secondary_sales(contractId);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_nftId ON secondary_sales(nftId);
     CREATE INDEX IF NOT EXISTS idx_secondary_sales_timestamp ON secondary_sales(timestamp);
@@ -199,6 +240,38 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_audit_contractId ON audit_log(contractId);
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_secondary_sales_dedup ON secondary_sales(contractId, nftId, previousOwner, newOwner, salePrice, saleToken);
+
+    CREATE TABLE IF NOT EXISTS contract_event_archive (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      originalTransactionId INTEGER NOT NULL,
+      txHash TEXT,
+      contractId TEXT NOT NULL,
+      type TEXT NOT NULL,
+      initiatorAddress TEXT NOT NULL,
+      requestedAmount TEXT,
+      tokenId TEXT,
+      timestamp DATETIME,
+      blockTime DATETIME,
+      status TEXT NOT NULL,
+      errorMessage TEXT,
+      payoutCount INTEGER NOT NULL DEFAULT 0,
+      payoutsJson TEXT NOT NULL DEFAULT '[]',
+      archivedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(originalTransactionId)
+    );
+
+    CREATE TABLE IF NOT EXISTS event_archive_policy (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      retentionDays INTEGER NOT NULL DEFAULT 90,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT OR IGNORE INTO event_archive_policy (id, enabled, retentionDays)
+    VALUES (1, 1, 90);
+    CREATE INDEX IF NOT EXISTS idx_contract_event_archive_contractId ON contract_event_archive(contractId);
+    CREATE INDEX IF NOT EXISTS idx_contract_event_archive_timestamp ON contract_event_archive(COALESCE(blockTime, timestamp));
+    CREATE INDEX IF NOT EXISTS idx_contract_event_archive_contract_time ON contract_event_archive(contractId, COALESCE(blockTime, timestamp));
   `);
 
   // Migration guards for existing databases

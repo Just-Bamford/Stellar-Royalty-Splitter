@@ -8,6 +8,11 @@ import {
   addAuditLog,
   updateTransactionStatus,
   updateTransactionHash,
+  archiveContractEvents,
+  getArchivePolicy,
+  getArchivedEventCount,
+  getArchivedEvents,
+  updateArchivePolicy,
 } from "../database/index.js";
 import {
   validateContractId,
@@ -46,6 +51,102 @@ router.get("/history/:contractId", validateContractIdMiddleware, (req, res) => {
   } catch (error) {
     logger.error("Error fetching transaction history:", error);
     sendError(res, 500, "internal_server_error", error.message ?? "Failed to fetch transaction history");
+  }
+});
+
+/**
+ * GET /api/archive/policy
+ * Get contract event archive retention policy.
+ */
+router.get("/archive/policy", (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: getArchivePolicy(),
+    });
+  } catch (error) {
+    logger.error("Error fetching archive policy:", error);
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to fetch archive policy");
+  }
+});
+
+/**
+ * POST /api/archive/policy
+ * Update contract event archive retention policy.
+ */
+router.post("/archive/policy", (req, res) => {
+  try {
+    const { enabled, retentionDays } = req.body ?? {};
+
+    if (enabled != null && typeof enabled !== "boolean") {
+      return sendError(res, 400, "bad_request", "enabled must be a boolean");
+    }
+
+    if (retentionDays != null) {
+      const parsedRetentionDays = Number.parseInt(retentionDays, 10);
+      if (!Number.isInteger(parsedRetentionDays) || parsedRetentionDays <= 0) {
+        return sendError(res, 400, "bad_request", "retentionDays must be a positive integer");
+      }
+    }
+
+    res.json({
+      success: true,
+      data: updateArchivePolicy({ enabled, retentionDays }),
+    });
+  } catch (error) {
+    logger.error("Error updating archive policy:", error);
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to update archive policy");
+  }
+});
+
+/**
+ * POST /api/archive/run
+ * Archive old contract events according to the configured policy.
+ */
+router.post("/archive/run", (req, res) => {
+  try {
+    const { batchSize } = req.body ?? {};
+    const parsedBatchSize = batchSize == null ? undefined : Number.parseInt(batchSize, 10);
+
+    if (batchSize != null && (!Number.isInteger(parsedBatchSize) || parsedBatchSize <= 0)) {
+      return sendError(res, 400, "bad_request", "batchSize must be a positive integer");
+    }
+
+    res.json({
+      success: true,
+      data: archiveContractEvents({ batchSize: parsedBatchSize }),
+    });
+  } catch (error) {
+    logger.error("Error archiving contract events:", error);
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to archive contract events");
+  }
+});
+
+/**
+ * GET /api/archive/:contractId
+ * Query archived contract events.
+ * Query params: limit (default 50), offset (default 0)
+ */
+router.get("/archive/:contractId", validateContractIdMiddleware, (req, res) => {
+  try {
+    const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
+
+    const pagination = parsePagination(req.query, res, 50, 200);
+    if (!pagination) return;
+    const { limit, offset } = pagination;
+
+    const archive = getArchivedEvents(contractId, limit, offset);
+    const total = getArchivedEventCount(contractId);
+
+    res.json({
+      success: true,
+      data: archive,
+      pagination: { limit, offset, total },
+    });
+  } catch (error) {
+    logger.error("Error fetching archived contract events:", error);
+    sendError(res, 500, "internal_server_error", error.message ?? "Failed to fetch archived events");
   }
 });
 

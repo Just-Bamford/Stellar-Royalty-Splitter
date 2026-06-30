@@ -255,7 +255,54 @@ See route module `src/routes/secondary-royalty.js` for pool, sales, and distribu
 ## History & analytics
 
 - `GET /api/v1/history/:contractId`
+- `GET /api/v1/archive/:contractId`
+- `GET /api/v1/archive/policy`
+- `POST /api/v1/archive/policy`
+- `POST /api/v1/archive/run`
 - `GET /api/v1/analytics/:contractId`
+
+Contract event archival moves `transactions` rows older than the configured retention period into `contract_event_archive`.
+The default policy is enabled with a 90 day retention period.
+
+### `GET /api/v1/archive/:contractId`
+
+Query archived contract events for a contract.
+
+Query params:
+
+| Param | Default | Max | Description |
+| ----- | ------- | --- | ----------- |
+| `limit` | `50` | `200` | Number of archived events to return |
+| `offset` | `0` | — | Pagination offset |
+
+### `GET /api/v1/archive/policy`
+
+Returns the current archive policy:
+
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "retentionDays": 90,
+    "updatedAt": "2026-06-30 12:00:00"
+  }
+}
+```
+
+### `POST /api/v1/archive/policy`
+
+Update archive retention configuration.
+
+**Body:** `{ "enabled": true, "retentionDays": 90 }`
+
+### `POST /api/v1/archive/run`
+
+Runs one bounded archival batch. Events with `COALESCE(blockTime, timestamp)` older than the policy cutoff are copied into `contract_event_archive` with payout details and then removed from active `transactions`.
+
+**Body (optional):** `{ "batchSize": 500 }`
+
+**Response:** `{ "success": true, "data": { "archived": 12, "enabled": true, "retentionDays": 90, "cutoff": "2026-04-01T00:00:00.000Z", "durationMs": 8 } }`
 
 ## Transaction confirmation
 

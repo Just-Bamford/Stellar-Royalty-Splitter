@@ -21,8 +21,6 @@ import { closeDatabase, initializeDatabase } from "./database/index.js";
 import { createGracefulShutdownHandler } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { metricsRouter } from "./routes/metrics.js";
-import { initializeDatabase } from "./database/index.js";
-import db from "./database/index.js";
 import { initializeSigningKey } from "./signing-key.js";
 import { sendError, normalizeErrorCode } from "./error-response.js";
 
