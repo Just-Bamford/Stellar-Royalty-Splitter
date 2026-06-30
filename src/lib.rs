@@ -1091,15 +1091,25 @@ impl RoyaltySplitter {
             .get(&StorageKey::PauseTimestamp)
             .unwrap_or(0);
 
-        let source = env.storage()
+        let source = env
+            .storage()
             .instance()
             .get(&StorageKey::PauseSource)
-            .unwrap_or_else(|| Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")));
-        
-        let current_time = env.ledger().timestamp();
-        let elapsed = current_time.saturating_sub(timestamp);
-        let remaining = EMERGENCY_PAUSE_DURATION.saturating_sub(elapsed);
-        
+            .unwrap_or_else(|| Self::zero_address(&env));
+
+        let remaining = if env
+            .storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::PauseEmergency)
+            .unwrap_or(false)
+        {
+            let current_time = env.ledger().timestamp();
+            let elapsed = current_time.saturating_sub(timestamp);
+            EMERGENCY_PAUSE_DURATION.saturating_sub(elapsed)
+        } else {
+            0
+        };
+
         (timestamp, source, remaining)
     }
 

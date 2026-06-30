@@ -443,8 +443,36 @@ export default function DistributeForm({
     >
       <span className="badge">Distribute</span>
 
-      {/* #504: warn + block while the contract is paused. */}
-      {pauseState && <PauseBanner pauseState={pauseState} />}
+      {optimisticDistribution && (
+        <div
+          className={`distribution-optimistic distribution-optimistic--${optimisticDistribution.phase}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid="distribution-optimistic"
+          data-phase={optimisticDistribution.phase}
+        >
+          <div className="distribution-optimistic__row">
+            <span className="distribution-optimistic__icon" aria-hidden="true">
+              {optimisticDistribution.phase === "confirmed" ? "✓" : "●"}
+            </span>
+            <strong>
+              {optimisticDistribution.phase === "confirmed"
+                ? "Distribution confirmed"
+                : optimisticDistribution.phase === "confirming"
+                  ? "Waiting for confirmation"
+                  : optimisticDistribution.phase === "signing"
+                    ? "Signing transaction"
+                    : "Distribution queued"}
+            </strong>
+          </div>
+          <div className="distribution-optimistic__meta">
+            <span>{formatXlmAmount(optimisticDistribution.amount)} XLM</span>
+            <span>{optimisticDistribution.recipientCount} recipients</span>
+            <span>{shortAddress(optimisticDistribution.tokenId)}</span>
+          </div>
+        </div>
+      )}
 
       {draftPrompt && (
         <div className="restore-prompt" role="status">
