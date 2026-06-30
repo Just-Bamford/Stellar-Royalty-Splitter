@@ -4,11 +4,23 @@ import type { ReactElement } from "react";
 import DistributeForm from "./DistributeForm";
 import { TransactionProvider } from "../context/TransactionContext";
 import { api } from "../api";
+import { signAndSubmitTransaction } from "../stellar";
 
 // DistributeForm reads transaction phase from TransactionContext, so every
 // render needs the provider.
 function renderForm(ui: ReactElement) {
   return render(<TransactionProvider>{ui}</TransactionProvider>);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
 }
 
 vi.mock("../context/NetworkContext", () => ({
@@ -125,10 +137,42 @@ describe("DistributeForm", () => {
     expect(screen.getByRole("button", { name: /Distribute funds/i })).toBeDisabled();
   });
 
-  test("polls for confirmation after submit and reports success (#414)", async () => {
+  test("shows an optimistic pending state immediately after submit", async () => {
     (api.getContractBalance as unknown as vi.Mock).mockResolvedValue({ balance: "100" });
-    // The first poll already reports confirmed (the 5s loop itself is covered
-    // by transactionPolling.test.ts), so this stays fast and deterministic.
+    (api.getTransactionDetails as unknown as vi.Mock).mockResolvedValue({
+      success: true,
+      data: { status: "confirmed" },
+    });
+    const distributeRequest = deferred<{ xdr: string; transactionId: number }>();
+    (api.distribute as unknown as vi.Mock).mockReturnValueOnce(distributeRequest.promise);
+    const onSuccess = vi.fn();
+
+    renderForm(
+      <DistributeForm contractId="test-contract" walletAddress="test-wallet" onSuccess={onSuccess} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Token contract address/i), {
+      target: { value: "C" + "A".repeat(55) },
+    });
+    await waitFor(() => expect(api.getContractBalance).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Amount/i), { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Distribute funds/i }));
+
+    expect(screen.getByTestId("distribution-optimistic")).toHaveAttribute(
+      "data-phase",
+      "pending",
+    );
+    expect(screen.getByText(/Distribution submitted\. Preparing the transaction/i)).toBeInTheDocument();
+    expect(screen.getByTestId("distribute-submit")).toBeDisabled();
+
+    distributeRequest.resolve({ xdr: "dummy-xdr", transactionId: 1 });
+    await waitFor(() => expect(api.confirmTransaction).toHaveBeenCalled());
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled(), { timeout: 8000 });
+  });
+
+  test("transitions the optimistic state to confirmed and calls onSuccess", async () => {
+    (api.getContractBalance as unknown as vi.Mock).mockResolvedValue({ balance: "100" });
     (api.getTransactionDetails as unknown as vi.Mock).mockResolvedValue({
       success: true,
       data: { status: "confirmed" },
@@ -147,12 +191,80 @@ describe("DistributeForm", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Distribute funds/i }));
 
-    // Settlement is kicked off and polling drives the confirmed state.
+    expect(screen.getByTestId("distribution-optimistic")).toHaveAttribute(
+      "data-phase",
+      "pending",
+    );
     await waitFor(() => expect(api.confirmTransaction).toHaveBeenCalled());
     await waitFor(() => expect(api.getTransactionDetails).toHaveBeenCalled(), {
       timeout: 8000,
     });
     await waitFor(() => expect(onSuccess).toHaveBeenCalled(), { timeout: 8000 });
+    expect(await screen.findByTestId("distribution-optimistic")).toHaveAttribute(
+      "data-phase",
+      "confirmed",
+    );
     expect(await screen.findByText(/Distributed successfully/i)).toBeInTheDocument();
+  });
+
+  test("rolls back the optimistic UI if the backend distribution request fails", async () => {
+    (api.getContractBalance as unknown as vi.Mock).mockResolvedValue({ balance: "100" });
+    (api.distribute as unknown as vi.Mock).mockRejectedValueOnce(new Error("backend unavailable"));
+
+    renderForm(
+      <DistributeForm contractId="test-contract" walletAddress="test-wallet" onSuccess={vi.fn()} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Token contract address/i), {
+      target: { value: "C" + "A".repeat(55) },
+    });
+    await waitFor(() => expect(api.getContractBalance).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Amount/i), { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Distribute funds/i }));
+
+    expect(screen.getByTestId("distribution-optimistic")).toHaveAttribute(
+      "data-phase",
+      "pending",
+    );
+    expect(await screen.findByTestId("tx-error-message")).toHaveTextContent(
+      /backend unavailable/i,
+    );
+    await waitFor(() => expect(screen.queryByTestId("distribution-optimistic")).toBeNull());
+    expect(screen.getByLabelText(/Token contract address/i)).toHaveValue(
+      "C" + "A".repeat(55),
+    );
+    expect(screen.getByLabelText(/Amount/i)).toHaveValue("10");
+  });
+
+  test("rolls back the optimistic UI if signing fails after submission", async () => {
+    (api.getContractBalance as unknown as vi.Mock).mockResolvedValue({ balance: "100" });
+    (signAndSubmitTransaction as unknown as vi.Mock).mockRejectedValueOnce(new Error("wallet rejected"));
+    const distributeRequest = deferred<{ xdr: string; transactionId: number }>();
+    (api.distribute as unknown as vi.Mock).mockReturnValueOnce(distributeRequest.promise);
+
+    renderForm(
+      <DistributeForm contractId="test-contract" walletAddress="test-wallet" onSuccess={vi.fn()} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Token contract address/i), {
+      target: { value: "C" + "A".repeat(55) },
+    });
+    await waitFor(() => expect(api.getContractBalance).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Amount/i), { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Distribute funds/i }));
+
+    expect(screen.getByTestId("distribution-optimistic")).toHaveAttribute(
+      "data-phase",
+      "pending",
+    );
+    distributeRequest.resolve({ xdr: "dummy-xdr", transactionId: 1 });
+    expect(await screen.findByTestId("tx-error-message")).toHaveTextContent(/wallet rejected/i);
+    await waitFor(() => expect(screen.queryByTestId("distribution-optimistic")).toBeNull());
+    expect(screen.getByLabelText(/Token contract address/i)).toHaveValue(
+      "C" + "A".repeat(55),
+    );
+    expect(screen.getByLabelText(/Amount/i)).toHaveValue("10");
   });
 });

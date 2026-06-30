@@ -218,6 +218,12 @@ export const api = {
       body.walletAddress,
     ),
 
+  distribute: (body: {
+    contractId: string;
+    walletAddress: string;
+    tokenId: string;
+    amount: number;
+  }) =>
   distribute: (
     body: {
       contractId: string;

@@ -11,8 +11,7 @@ pub mod msg {
     pub const PAUSE_ADMIN: &str = "pause: admin authorization required";
     pub const UNPAUSE_ADMIN: &str = "unpause: admin authorization required";
     pub const ADMIN_TRANSFER_ADMIN: &str = "admin_transfer: admin authorization required";
-    pub const PROPOSE_ADMIN_ADMIN: &str =
-        "propose_admin_transfer: admin authorization required";
+    pub const PROPOSE_ADMIN_ADMIN: &str = "propose_admin_transfer: admin authorization required";
     pub const ACCEPT_ADMIN_PENDING: &str = "accept_admin: pending admin authorization required";
     pub const SET_DEFAULT_RECIPIENTS_ADMIN: &str =
         "set_default_recipients: admin authorization required";
@@ -29,7 +28,9 @@ pub mod msg {
     pub const RECORD_SECONDARY_PAYER: &str =
         "record_secondary_royalty: payer authorization required";
     pub const SET_ADMINS_ADMIN: &str = "set_admins: admin authorization required";
-    pub const PAUSE_COLLABORATOR: &str = "pause_collaborator_distributions: collaborator authorization required";
+    pub const PAUSE_EMERGENCY: &str = "pause_emergency: collaborator authorization required";
+    pub const PAUSE_COLLABORATOR: &str =
+        "pause_collaborator_distributions: collaborator authorization required";
 }
 
 /// Requires admin authorization; panics with `message` if missing.

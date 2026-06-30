@@ -31,6 +31,15 @@ interface DistributionDraft {
   amount: string;
 }
 
+interface OptimisticDistribution {
+  tokenId: string;
+  amount: number;
+  recipientCount: number;
+  phase: "pending" | "signing" | "confirming" | "confirmed";
+  transactionId: number | null;
+  txHash: string | null;
+}
+
 const DRAFT_KEY_PREFIX = "srs_distribute_draft";
 
 function shortAddress(address: string): string {
@@ -256,6 +265,16 @@ export default function DistributeForm({
 
     // #391: Begin optimistic transaction state
     beginTransaction();
+    setOptimisticDistribution({
+      tokenId,
+      amount: parsedAmount,
+      recipientCount: collaborators.length,
+      phase: "pending",
+      transactionId: null,
+      txHash: null,
+    });
+    setStatus("info", "Distribution submitted. Preparing the transaction...");
+    updatePhase("building", { label: "Distribution queued" });
 
     // #502: retry the (idempotent) build step with backoff so a transient
     // network error doesn't force a manual — and possibly duplicate — resubmit.
@@ -282,11 +301,30 @@ export default function DistributeForm({
       setRetryInfo(null);
 
       // #391: Phase 2 — signing
+      setOptimisticDistribution((prev) =>
+        prev
+          ? {
+              ...prev,
+              phase: "signing",
+              transactionId: res.transactionId,
+            }
+          : prev,
+      );
       updatePhase("signing", { transactionId: res.transactionId });
 
       const hash = await signAndSubmitTransaction(res.xdr, network);
 
       // #391/#414: Phase 3 — confirming, with countdown + real-time polling.
+      setOptimisticDistribution((prev) =>
+        prev
+          ? {
+              ...prev,
+              phase: "confirming",
+              transactionId: res.transactionId,
+              txHash: hash,
+            }
+          : prev,
+      );
       updatePhase("confirming", { txHash: hash });
 
       // Kick off server-side settlement (Horizon polling + webhooks). We don't
@@ -311,6 +349,14 @@ export default function DistributeForm({
       if (outcome === "confirmed") {
         // #391: Phase 4 — confirmed
         updatePhase("confirmed");
+        setOptimisticDistribution((prev) =>
+          prev
+            ? {
+                ...prev,
+                phase: "confirmed",
+              }
+            : prev,
+        );
         setStatus("ok", "Distributed successfully.");
         localStorage.removeItem(draftKey);
         setTokenId("");
@@ -320,6 +366,7 @@ export default function DistributeForm({
       }
 
       if (outcome === "timeout") {
+        setOptimisticDistribution(null);
         updatePhase("timeout", {
           error: "Confirmation timed out. The transaction may still settle.",
         });
@@ -331,6 +378,7 @@ export default function DistributeForm({
       }
 
       // outcome === "failed"
+      setOptimisticDistribution(null);
       updatePhase("failed", { error: "Transaction failed to confirm." });
       setStatus("error", "Transaction failed to confirm.");
     } catch (e: unknown) {
@@ -354,6 +402,7 @@ export default function DistributeForm({
         msg.toLowerCase().includes("timed out");
 
       // #391: Handle timeout scenario gracefully
+      setOptimisticDistribution(null);
       updatePhase(isTimeout ? "timeout" : "failed", { error: msg });
       setStatus("error", msg);
     } finally {
@@ -381,6 +430,7 @@ export default function DistributeForm({
     setContractBalance(null);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
+    setOptimisticDistribution(null);
     localStorage.removeItem(draftKey);
     clearStatus();
     resetTx();

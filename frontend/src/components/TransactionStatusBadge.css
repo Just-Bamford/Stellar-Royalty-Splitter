@@ -23,6 +23,7 @@
   background: rgba(56, 161, 105, 0.1);
   border-color: rgba(56, 161, 105, 0.4);
   color: #276749;
+  animation: tx-confirmed-enter 280ms ease-out;
 }
 
 [data-theme="dark"] .tx-status-badge--confirmed {
@@ -73,8 +74,35 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes tx-confirmed-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tx-confirmed-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  60% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 .tx-status-badge__icon {
   flex-shrink: 0;
+}
+
+.tx-status-badge--confirmed .tx-status-badge__icon {
+  animation: tx-confirmed-pop 360ms ease-out;
 }
 
 .tx-status-badge__label {
@@ -146,4 +174,11 @@
   margin-top: 0.35rem;
   font-size: 0.82rem;
   opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-status-badge--confirmed,
+  .tx-status-badge--confirmed .tx-status-badge__icon {
+    animation: none;
+  }
 }
