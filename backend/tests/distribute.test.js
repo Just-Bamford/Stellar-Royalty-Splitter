@@ -15,6 +15,13 @@ const stellarSdkMock = {
     setTimeout: jest.fn().mockReturnThis(),
     build: jest.fn().mockReturnValue({}),
   })),
+  Transaction: jest.fn(() => ({
+    source: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    fee: "250",
+    sequence: "123456789",
+    operations: [{ type: "operation" }],
+    timeBounds: { minTime: "0", maxTime: "30" },
+  })),
   BASE_FEE: "100",
   Account: jest.fn(),
   scValToNative: jest.fn((value) => value),
@@ -31,6 +38,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytesN32HexToScVal: jest.fn((h) => h),
+  getNetworkLabel: jest.fn(() => "Testnet"),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -40,6 +49,7 @@ const recordTransaction = jest.fn(() => "tx-456");
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction,
   addAuditLog: jest.fn(),
+  lookupCollaborators: jest.fn(() => []),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
 }));

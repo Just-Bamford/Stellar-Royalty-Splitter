@@ -1,222 +1,213 @@
 /**
- * Smart cache with:
- *  - TTL per data type (configurable via env)
- *  - Event-driven invalidation (invalidate by key or tag)
- *  - Async background refresh (stale-while-revalidate)
- *  - Cache warming for frequently accessed keys
- *  - Hit/miss ratio tracking
- *
- * Closes #511
+ * Cache Manager with TTL and selective invalidation (#399)
+ * Wraps Redis with contract-state-aware invalidation.
+ * Preserves 30s TTL for non-admin state.
  */
+import Redis from "ioredis";
+import logger from "./logger.js";
 
-import { EventEmitter } from "events";
-
-// ── TTL config per data type (ms) ─────────────────────────────────────────
-
-function parseMs(env, fallback) {
-  const n = parseInt(env ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-export const TTL = {
-  CONTRACT_STATE: parseMs(process.env.CACHE_TTL_CONTRACT_STATE_MS, 30_000),
-  COLLABORATORS: parseMs(process.env.CACHE_TTL_COLLABORATORS_MS, 60_000),
-  CONTRACT_INFO: parseMs(process.env.CACHE_TTL_CONTRACT_INFO_MS, 120_000),
-  FEE: parseMs(process.env.CACHE_TTL_FEE_MS, 30_000),
-};
-
-// ── Internal state ────────────────────────────────────────────────────────
-
-/** @type {Map<string, { value: unknown, fetchedAt: number, ttl: number, tags: string[] }>} */
-const store = new Map();
-
-/** Keys registered for warming with their fetch functions. */
-const warmingRegistry = new Map(); // key → { fetch: () => Promise<unknown>, ttl: number, tags: string[] }
-
-/** Active background refresh promises (deduplicated). */
-const refreshing = new Set();
-
-/** Hit/miss counters. */
-const counters = { hits: 0, misses: 0 };
-
-/** Event bus for invalidation signals. */
-export const cacheEvents = new EventEmitter();
-
-// ── Core operations ───────────────────────────────────────────────────────
-
-/**
- * Read a cached value.
- * Returns `undefined` on miss or expiry.
- * If `refresh` is supplied and the entry is expired, kicks off an async
- * background refresh (stale-while-revalidate) and returns `undefined`.
- */
-export function cacheGet(key) {
-  const entry = store.get(key);
-  if (!entry) {
-    counters.misses += 1;
-    return undefined;
+class InMemoryRedis {
+  constructor() {
+    this.store = new Map();
   }
-  const age = Date.now() - entry.fetchedAt;
-  if (age >= entry.ttl) {
-    counters.misses += 1;
-    return undefined;
+
+  async get(key) {
+    return this.store.get(key) ?? null;
   }
-  counters.hits += 1;
-  return entry.value;
-}
 
-/**
- * Write a value into the cache.
- * @param {string} key
- * @param {unknown} value
- * @param {number} ttl  - milliseconds
- * @param {string[]} [tags] - optional invalidation tags
- */
-export function cacheSet(key, value, ttl, tags = []) {
-  store.set(key, { value, fetchedAt: Date.now(), ttl, tags });
-}
-
-/**
- * Invalidate a specific key.
- */
-export function cacheInvalidate(key) {
-  store.delete(key);
-}
-
-/**
- * Invalidate all keys that carry a given tag.
- */
-export function cacheInvalidateByTag(tag) {
-  for (const [key, entry] of store) {
-    if (entry.tags.includes(tag)) store.delete(key);
+  async setex(key, _ttl, value) {
+    this.store.set(key, value);
+    return "OK";
   }
-}
 
-/**
- * Get-or-fetch: return cached value if fresh; otherwise await `fetchFn`,
- * store the result, and return it.
- * @param {string} key
- * @param {() => Promise<unknown>} fetchFn
- * @param {number} ttl
- * @param {string[]} [tags]
- */
-export async function cacheGetOrFetch(key, fetchFn, ttl, tags = []) {
-  const cached = cacheGet(key);
-  if (cached !== undefined) return cached;
-
-  const value = await fetchFn();
-  cacheSet(key, value, ttl, tags);
-  return value;
-}
-
-/**
- * Stale-while-revalidate: return the stale cached value immediately (if any)
- * and trigger an async background refresh when the entry is expired.
- * @param {string} key
- * @param {() => Promise<unknown>} fetchFn
- * @param {number} ttl
- * @param {string[]} [tags]
- */
-export function cacheGetWithAsyncRefresh(key, fetchFn, ttl, tags = []) {
-  const entry = store.get(key);
-  const now = Date.now();
-
-  if (entry) {
-    const age = now - entry.fetchedAt;
-    if (age < entry.ttl) {
-      counters.hits += 1;
-      return { value: entry.value, stale: false };
+  async del(...keys) {
+    let deleted = 0;
+    for (const key of keys) {
+      if (this.store.delete(key)) {
+        deleted += 1;
+      }
     }
-    // Stale: return old value and refresh in background
-    counters.hits += 1;
-    _triggerAsyncRefresh(key, fetchFn, ttl, tags);
-    return { value: entry.value, stale: true };
+    return deleted;
   }
 
-  counters.misses += 1;
-  return { value: undefined, stale: false };
-}
-
-function _triggerAsyncRefresh(key, fetchFn, ttl, tags) {
-  if (refreshing.has(key)) return; // already refreshing
-  refreshing.add(key);
-  fetchFn()
-    .then((value) => cacheSet(key, value, ttl, tags))
-    .catch(() => {/* keep stale on error */})
-    .finally(() => refreshing.delete(key));
-}
-
-// ── Cache warming ─────────────────────────────────────────────────────────
-
-/**
- * Register a key for cache warming.
- * The fetch function will be called immediately and cached.
- */
-export function registerWarmingKey(key, fetchFn, ttl, tags = []) {
-  warmingRegistry.set(key, { fetch: fetchFn, ttl, tags });
-}
-
-/**
- * Warm all registered keys (or a specific one).
- * Call at startup for frequently accessed data.
- */
-export async function warmCache(key) {
-  if (key) {
-    const entry = warmingRegistry.get(key);
-    if (!entry) return;
-    try {
-      const value = await entry.fetch();
-      cacheSet(key, value, entry.ttl, entry.tags);
-    } catch {/* warming failure is non-fatal */}
-    return;
+  async flushdb() {
+    this.store.clear();
+    return "OK";
   }
 
-  await Promise.allSettled(
-    Array.from(warmingRegistry.entries()).map(async ([k, entry]) => {
-      try {
-        const value = await entry.fetch();
-        cacheSet(k, value, entry.ttl, entry.tags);
-      } catch {/* warming failure is non-fatal */}
-    })
-  );
+  async ping() {
+    return "PONG";
+  }
+
+  async quit() {
+    return "OK";
+  }
 }
 
-// ── Metrics ───────────────────────────────────────────────────────────────
+export class CacheManager {
+  constructor(redisUrl, defaultTTL = 30) {
+    const RedisClient = process.env.NODE_ENV === "test" ? InMemoryRedis : Redis;
+    this.redis = new RedisClient(redisUrl);
+    this.defaultTTL = defaultTTL; // seconds
+  }
 
-export function getCacheMetrics() {
-  const total = counters.hits + counters.misses;
-  return {
-    hits: counters.hits,
-    misses: counters.misses,
-    hitRatio: total === 0 ? 0 : counters.hits / total,
-    size: store.size,
+  static KEYS = {
+    ADMIN: "contract:admin",
+    COLLABORATORS: "contract:collaborators",
+    SHARES: "contract:shares",
+    HEALTH: "health:full",
+    STATE_PREFIX: "contract:state:",
+    EVENT_WEBHOOKS_PREFIX: "event:webhooks:",
   };
+
+  /**
+   * Get a cached value. Returns null if expired or missing.
+   */
+  async get(key) {
+    const value = await this.redis.get(key);
+    return value ? JSON.parse(value) : null;
+  }
+
+  /**
+   * Set a value with optional TTL (defaults to 30s).
+   */
+  async set(key, value, ttl = this.defaultTTL) {
+    await this.redis.setex(key, ttl, JSON.stringify(value));
+  }
+
+  /**
+   * Invalidate a specific cache key immediately.
+   */
+  async invalidate(key) {
+    const deleted = await this.redis.del(key);
+    if (deleted > 0) {
+      logger.info("[Cache] Invalidated key", { key });
+    }
+    return deleted > 0;
+  }
+
+  /**
+   * Invalidate only the admin key — preserves all other state cache.
+   */
+  async invalidateAdmin() {
+    const result = await this.invalidate(CacheManager.KEYS.ADMIN);
+    // Also invalidate health cache since it embeds admin info
+    await this.invalidate(CacheManager.KEYS.HEALTH);
+    logger.info("[Cache] Admin cache invalidated", { adminInvalidated: result });
+    return result;
+  }
+
+  /**
+   * Invalidate multiple keys at once.
+   */
+  async invalidateKeys(keys) {
+    if (keys.length === 0) return 0;
+    const deleted = await this.redis.del(...keys);
+    logger.info("[Cache] Bulk invalidated keys", { keys, count: deleted });
+    return deleted;
+  }
+
+  /**
+   * Flush entire cache (use sparingly — tests only).
+   */
+  async flushAll() {
+    await this.redis.flushdb();
+    logger.info("[Cache] Full cache flushed");
+  }
+
+  /**
+   * Health check: verify cached admin matches on-chain state.
+   * Returns { consistent: boolean, cachedAdmin: string|null, liveAdmin: string, elapsedMs: number }
+   */
+  async verifyAdminConsistency(fetchLiveAdmin) {
+    const start = Date.now();
+    const cachedAdmin = await this.get(CacheManager.KEYS.ADMIN);
+    const liveAdmin = await fetchLiveAdmin();
+
+    const consistent = cachedAdmin === liveAdmin;
+
+    if (!consistent && cachedAdmin !== null) {
+      // Stale cache detected — refresh immediately
+      await this.set(CacheManager.KEYS.ADMIN, liveAdmin);
+      logger.warn("[Cache] Stale admin detected — cache refreshed", {
+        cachedAdmin,
+        liveAdmin,
+      });
+    }
+
+    const elapsed = Date.now() - start;
+    return { consistent, cachedAdmin, liveAdmin, elapsedMs: elapsed };
+  }
+
+  /**
+   * Get Redis connection health.
+   */
+  async ping() {
+    const result = await this.redis.ping();
+    return result === "PONG";
+  }
+
+  async disconnect() {
+    await this.redis.quit();
+  }
+
+  /**
+   * Get webhooks registered for a specific event type for a contract.
+   * Key format: event:webhooks:<contractId>:<eventType>
+   */
+  async getEventWebhooks(contractId, eventType) {
+    const key = `${CacheManager.KEYS.EVENT_WEBHOOKS_PREFIX}${contractId}:${eventType}`;
+    const webhooks = await this.get(key);
+    return webhooks || [];
+  }
+
+  /**
+   * Register a webhook for a specific event type for a contract.
+   */
+  async registerEventWebhook(contractId, eventType, webhook) {
+    const key = `${CacheManager.KEYS.EVENT_WEBHOOKS_PREFIX}${contractId}:${eventType}`;
+    const existing = await this.get(key) || [];
+
+    const webhookWithId = {
+      ...webhook,
+      id: webhook.id || `${contractId}:${eventType}:${Date.now()}`,
+      registeredAt: webhook.registeredAt || new Date().toISOString(),
+    };
+
+    const updated = [...existing, webhookWithId];
+    await this.set(key, updated, 3600); // 1 hour TTL for event webhooks
+    return webhookWithId;
+  }
+
+  /**
+   * Remove a specific event webhook.
+   */
+  async unregisterEventWebhook(contractId, eventType, webhookId) {
+    const key = `${CacheManager.KEYS.EVENT_WEBHOOKS_PREFIX}${contractId}:${eventType}`;
+    const webhooks = await this.get(key) || [];
+
+    const updated = webhooks.filter(w => w.id !== webhookId);
+    if (updated.length === 0) {
+      await this.invalidate(key);
+    } else {
+      await this.set(key, updated, 3600);
+    }
+
+    return updated.length < webhooks.length;
+  }
 }
 
-export function resetCacheMetrics() {
-  counters.hits = 0;
-  counters.misses = 0;
+// Singleton instance
+let cacheManager = null;
+
+export function getCacheManager() {
+  if (!cacheManager) {
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    cacheManager = new CacheManager(redisUrl);
+  }
+  return cacheManager;
 }
 
-/** Clear entire cache + metrics (for tests). */
-export function _resetCache() {
-  store.clear();
-  warmingRegistry.clear();
-  refreshing.clear();
-  counters.hits = 0;
-  counters.misses = 0;
+export function setCacheManagerForTests(mock) {
+  cacheManager = mock;
 }
-
-// ── Event-driven invalidation ─────────────────────────────────────────────
-
-/**
- * Emit a cache invalidation event for a contract. Consumers (routes) listen
- * for this after state-mutating operations (distribute, initialize, etc.).
- */
-export function emitContractInvalidation(contractId) {
-  cacheEvents.emit("invalidate:contract", contractId);
-}
-
-cacheEvents.on("invalidate:contract", (contractId) => {
-  cacheInvalidateByTag(contractId);
-});

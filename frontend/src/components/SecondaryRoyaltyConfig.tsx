@@ -67,7 +67,7 @@ export default function SecondaryRoyaltyConfig({
       await api.confirmTransaction(result, {
         status: "confirmed",
         blockTime: new Date().toISOString(),
-      });
+      }, walletAddress);
 
       setStatus({
         type: "ok",

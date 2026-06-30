@@ -8,6 +8,7 @@ interface NavigationProps {
   onPageChange: (page: string) => void;
   walletAddress: string | null;
   onDisconnect: () => void;
+  onStartTour: () => void;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -15,6 +16,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   onPageChange,
   walletAddress,
   onDisconnect,
+  onStartTour,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -77,6 +79,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 className={`nav-link ${currentPage === item.id ? "active" : ""}`}
                 onClick={() => handleNavClick(item.id)}
                 aria-current={currentPage === item.id ? "page" : undefined}
+                data-tour-id={item.id}
               >
                 <span className="nav-icon">{item.icon}</span>
                 <span className="nav-label">{item.label}</span>
@@ -86,6 +89,16 @@ export const Navigation: React.FC<NavigationProps> = ({
         </ul>
 
         <div className="nav-wallet">
+          {/* Onboarding tour restart — issue #419 */}
+          <button
+            className="tour-restart-btn"
+            onClick={onStartTour}
+            aria-label="Start the onboarding tour"
+            title="Start the onboarding tour"
+          >
+            🎯 Start Tour
+          </button>
+
           {/* Network toggle — issue #231 */}
           <button
             className={`network-toggle network-toggle--${network}`}

@@ -1,6 +1,6 @@
 [package]
 name = "stellar-royalty-splitter"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -11,6 +11,7 @@ soroban-sdk = { version = "20.0.0", features = ["alloc"] }
 
 [dev-dependencies]
 soroban-sdk = { version = "20.0.0", features = ["testutils"] }
+proptest = "1"
 
 [features]
 testutils = ["soroban-sdk/testutils"]
