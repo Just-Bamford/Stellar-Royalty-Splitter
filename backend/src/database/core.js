@@ -506,10 +506,7 @@ export function initializeDatabase() {
  * Get the current database schema migration version.
  */
 export function getMigrationVersion() {
-  const result = db
-    .prepare("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1")
-    .get();
-  return result?.version ?? 0;
+  return getCurrentVersion(db);
 }
 
 /**
