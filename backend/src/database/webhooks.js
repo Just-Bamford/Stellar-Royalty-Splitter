@@ -3,8 +3,10 @@
  */
 
 import { db, countWrite } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
 
 export function registerWebhook(contractId, url) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO webhooks (contractId, url, enabled)
     VALUES (?, ?, 1)
@@ -25,6 +27,7 @@ export function registerWebhook(contractId, url) {
 }
 
 export function listWebhooks(contractId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT id, contractId, url, enabled, createdAt
     FROM webhooks
@@ -36,6 +39,7 @@ export function listWebhooks(contractId) {
 }
 
 export function deleteWebhook(contractId, webhookId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     UPDATE webhooks
     SET enabled = 0
@@ -52,6 +56,7 @@ export function deleteWebhook(contractId, webhookId) {
 // ---------------------------------------------------------------------------
 
 export function enqueueDeadLetter(webhookId, contractId, url, payload, errorMessage) {
+  assertValidContractId(contractId);
   db.prepare(`
     INSERT INTO webhook_dead_letters (webhookId, contractId, url, payload, errorMessage)
     VALUES (?, ?, ?, ?, ?)
@@ -60,6 +65,7 @@ export function enqueueDeadLetter(webhookId, contractId, url, payload, errorMess
 }
 
 export function listDeadLetters(contractId, limit = 50) {
+  assertValidContractId(contractId);
   return db
     .prepare(
       `SELECT id, webhookId, contractId, url, payload, errorMessage, retryCount, createdAt, lastAttemptAt

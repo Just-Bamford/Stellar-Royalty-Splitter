@@ -8,6 +8,9 @@ import assert from "node:assert";
 import { db, initializeDatabase, verifyAuditLogIntegrity, computeAuditEntryHash } from "../src/database/core.js";
 import { addAuditLog, getAuditLog } from "../src/database/audit.js";
 
+const CONTRACT = `C${"A".repeat(55)}`;
+const OTHER_CONTRACT = `C${"B".repeat(55)}`;
+
 describe("Database Integrity Verification (Issue #395)", () => {
   beforeEach(() => {
     initializeDatabase();
@@ -82,9 +85,9 @@ describe("Database Integrity Verification (Issue #395)", () => {
 
   describe("Audit Log Hash Chain", () => {
     it("should create first entry with null prev_hash", () => {
-      addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1", "user2"] });
+      addAuditLog(CONTRACT, "initialize", "admin", { collaborators: ["user1", "user2"] });
       
-      const logs = getAuditLog("contract123");
+      const logs = getAuditLog(CONTRACT);
       assert.strictEqual(logs.length, 1);
       assert.strictEqual(logs[0].prev_hash, null);
       assert.strictEqual(typeof logs[0].entry_hash, "string");
@@ -92,10 +95,10 @@ describe("Database Integrity Verification (Issue #395)", () => {
     });
 
     it("should chain subsequent entries with prev_hash", () => {
-      addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1", "user2"] });
-      addAuditLog("contract123", "distribute", "user1", { amount: "100" });
+      addAuditLog(CONTRACT, "initialize", "admin", { collaborators: ["user1", "user2"] });
+      addAuditLog(CONTRACT, "distribute", "user1", { amount: "100" });
       
-      const logs = getAuditLog("contract123");
+      const logs = getAuditLog(CONTRACT);
       assert.strictEqual(logs.length, 2);
       
       // First entry should have null prev_hash
@@ -109,10 +112,10 @@ describe("Database Integrity Verification (Issue #395)", () => {
       const actions = ["initialize", "distribute", "distribute", "secondary_royalty"];
       
       actions.forEach((action, i) => {
-        addAuditLog("contract123", action, "user1", { step: i });
+        addAuditLog(CONTRACT, action, "user1", { step: i });
       });
       
-      const logs = getAuditLog("contract123");
+      const logs = getAuditLog(CONTRACT);
       assert.strictEqual(logs.length, 4);
       
       // Verify chain: each entry's prev_hash should match previous entry's entry_hash
@@ -124,58 +127,58 @@ describe("Database Integrity Verification (Issue #395)", () => {
 
   describe("Integrity Verification", () => {
     it("should pass verification for valid audit log", () => {
-      addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1"] });
-      addAuditLog("contract123", "distribute", "user1", { amount: "100" });
+      addAuditLog(CONTRACT, "initialize", "admin", { collaborators: ["user1"] });
+      addAuditLog(CONTRACT, "distribute", "user1", { amount: "100" });
       
-      const result = verifyAuditLogIntegrity("contract123");
+      const result = verifyAuditLogIntegrity(CONTRACT);
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.brokenAt, null);
       assert.strictEqual(result.error, null);
     });
 
     it("should pass verification for empty audit log", () => {
-      const result = verifyAuditLogIntegrity("contract123");
+      const result = verifyAuditLogIntegrity(CONTRACT);
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.brokenAt, null);
       assert.strictEqual(result.error, null);
     });
 
     it("should detect broken hash chain", () => {
-      addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1"] });
-      addAuditLog("contract123", "distribute", "user1", { amount: "100" });
+      addAuditLog(CONTRACT, "initialize", "admin", { collaborators: ["user1"] });
+      addAuditLog(CONTRACT, "distribute", "user1", { amount: "100" });
 
-      const logs = getAuditLog("contract123");
+      const logs = getAuditLog(CONTRACT);
       const newestLog = logs[0];
 
       // Manually break the chain by updating prev_hash
       db.prepare("UPDATE audit_log SET prev_hash = ? WHERE id = ?").run("fake_hash", newestLog.id);
 
-      const result = verifyAuditLogIntegrity("contract123");
+      const result = verifyAuditLogIntegrity(CONTRACT);
       assert.strictEqual(result.valid, false);
       assert.strictEqual(result.brokenAt, newestLog.id);
       assert(result.error.includes("Hash chain broken"));
     });
 
     it("should detect tampered entry hash", () => {
-      addAuditLog("contract123", "initialize", "admin", { collaborators: ["user1"] });
-      addAuditLog("contract123", "distribute", "user1", { amount: "100" });
+      addAuditLog(CONTRACT, "initialize", "admin", { collaborators: ["user1"] });
+      addAuditLog(CONTRACT, "distribute", "user1", { amount: "100" });
 
-      const logs = getAuditLog("contract123");
+      const logs = getAuditLog(CONTRACT);
       const oldestLog = logs[logs.length - 1];
 
       // Manually tamper with entry_hash
       db.prepare("UPDATE audit_log SET entry_hash = ? WHERE id = ?").run("tampered_hash", oldestLog.id);
 
-      const result = verifyAuditLogIntegrity("contract123");
+      const result = verifyAuditLogIntegrity(CONTRACT);
       assert.strictEqual(result.valid, false);
       assert.strictEqual(result.brokenAt, oldestLog.id);
       assert(result.error.includes("Hash mismatch"));
     });
 
     it("should verify integrity across all contracts when contractId is null", () => {
-      addAuditLog("contract1", "initialize", "admin", { collaborators: ["user1"] });
-      addAuditLog("contract2", "initialize", "admin", { collaborators: ["user2"] });
-      addAuditLog("contract1", "distribute", "user1", { amount: "100" });
+      addAuditLog(CONTRACT, "initialize", "admin", { collaborators: ["user1"] });
+      addAuditLog(OTHER_CONTRACT, "initialize", "admin", { collaborators: ["user2"] });
+      addAuditLog(CONTRACT, "distribute", "user1", { amount: "100" });
       
       const result = verifyAuditLogIntegrity(); // No contractId - verify all
       assert.strictEqual(result.valid, true);

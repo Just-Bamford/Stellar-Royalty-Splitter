@@ -63,8 +63,8 @@ const { getRoyaltyStatistics, _invalidateStatsCache } = await import(
   "../src/database/secondary-royalties.js"
 );
 
-const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const OTHER_CONTRACT = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const CONTRACT = `C${"A".repeat(55)}`;
+const OTHER_CONTRACT = `C${"B".repeat(55)}`;
 
 function makeFullRow(overrides = {}) {
   return {
@@ -114,7 +114,7 @@ describe("getRoyaltyStatistics combined CTE (#462)", () => {
     getRoyaltyStatistics(CONTRACT);
     const callsAfterFirst = mockDb.prepare.mock.calls.length;
 
-    getRoyaltyStatistics(CONTRACT + "X");
+    getRoyaltyStatistics(OTHER_CONTRACT);
 
     const callsAfter = mockDb.prepare.mock.calls.length;
     expect(callsAfterFirst - callsBefore).toBeLessThanOrEqual(1);

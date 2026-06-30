@@ -37,8 +37,13 @@ import { AdminEventListener } from "./events/adminEventListener.js";
 import EventIndexer from "./events/EventIndexer.js";
 import { getConfiguredContractId } from "./stellar.js";
 import { startRecoveryJob, stopRecoveryJob } from "./jobs/secondary-royalty-recovery.js";
+import {
+  startContractStateConsistencyJob,
+  stopContractStateConsistencyJob,
+} from "./jobs/contract-state-consistency.js";
 import { verifySignedWriteRequest } from "./request-signature.js";
 import eventsRouter from "./routes/events.js";
+import { batchRouter } from "./routes/batch-distribute.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -224,6 +229,7 @@ app.use("/api/v1/distribute", writeLimiter);
 app.use("/api/v1/secondary-royalty", writeLimiter);
 app.use("/api/v1/transaction", writeLimiter);
 app.use("/api/v1/audit", writeLimiter);
+app.use("/api/v1/batch-distribute", writeLimiter);
 
 // Require Ed25519 request signatures for mutating client API operations.
 app.use("/api/v1/initialize", verifySignedWriteRequest);
@@ -231,9 +237,11 @@ app.use("/api/v1/distribute", verifySignedWriteRequest);
 app.use("/api/v1/secondary-royalty", verifySignedWriteRequest);
 app.use("/api/v1/transaction", verifySignedWriteRequest);
 app.use("/api/v1/audit", verifySignedWriteRequest);
+app.use("/api/v1/batch-distribute", verifySignedWriteRequest);
 
 app.use("/api/v1/initialize", initializeRouter);
 app.use("/api/v1/distribute", distributeRouter);
+app.use("/api/v1/batch-distribute", batchRouter);
 app.use("/api/v1/collaborators", collaboratorsRouter);
 app.use("/api/v1/secondary-royalty", secondaryRoyaltyRouter);
 app.use("/api/v1/simulate", simulateRouter);
@@ -335,6 +343,18 @@ if (process.env.NODE_ENV !== "test" && !process.env.DISABLE_RECOVERY_JOB) {
   }
 }
 
+// Start hourly contract state consistency verification (#510)
+if (process.env.NODE_ENV !== "test" && !process.env.DISABLE_CONSISTENCY_JOB) {
+  try {
+    startContractStateConsistencyJob();
+    logger.info("[Startup] Contract state consistency job started");
+  } catch (err) {
+    logger.error("[Startup] Failed to start contract state consistency job", {
+      error: err.message,
+    });
+  }
+}
+
 // Graceful shutdown — include event indexer, admin event listener, cache cleanup, and recovery job
 const originalShutdown = createGracefulShutdownHandler({
   server,
@@ -351,6 +371,7 @@ const handleShutdown = (signal) => {
     adminEventListener.stop();
   }
   stopRecoveryJob();
+  stopContractStateConsistencyJob();
   const cache = getCacheManager();
   cache.disconnect().catch(() => {});
   originalShutdown(signal);

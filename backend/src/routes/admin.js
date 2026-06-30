@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import logger from "../logger.js";
-import { validate, contractAddress, stellarAddress, assignRoleSchema } from "../validation.js";
+import { validate, contractAddress, stellarAddress, assignRoleSchema, validateContractIdMiddleware } from "../validation.js";
 import { sendError, sendValidationError } from "../error-response.js";
 import {
   isAdminRotateTokenValid,
@@ -294,7 +294,7 @@ adminRouter.post(
  * List dead-letter queue entries for a contract.
  * Query params: limit (default 50)
  */
-adminRouter.get("/webhooks/dead-letters/:contractId", requireRequestSignature, requireRole("viewer"), (req, res, next) => {
+adminRouter.get("/webhooks/dead-letters/:contractId", validateContractIdMiddleware, requireRequestSignature, requireRole("viewer"), (req, res, next) => {
   try {
     const { contractId } = req.params;
     const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 200);

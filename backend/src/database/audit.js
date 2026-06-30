@@ -5,8 +5,12 @@
  */
 
 import { db, countWrite, computeAuditEntryHash } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
+
+const GLOBAL_AUDIT_SCOPE = "global";
 
 export function getAuditLog(contractId, limit = 100, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       id,
@@ -35,6 +39,9 @@ export function getAuditLog(contractId, limit = 100, offset = 0) {
 }
 
 export function addAuditLog(contractId, action, user, details) {
+  if (contractId !== GLOBAL_AUDIT_SCOPE) {
+    assertValidContractId(contractId);
+  }
   const timestamp = new Date().toISOString();
   const detailsJson = JSON.stringify(details);
   
@@ -71,6 +78,7 @@ export function exportAuditLogs(filters = {}, limit = 10000, offset = 0) {
   const params = [];
 
   if (filters.contractId) {
+    assertValidContractId(filters.contractId);
     conditions.push("contractId = ?");
     params.push(filters.contractId);
   }
@@ -90,7 +98,8 @@ export function exportAuditLogs(filters = {}, limit = 10000, offset = 0) {
     params.push(filters.end);
   }
 
-  let sql = `
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `
     SELECT 
       timestamp,
       action,
@@ -98,13 +107,9 @@ export function exportAuditLogs(filters = {}, limit = 10000, offset = 0) {
       user AS actor,
       details
     FROM audit_log
+    ${whereClause}
+    ORDER BY timestamp DESC LIMIT ? OFFSET ?
   `;
-
-  if (conditions.length > 0) {
-    sql += " WHERE " + conditions.join(" AND ");
-  }
-
-  sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?";
   params.push(limit, offset);
 
   const stmt = db.prepare(sql);

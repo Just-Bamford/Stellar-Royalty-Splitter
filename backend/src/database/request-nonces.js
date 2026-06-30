@@ -9,12 +9,14 @@
  */
 
 import { db, countWrite } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
 
 /**
  * Record a nonce for a contract if it hasn't been seen before.
  * Returns true if newly recorded, false if (contractId, nonce) already exists.
  */
 export function recordNonceIfNew(contractId, nonce) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO request_nonces (contractId, nonce)
     VALUES (?, ?)

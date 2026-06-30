@@ -426,7 +426,7 @@ export default function DistributeForm({
         label="Token contract address"
         placeholder="C..."
         value={tokenId}
-        error={tokenIdError}
+        error={tokenIdError ?? undefined}
         showSuccess={tokenIdValid && !tokenIdError}
         autoComplete="off"
         spellCheck={false}
@@ -451,7 +451,7 @@ export default function DistributeForm({
         placeholder="0"
         value={amount}
         error={exceedsBalance ? `Amount exceeds available balance of ${contractBalance}` : undefined}
-        showSuccess={amount && !isNaN(parsedAmount) && parsedAmount > 0 && !exceedsBalance}
+        showSuccess={Boolean(amount) && !isNaN(parsedAmount) && parsedAmount > 0 && !exceedsBalance}
         onChange={(e) => setAmount(e.target.value)}
         disabled={contractBalance === null || loading}
       />

@@ -5,6 +5,7 @@ import { createSignedRequestHeaders } from "./request-signing";
 export { setRequestSigningSecret } from "./request-signing";
 
 const BASE = "/api/v1";
+export const SESSION_EXPIRED_EVENT = "srs:session-expired";
 
 // #279: surface a structured `code + message + details` shape from
 // the backend's error response instead of just `data.error`. The
@@ -36,34 +37,27 @@ async function post<T>(
   walletAddress?: string,
   extraHeaders?: Record<string, string>,
 ): Promise<T> {
+  const requestPath = `${BASE}${path}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
-  if (walletAddress && typeof body === "object" && body !== null) {
-    const signingHeaders = await signWriteRequest({
-      method: "POST",
-      path: `${BASE}${path}`,
-      body,
-      walletAddress,
-    });
-    Object.assign(headers, signingHeaders);
+  if (walletAddress) {
+    Object.assign(
+      headers,
+      createSignedRequestHeaders({
+        method: "POST",
+        path: requestPath,
+        body,
+      }),
+    );
   }
 
   if (extraHeaders) {
     Object.assign(headers, extraHeaders);
   }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const requestPath = `${BASE}${path}`;
-  const res = await fetch(requestPath, {
+  return request<T>(path, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...createSignedRequestHeaders({
-        method: "POST",
-        path: requestPath,
-        body,
-      }),
-    },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -78,6 +72,23 @@ export function generateIdempotencyKey(): string {
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return request<T>(path, signal ? { signal } : undefined);
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, init);
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    const extracted = extractContractError(data);
+    throw new BackendApiError(
+      res.status,
+      extracted.code,
+      extracted.message || res.statusText,
+      extracted.details,
+    );
+  }
+
+  return data as T;
 }
 
 export interface TransactionRecord {

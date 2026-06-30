@@ -10,6 +10,7 @@
  */
 
 import { db } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
 
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
 const analyticsCache = new Map();
@@ -29,6 +30,7 @@ export function _clearAnalyticsCache() {
  * @param {number} [collaboratorLimit=10] cap on rows returned in collaboratorStats
  */
 export function getAnalyticsData(contractId, startDate, endDate, collaboratorLimit = 10) {
+  assertValidContractId(contractId);
   const cacheKey = `${contractId}|${startDate}|${endDate}|${collaboratorLimit}`;
   const cached = analyticsCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {

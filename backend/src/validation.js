@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sendError, sendValidationError } from "./error-response.js";
+import { CONTRACT_ID_PATTERN, isValidContractId } from "./contract-id.js";
 
 export const stellarAddress = z
   .string("Validation failed: walletAddress must be a string")
@@ -7,7 +8,7 @@ export const stellarAddress = z
 
 export const contractAddress = z
   .string("Validation failed: contractId must be a string")
-  .regex(/^C[A-Z2-7]{55}$/, "Validation failed: Invalid contract address");
+  .regex(CONTRACT_ID_PATTERN, "Validation failed: Invalid contract address");
 
 export const basisPoints = z.number().int().min(0).max(10000);
 
@@ -188,7 +189,7 @@ export function validateInitializePayloadSize(req, res, next) {
  */
 export function validateContractIdMiddleware(req, res, next) {
   const contractId = req.params.contractId;
-  if (!contractId || !/^C[A-Z2-7]{55}$/.test(contractId)) {
+  if (!isValidContractId(contractId)) {
     return sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
   }
   next();
@@ -199,7 +200,7 @@ export function validateContractIdMiddleware(req, res, next) {
  * Returns true if valid, otherwise sends a 400 and returns false.
  */
 export function validateContractId(contractId, res) {
-  if (!/^C[A-Z2-7]{55}$/.test(contractId)) {
+  if (!isValidContractId(contractId)) {
     sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
     return false;
   }

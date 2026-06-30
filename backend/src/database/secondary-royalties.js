@@ -7,6 +7,7 @@ import { db, countWrite } from "./core.js";
 import { addAuditLog } from "./audit.js";
 import { recordTransaction } from "./transactions.js";
 import logger from "../logger.js";
+import { assertValidContractId } from "../contract-id.js";
 
 // ---------------------------------------------------------------------------
 // Largest-remainder rounding algorithm (#427)
@@ -88,6 +89,7 @@ export function recordSecondarySale(
   royaltyRate,
   transactionHash = null
 ) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO secondary_sales 
     (contractId, nftId, previousOwner, newOwner, salePrice, saleToken, royaltyAmount, royaltyRate, transactionHash)
@@ -123,8 +125,31 @@ export function getSecondarySales(
   startDate = null,
   endDate = null
 ) {
-  let query = `
-    SELECT 
+  assertValidContractId(contractId);
+  const conditions = ["contractId = ?"];
+  const params = [contractId];
+
+  if (nftId) {
+    conditions.push("nftId = ?");
+    params.push(nftId);
+  }
+
+  if (undistributedOnly) {
+    conditions.push("distributed = 0");
+  }
+
+  if (startDate) {
+    conditions.push("timestamp >= ?");
+    params.push(startDate);
+  }
+
+  if (endDate) {
+    conditions.push("timestamp <= ?");
+    params.push(endDate);
+  }
+
+  const query = `
+    SELECT
       id,
       nftId,
       previousOwner,
@@ -137,30 +162,9 @@ export function getSecondarySales(
       timestamp,
       transactionHash
     FROM secondary_sales
-    WHERE contractId = ?
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY timestamp DESC LIMIT ? OFFSET ?
   `;
-  const params = [contractId];
-
-  if (nftId) {
-    query += ` AND nftId = ?`;
-    params.push(nftId);
-  }
-
-  if (undistributedOnly) {
-    query += ` AND distributed = 0`;
-  }
-
-  if (startDate) {
-    query += ` AND timestamp >= ?`;
-    params.push(startDate);
-  }
-
-  if (endDate) {
-    query += ` AND timestamp <= ?`;
-    params.push(endDate);
-  }
-
-  query += ` ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
   return db.prepare(query).all(...params);
@@ -171,24 +175,26 @@ export function getSecondarySales(
  * Supports optional date range filtering with startDate and endDate.
  */
 export function countSecondarySales(contractId, nftId = null, startDate = null, endDate = null) {
-  let query = `SELECT COUNT(*) as total FROM secondary_sales WHERE contractId = ?`;
+  assertValidContractId(contractId);
+  const conditions = ["contractId = ?"];
   const params = [contractId];
 
   if (nftId) {
-    query += ` AND nftId = ?`;
+    conditions.push("nftId = ?");
     params.push(nftId);
   }
 
   if (startDate) {
-    query += ` AND timestamp >= ?`;
+    conditions.push("timestamp >= ?");
     params.push(startDate);
   }
 
   if (endDate) {
-    query += ` AND timestamp <= ?`;
+    conditions.push("timestamp <= ?");
     params.push(endDate);
   }
 
+  const query = `SELECT COUNT(*) as total FROM secondary_sales WHERE ${conditions.join(" AND ")}`;
   return db.prepare(query).get(...params).total;
 }
 
@@ -196,10 +202,11 @@ export function countSecondarySales(contractId, nftId = null, startDate = null, 
  * Mark an array of secondary sale IDs as distributed.
  */
 export function markSalesDistributed(ids) {
-  const placeholders = ids.map(() => "?").join(",");
-  db.prepare(`UPDATE secondary_sales SET distributed = 1 WHERE id IN (${placeholders})`).run(
-    ...ids
-  );
+  db.prepare(`
+    UPDATE secondary_sales
+    SET distributed = 1
+    WHERE id IN (SELECT value FROM json_each(?))
+  `).run(JSON.stringify(ids));
   countWrite();
 }
 
@@ -216,6 +223,7 @@ export function recordSecondaryRoyaltyDistribution(
   numberOfSales,
   dustAllocated = 0
 ) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO secondary_royalty_distributions
     (transactionId, contractId, totalRoyaltiesDistributed, numberOfSales, dustAllocated)
@@ -237,6 +245,7 @@ export function recordSecondaryRoyaltyDistribution(
  * Get secondary royalty distribution history for a contract.
  */
 export function getSecondaryRoyaltyDistributions(contractId, limit = 50, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       srd.id,
@@ -329,6 +338,7 @@ const STATS_CACHE_TTL_MS = 60_000;
 
 export function _invalidateStatsCache(contractId) {
   if (contractId) {
+    assertValidContractId(contractId);
     _statsCache.delete(contractId);
   } else {
     _statsCache.clear();
@@ -396,6 +406,7 @@ function getStatsStatement() {
  * counts are integers, and null is never returned for aggregates.
  */
 export function getRoyaltyStatistics(contractId) {
+  assertValidContractId(contractId);
   const cached = _statsCache.get(contractId);
   if (cached && Date.now() - cached.ts < STATS_CACHE_TTL_MS) {
     return cached.data;
@@ -461,6 +472,7 @@ export function addToRetryQueue(params) {
     dustAuditData,
     errorMessage,
   } = params;
+  assertValidContractId(contractId);
 
   const stmt = db.prepare(`
     INSERT INTO secondary_royalty_retry_queue
@@ -624,6 +636,7 @@ export function moveToDeadLetterQueue(id, failureReason) {
  * Get dead-letter queue items for a contract.
  */
 export function getDeadLetterItems(contractId, limit = 50, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT
       id,

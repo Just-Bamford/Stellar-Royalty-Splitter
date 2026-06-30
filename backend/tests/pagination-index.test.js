@@ -2,6 +2,9 @@ import { describe, test, expect, beforeAll, afterAll } from "@jest/globals";
 import { db, initializeDatabase, closeDatabase } from "../src/database/core.js";
 import { getTransactionHistory } from "../src/database/transactions.js";
 
+const CONTRACT = `C${"A".repeat(55)}`;
+const WALLET = `G${"A".repeat(55)}`;
+
 describe("Pagination Composite Index (#461)", () => {
   beforeAll(() => {
     // ensure DB is initialized
@@ -22,7 +25,7 @@ describe("Pagination Composite Index (#461)", () => {
       WHERE t.contractId = ?
       ORDER BY t.timestamp DESC
       LIMIT ? OFFSET ?
-    `).all("C123", 50, 0);
+    `).all(CONTRACT, 50, 0);
 
     const plan = JSON.stringify(explain);
     // SQLite should use the idx_transactions_contractId_timestamp_desc index
@@ -30,17 +33,17 @@ describe("Pagination Composite Index (#461)", () => {
   });
 
   test("Pagination performance regression with 10k+ rows", () => {
-    const contractId = "CBENCHMARK10K";
+    const contractId = CONTRACT;
     db.prepare("BEGIN TRANSACTION").run();
     
     // insert 10,000 rows
     const insertTx = db.prepare(`
-      INSERT INTO transactions (contractId, type, initiatorAddress, status, timestamp) 
-      VALUES (?, 'initialize', 'G123', 'confirmed', datetime('now', '-' || ? || ' seconds'))
+      INSERT INTO transactions (contractId, type, initiatorAddress, status, timestamp)
+      VALUES (?, 'initialize', ?, 'confirmed', datetime('now', '-' || ? || ' seconds'))
     `);
     
     for (let i = 0; i < 10000; i++) {
-      insertTx.run(contractId, i);
+      insertTx.run(contractId, WALLET, i);
     }
     db.prepare("COMMIT").run();
 

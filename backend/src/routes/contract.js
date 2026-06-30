@@ -260,6 +260,71 @@ contractRouter.get("/info", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/v1/contract/verify?contractId=...
+ * Manually verifies DB-derived contract state against live on-chain state.
+ */
+contractRouter.get("/verify", async (req, res, next) => {
+  try {
+    const contractId = firstQueryValue(req.query.contractId) ?? getConfiguredContractId();
+    if (!contractId) {
+      return sendError(
+        res,
+        400,
+        "bad_request",
+        "contractId query param required when no default contract is configured",
+      );
+    }
+    if (!validateContractId(contractId, res)) return;
+
+    const { verifyContractStateConsistency } = await import(
+      "../contract-state-consistency.js"
+    );
+    const result = await verifyContractStateConsistency(contractId, {
+      audit: req.query.audit !== "false",
+    });
+    res.status(result.consistent ? 200 : 409).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/contract/verify
+ * Body: { contractIds?: string[], audit?: boolean }
+ * Manual batch consistency verification endpoint.
+ */
+contractRouter.post("/verify", async (req, res, next) => {
+  try {
+    const contractIds = Array.isArray(req.body?.contractIds)
+      ? req.body.contractIds
+      : [req.body?.contractId ?? getConfiguredContractId()].filter(Boolean);
+
+    if (contractIds.length === 0) {
+      return sendError(
+        res,
+        400,
+        "bad_request",
+        "contractId or contractIds required when no default contract is configured",
+      );
+    }
+
+    for (const contractId of contractIds) {
+      if (!validateContractId(contractId, res)) return;
+    }
+
+    const { verifyAllContractStateConsistency } = await import(
+      "../contract-state-consistency.js"
+    );
+    const result = await verifyAllContractStateConsistency(contractIds, {
+      audit: req.body?.audit !== false,
+    });
+    res.status(result.inconsistentCount === 0 ? 200 : 409).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;

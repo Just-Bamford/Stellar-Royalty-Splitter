@@ -4,8 +4,10 @@
  */
 
 import { db } from "../database/index.js";
+import { assertValidContractId } from "../contract-id.js";
 
 export function searchIndexedEvents(contractId, filters = {}, limit = 50, offset = 0) {
+  assertValidContractId(contractId);
   const { eventType, startLedger, endLedger, startDate, endDate, transactionHash, address } = filters;
 
   const whereConditions = [];
@@ -44,7 +46,8 @@ export function searchIndexedEvents(contractId, filters = {}, limit = 50, offset
     params.push(transactionHash);
   }
 
-  let sql = `
+  const whereClause = `WHERE ${whereConditions.join(" AND ")}`;
+  const sql = `
     SELECT 
       event_id,
       ledger_sequence,
@@ -55,13 +58,9 @@ export function searchIndexedEvents(contractId, filters = {}, limit = 50, offset
       event_data,
       raw_event
     FROM indexed_events
+    ${whereClause}
+    ORDER BY timestamp DESC LIMIT ? OFFSET ?
   `;
-
-  if (whereConditions.length > 0) {
-    sql += " WHERE " + whereConditions.join(" AND ");
-  }
-
-  sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?";
   params.push(limit, offset);
 
   const stmt = db.prepare(sql);
@@ -71,6 +70,7 @@ export function searchIndexedEvents(contractId, filters = {}, limit = 50, offset
 }
 
 export function countIndexedEvents(contractId, filters = {}) {
+  assertValidContractId(contractId);
   const { eventType, startLedger, endLedger, startDate, endDate, transactionHash, address } = filters;
 
   const whereConditions = [];
@@ -109,11 +109,11 @@ export function countIndexedEvents(contractId, filters = {}) {
     params.push(transactionHash);
   }
 
-  let sql = "SELECT COUNT(*) as total FROM indexed_events";
-
-  if (whereConditions.length > 0) {
-    sql += " WHERE " + whereConditions.join(" AND ");
-  }
+  const sql = `
+    SELECT COUNT(*) as total
+    FROM indexed_events
+    WHERE ${whereConditions.join(" AND ")}
+  `;
 
   const stmt = db.prepare(sql);
   const result = stmt.get(...params);
@@ -122,6 +122,7 @@ export function countIndexedEvents(contractId, filters = {}) {
 }
 
 export function getEventStats(contractId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       COUNT(*) as totalEvents,

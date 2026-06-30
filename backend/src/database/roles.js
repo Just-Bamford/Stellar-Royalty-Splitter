@@ -1,4 +1,5 @@
 import { db, countWrite } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
 
 /**
  * Get a user's role for a specific contract or global.
@@ -9,6 +10,7 @@ import { db, countWrite } from "./core.js";
 export function dbGetUserRole(contractId, walletAddress) {
   // Check contract-specific role first
   if (contractId) {
+    assertValidContractId(contractId);
     const stmt = db.prepare("SELECT role FROM user_roles WHERE contractId = ? AND walletAddress = ?");
     const row = stmt.get(contractId, walletAddress);
     if (row) return row.role;
@@ -27,6 +29,9 @@ export function dbGetUserRole(contractId, walletAddress) {
  * @param {string|null} assignedBy 
  */
 export function dbAssignUserRole(contractId, walletAddress, role, assignedBy) {
+  if (contractId) {
+    assertValidContractId(contractId);
+  }
   const stmt = db.prepare(`
     INSERT INTO user_roles (contractId, walletAddress, role, assignedBy)
     VALUES (?, ?, ?, ?)

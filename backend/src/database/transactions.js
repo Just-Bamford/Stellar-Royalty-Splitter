@@ -4,8 +4,10 @@
  */
 
 import { db, countWrite } from "./core.js";
+import { assertValidContractId } from "../contract-id.js";
 
 export function recordTransaction(contractId, type, initiatorAddress, data) {
+  assertValidContractId(contractId);
   const { requestedAmount, tokenId } = data;
 
   const stmt = db.prepare(`
@@ -47,6 +49,7 @@ export function addDistributionPayout(
   collaboratorAddress,
   amountReceived
 ) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     INSERT INTO distribution_payouts 
     (transactionId, contractId, collaboratorAddress, amountReceived)
@@ -58,11 +61,13 @@ export function addDistributionPayout(
 }
 
 export function getTransactionCount(contractId) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`SELECT COUNT(*) as total FROM transactions WHERE contractId = ?`);
   return stmt.get(contractId).total;
 }
 
 export function getTransactionHistory(contractId, limit = 50, offset = 0) {
+  assertValidContractId(contractId);
   const stmt = db.prepare(`
     SELECT 
       t.id,
