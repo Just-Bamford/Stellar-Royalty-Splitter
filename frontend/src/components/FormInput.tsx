@@ -1,4 +1,4 @@
-import React, { InputHTMLAttributes, useState, useEffect } from "react";
+import { InputHTMLAttributes, useState, useEffect } from "react";
 
 interface FormInputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
@@ -31,15 +31,20 @@ export default function FormInput({
   ...props
 }: FormInputProps) {
   const [shouldAnimate, setShouldAnimate] = useState(false);
-  const [prevError, setPrevError] = useState(error);
+  const [prevError, setPrevError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (error && error !== prevError) {
-      setShouldAnimate(true);
-      const timer = setTimeout(() => setShouldAnimate(false), 500);
-      return () => clearTimeout(timer);
-    }
+    if (error === prevError) return;
+
     setPrevError(error);
+    if (!error) {
+      setShouldAnimate(false);
+      return;
+    }
+
+    setShouldAnimate(true);
+    const timer = setTimeout(() => setShouldAnimate(false), 500);
+    return () => clearTimeout(timer);
   }, [error, prevError]);
 
   const wrapperClasses = [

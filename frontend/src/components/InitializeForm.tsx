@@ -34,6 +34,9 @@ interface Collaborator {
   basisPoints: string;
 }
 
+type CollaboratorField = "address" | "basisPoints";
+type FieldErrors = Record<number, { address?: string; basisPoints?: string }>;
+
 interface Props {
   contractId: string;
   walletAddress: string;
@@ -43,6 +46,8 @@ interface Props {
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const MAX_COLLABORATORS = 50;
 const BASIS_POINTS_TOTAL = 10_000;
+const VALIDATION_DEBOUNCE_MS = 300;
+const VALIDATION_CACHE_LIMIT = 500;
 const PERCENTAGE_INPUT_RE = /^(\d+(\.\d*)?|\.\d+)?$/;
 const SIGNED_PERCENTAGE_INPUT_RE = /^-(\d+(\.\d*)?|\.\d+)$/;
 const PERCENTAGE_NAVIGATION_KEYS = [
@@ -116,22 +121,6 @@ function calculateEvenSplit(collaboratorCount: number) {
   );
 }
 
-function updatePercentageError(
-  setErrors: React.Dispatch<
-    React.SetStateAction<Record<number, { address?: string; basisPoints?: string }>>
-  >,
-  i: number,
-  error: string,
-) {
-  setErrors((prev) => ({
-    ...prev,
-    [i]: {
-      ...prev[i],
-      basisPoints: error,
-    },
-  }));
-}
-
 function handlePercentageKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
   if (
     event.ctrlKey ||
@@ -151,6 +140,42 @@ function handlePercentageKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
   }
 }
 
+function getFieldValidationError(field: CollaboratorField, value: string) {
+  if (field === "address") {
+    return value && !STELLAR_ADDRESS_RE.test(value)
+      ? "Must be a valid Stellar address (G..., 56 chars)"
+      : "";
+  }
+
+  return getPercentageError(value);
+}
+
+function setFieldError(
+  setErrors: React.Dispatch<React.SetStateAction<FieldErrors>>,
+  i: number,
+  field: CollaboratorField,
+  error: string,
+) {
+  setErrors((prev) => {
+    const nextRow = { ...(prev[i] ?? {}) };
+
+    if (error) {
+      nextRow[field] = error;
+    } else {
+      delete nextRow[field];
+    }
+
+    const next = { ...prev };
+    if (nextRow.address || nextRow.basisPoints) {
+      next[i] = nextRow;
+    } else {
+      delete next[i];
+    }
+
+    return next;
+  });
+}
+
 export default function InitializeForm({
   contractId,
   walletAddress,
@@ -160,9 +185,7 @@ export default function InitializeForm({
   const [collaborators, setCollaborators] = useState<Collaborator[]>([
     { address: "", basisPoints: "" },
   ]);
-  const [errors, setErrors] = useState<
-    Record<number, { address?: string; basisPoints?: string }>
-  >({});
+  const [errors, setErrors] = useState<FieldErrors>({});
   const { status, setStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState<InitPhase>("form");
@@ -170,6 +193,8 @@ export default function InitializeForm({
   const [suggestions, setSuggestions] = useState<Record<number, CollaboratorSuggestion[]>>({});
   const [focusedAddressIndex, setFocusedAddressIndex] = useState<number | null>(null);
   const [lookupLoading, setLookupLoading] = useState<Record<number, boolean>>({});
+  const validationTimers = React.useRef(new Map<string, number>());
+  const validationCache = React.useRef(new Map<string, string>());
 
   const selectedAddresses = useMemo(
     () => new Set(collaborators.map((collaborator) => collaborator.address.trim()).filter(Boolean)),
@@ -183,6 +208,14 @@ export default function InitializeForm({
       setPhase("committed");
     }
   }, [contractId]);
+
+  useEffect(() => {
+    return () => {
+      validationTimers.current.forEach((timer) => window.clearTimeout(timer));
+      validationTimers.current.clear();
+      validationCache.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     const timers = collaborators.map((collaborator, index) => {
@@ -217,44 +250,44 @@ export default function InitializeForm({
 
   function selectSuggestion(i: number, address: string) {
     update(i, "address", address);
-    validateRow(i, "address", address);
+    scheduleValidation(i, "address", address);
     setFocusedAddressIndex(null);
   }
 
-  function validateRow(
-    i: number,
-    field: "address" | "basisPoints",
-    value: string,
-  ) {
-    const rowErrors = { ...errors };
-    if (field === "address") {
-      if (value && !STELLAR_ADDRESS_RE.test(value)) {
-        rowErrors[i] = {
-          ...rowErrors[i],
-          address: "Must be a valid Stellar address (G..., 56 chars)",
-        };
-      } else {
-        const { address: _, ...rest } = rowErrors[i] ?? {};
-        rowErrors[i] = rest;
-      }
+  function getCachedFieldError(field: CollaboratorField, value: string) {
+    const cacheKey = `${field}:${value}`;
+    const cached = validationCache.current.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const error = getFieldValidationError(field, value);
+    validationCache.current.set(cacheKey, error);
+    if (validationCache.current.size > VALIDATION_CACHE_LIMIT) {
+      const oldestKey = validationCache.current.keys().next().value;
+      if (oldestKey) validationCache.current.delete(oldestKey);
     }
-    if (field === "basisPoints") {
-      const percentageError = getPercentageError(value);
-      if (percentageError) {
-        rowErrors[i] = {
-          ...rowErrors[i],
-          basisPoints: percentageError,
-        };
-      } else {
-        const { basisPoints: _, ...rest } = rowErrors[i] ?? {};
-        rowErrors[i] = rest;
-      }
-    }
-    setErrors(rowErrors);
+
+    return error;
   }
 
-  function handleBlur(i: number, field: "address" | "basisPoints", value: string) {
-    validateRow(i, field, value);
+  function scheduleValidation(
+    i: number,
+    field: CollaboratorField,
+    value: string,
+  ) {
+    const fieldKey = `${i}:${field}`;
+    const existingTimer = validationTimers.current.get(fieldKey);
+    if (existingTimer) window.clearTimeout(existingTimer);
+
+    const timer = window.setTimeout(() => {
+      validationTimers.current.delete(fieldKey);
+      setFieldError(setErrors, i, field, getCachedFieldError(field, value));
+    }, VALIDATION_DEBOUNCE_MS);
+
+    validationTimers.current.set(fieldKey, timer);
+  }
+
+  function handleBlur(i: number, field: CollaboratorField, value: string) {
+    scheduleValidation(i, field, value);
   }
 
   function addRow() {
@@ -263,8 +296,15 @@ export default function InitializeForm({
 
   function removeRow(i: number) {
     setCollaborators((prev: Collaborator[]) => prev.filter((_: Collaborator, idx: number) => idx !== i));
-    setErrors((prev: Record<number, { address?: string; basisPoints?: string }>) => {
-      const next: Record<number, { address?: string; basisPoints?: string }> = {};
+    validationTimers.current.forEach((timer, key) => {
+      const [rowIndex] = key.split(":");
+      if (Number(rowIndex) >= i) {
+        window.clearTimeout(timer);
+        validationTimers.current.delete(key);
+      }
+    });
+    setErrors((prev: FieldErrors) => {
+      const next: FieldErrors = {};
       Object.entries(prev).forEach(([key, val]) => {
         const k = parseInt(key);
         if (k < i) next[k] = val;
@@ -282,6 +322,12 @@ export default function InitializeForm({
         basisPoints: evenShares[index],
       })),
     );
+    validationTimers.current.forEach((timer, key) => {
+      if (key.endsWith(":basisPoints")) {
+        window.clearTimeout(timer);
+        validationTimers.current.delete(key);
+      }
+    });
     setErrors((prev) => {
       const next = { ...prev };
       collaborators.forEach((_, index) => {
@@ -294,7 +340,7 @@ export default function InitializeForm({
 
   const shareSummary = calculateShareSummary(collaborators);
 
-  const hasErrors = Object.values(errors).some((e) => (e as { address?: string; basisPoints?: string })?.address || (e as { address?: string; basisPoints?: string })?.basisPoints);
+  const hasErrors = Object.values(errors).some((e) => e?.address || e?.basisPoints);
   const hasEmptyFields = collaborators.some((c: Collaborator) => !c.address || !c.basisPoints);
   const hasInvalidPercentages = collaborators.some((c: Collaborator) => getPercentageError(c.basisPoints));
   const canSubmit =
@@ -453,13 +499,16 @@ export default function InitializeForm({
                         placeholder="Wallet address (G...)"
                         value={c.address}
                         error={errors[i]?.address}
-                        showSuccess={c.address && STELLAR_ADDRESS_RE.test(c.address) && !errors[i]?.address}
+                        showSuccess={Boolean(c.address) && STELLAR_ADDRESS_RE.test(c.address) && !errors[i]?.address}
                         role="combobox"
                         aria-autocomplete="list"
                         aria-expanded={focusedAddressIndex === i && (suggestions[i]?.length ?? 0) > 0}
                         aria-controls={`collaborator-${i}-suggestions`}
                         aria-label={`Wallet address for collaborator ${i + 1}`}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(i, "address", e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          update(i, "address", e.target.value);
+                          scheduleValidation(i, "address", e.target.value);
+                        }}
                         onFocus={() => setFocusedAddressIndex(i)}
                         onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
                           handleBlur(i, "address", e.target.value);
@@ -508,19 +557,20 @@ export default function InitializeForm({
                       max={100}
                       step="any"
                       value={c.basisPoints}
+                      className={highlightShare ? "input-error" : ""}
                       error={percentageError}
-                      showSuccess={c.basisPoints && !percentageError && !getPercentageError(c.basisPoints)}
+                      showSuccess={Boolean(c.basisPoints) && !percentageError && !getPercentageError(c.basisPoints)}
                       aria-label={`Royalty percentage for collaborator ${i + 1}`}
                       onKeyDown={handlePercentageKeyDown}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const { value } = e.target;
                         if (!isAllowedPercentageInput(value)) {
                           update(i, "basisPoints", value);
-                          updatePercentageError(setErrors, i, getPercentageError(value));
+                          scheduleValidation(i, "basisPoints", value);
                           return;
                         }
                         update(i, "basisPoints", value);
-                        validateRow(i, "basisPoints", value);
+                        scheduleValidation(i, "basisPoints", value);
                       }}
                       onBlur={(e: React.FocusEvent<HTMLInputElement>) => handleBlur(i, "basisPoints", e.target.value)}
                     />
