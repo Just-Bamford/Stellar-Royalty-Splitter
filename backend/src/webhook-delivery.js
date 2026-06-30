@@ -63,8 +63,11 @@ async function postWebhook(url, payload) {
     });
 
     if (!response.ok) {
-      throw new Error(`Webhook returned HTTP ${response.status}`);
+      const err = new Error(`Webhook returned HTTP ${response.status}`);
+      err.statusCode = response.status;
+      throw err;
     }
+    return { statusCode: response.status };
   } finally {
     clearTimeout(timer);
   }
@@ -80,13 +83,12 @@ export async function deliverWithRetry(url, payload) {
       logger.info("Webhook delivered", { url, attempt });
       return { success: true };
     } catch (error) {
+      const durationMs = Date.now() - start;
+      const statusCode = error.statusCode ?? null;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const isLastAttempt = attempt === WEBHOOK_MAX_RETRIES;
-      logger.warn("Webhook delivery failed", {
-        url,
-        attempt,
-        maxRetries: WEBHOOK_MAX_RETRIES,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      recordDeliveryAttempt({ webhookId, contractId, success: false, statusCode, errorMessage, durationMs, attempt });
+      logger.warn("Webhook delivery failed", { url, attempt, maxRetries: WEBHOOK_MAX_RETRIES, error: errorMessage });
 
       if (isLastAttempt) {
         _metrics.failureCount++;

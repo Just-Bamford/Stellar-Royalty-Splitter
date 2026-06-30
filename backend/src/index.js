@@ -279,6 +279,14 @@ const adminLimiter = rateLimit({
 app.use("/admin", adminLimiter);
 app.use("/admin", adminRouter);
 
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
+
+// Legacy /api/* redirect to /api/v1/*
+app.use("/api", (req, res) => {
+  res.redirect(308, `/api/v1${req.url}`);
+});
+
 // Central error handler
 app.use((err, req, res, _next) => {
   if (err.type === "entity.too.large") {

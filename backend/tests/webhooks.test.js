@@ -9,6 +9,10 @@ await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
   registerWebhook,
   listWebhooks,
   deleteWebhook,
+  getDeliveryAttempts: jest.fn(() => []),
+  getDeliveryStats: jest.fn(() => ({ total: 0, successes: 0, avgLatencyMs: null, lastAttempt: null })),
+  getContractDeliveryStats: jest.fn(() => []),
+  recordDeliveryAttempt: jest.fn(),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
