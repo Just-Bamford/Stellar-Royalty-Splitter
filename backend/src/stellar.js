@@ -18,6 +18,7 @@
 import StellarSdk from "@stellar/stellar-sdk";
 import logger from "./logger.js";
 import { recordHorizonResponseTime } from "./metrics.js";
+import { sleep, parsePositiveInt } from "./utils.js";
 
 const {
   Contract,
@@ -31,41 +32,24 @@ const {
   xdr,
 } = StellarSdk;
 
-const RPC_URL =
-  process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
-const HORIZON_URL =
-  process.env.HORIZON_URL ?? "https://horizon-testnet.stellar.org";
+const RPC_URL = process.env.SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
+const HORIZON_URL = process.env.HORIZON_URL ?? "https://horizon-testnet.stellar.org";
 const NETWORK = process.env.STELLAR_NETWORK ?? "testnet";
 
-function parsePositiveInt(value, fallback) {
-  const n = parseInt(value ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-const SOROBAN_RPC_TIMEOUT_MS = parsePositiveInt(
-  process.env.SOROBAN_RPC_TIMEOUT_MS,
-  10_000,
-);
-const HORIZON_TIMEOUT_MS = parsePositiveInt(
-  process.env.HORIZON_TIMEOUT_MS,
-  10_000,
-);
-const HORIZON_FEE_CACHE_MS = parsePositiveInt(
-  process.env.HORIZON_FEE_CACHE_MS,
-  30_000,
-);
+const SOROBAN_RPC_TIMEOUT_MS = parsePositiveInt(process.env.SOROBAN_RPC_TIMEOUT_MS, 10_000);
+const HORIZON_TIMEOUT_MS = parsePositiveInt(process.env.HORIZON_TIMEOUT_MS, 10_000);
+const HORIZON_FEE_CACHE_MS = parsePositiveInt(process.env.HORIZON_FEE_CACHE_MS, 30_000);
 const TRANSACTION_POLL_TIMEOUT_MS = parsePositiveInt(
   process.env.TRANSACTION_POLL_TIMEOUT_MS,
-  60_000,
+  60_000
 );
 const TRANSACTION_POLL_INTERVAL_MS = parsePositiveInt(
   process.env.TRANSACTION_POLL_INTERVAL_MS,
-  2_000,
+  2_000
 );
 
 export const server = new SorobanRpc.Server(RPC_URL, { allowHttp: false });
-export const networkPassphrase =
-  NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+export const networkPassphrase = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
 export function getNetworkLabel() {
   return NETWORK === "mainnet" ? "Mainnet" : "Testnet";
@@ -101,10 +85,7 @@ export function withTimeout(promise, ms, label) {
  */
 export async function checkHorizonConnectivity() {
   const url = `${HORIZON_URL.replace(/\/$/, "")}/ledgers?order=desc&limit=1`;
-  const timeoutMs = parsePositiveInt(
-    process.env.HEALTH_CHECK_TIMEOUT_MS,
-    5_000,
-  );
+  const timeoutMs = parsePositiveInt(process.env.HEALTH_CHECK_TIMEOUT_MS, 5_000);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -147,7 +128,7 @@ export async function checkContractDeploymentStatus(contractId) {
     const contract = new Contract(contractId);
     const dummyAccount = new Account(
       "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-      "0",
+      "0"
     );
     const tx = new TransactionBuilder(dummyAccount, {
       fee: BASE_FEE,
@@ -160,7 +141,7 @@ export async function checkContractDeploymentStatus(contractId) {
     const sim = await withTimeout(
       server.simulateTransaction(tx),
       SOROBAN_RPC_TIMEOUT_MS,
-      "Soroban simulateTransaction",
+      "Soroban simulateTransaction"
     );
     if (SorobanRpc.Api.isSimulationError(sim)) {
       return {
@@ -191,10 +172,6 @@ export async function checkContractDeploymentStatus(contractId) {
   }
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * Poll Horizon until a transaction is confirmed in a ledger (#297).
  * Returns { status, ledger, createdAt } when the transaction is found.
@@ -210,7 +187,7 @@ export async function pollHorizonTransaction(txHash) {
       const response = await withTimeout(
         fetch(url, { headers: { Accept: "application/json" } }),
         HORIZON_TIMEOUT_MS,
-        "Horizon getTransaction",
+        "Horizon getTransaction"
       );
       recordHorizonResponseTime(Date.now() - requestStart);
 
@@ -286,10 +263,7 @@ export async function getRecommendedFee() {
     const data = await response.json();
     // Prefer `p50_accepted_fee` (median accepted), fall back to
     // `last_ledger_base_fee`, then BASE_FEE.
-    const candidate =
-      data?.fee_charged?.p50 ??
-      data?.last_ledger_base_fee ??
-      BASE_FEE;
+    const candidate = data?.fee_charged?.p50 ?? data?.last_ledger_base_fee ?? BASE_FEE;
     const fee = String(candidate);
     feeCache = { fee, fetchedAt: now };
     return fee;
@@ -321,7 +295,7 @@ export async function withAccountBuildLock(callerAddress, fn) {
   });
   accountBuildLocks.set(
     key,
-    previous.then(() => current),
+    previous.then(() => current)
   );
 
   await previous;
@@ -351,7 +325,7 @@ export async function getFreshAccount(callerAddress) {
   return withTimeout(
     server.getAccount(callerAddress),
     SOROBAN_RPC_TIMEOUT_MS,
-    "Soroban getAccount",
+    "Soroban getAccount"
   );
 }
 
@@ -372,7 +346,10 @@ export function parseSorobanError(error) {
   }
 
   // SorobanRpc simulation error object
-  if (error?._type === "SimulateTransactionError" || error?.events !== undefined && error?.error) {
+  if (
+    error?._type === "SimulateTransactionError" ||
+    (error?.events !== undefined && error?.error)
+  ) {
     return {
       status: 400,
       code: "SOROBAN_SIMULATION_ERROR",
@@ -436,7 +413,7 @@ export async function buildTx(callerAddress, contractId, method, args = []) {
     const prepared = await withTimeout(
       server.prepareTransaction(tx),
       SOROBAN_RPC_TIMEOUT_MS,
-      "Soroban prepareTransaction",
+      "Soroban prepareTransaction"
     );
     return prepared.toXDR();
   });
@@ -483,8 +460,7 @@ export async function retryBuildTx(callerAddress, contractId, method, args = [])
         error.code === "ENOTFOUND";
       const isAccountNotFound = error.message?.includes("account not found");
       const isSimulationError =
-        error.message?.includes("simulation") ||
-        error.message?.includes("prepare");
+        error.message?.includes("simulation") || error.message?.includes("prepare");
       const isRateLimit = isRateLimitError(error);
       const isTimeout = isTimeoutError(error);
 
@@ -504,8 +480,7 @@ export async function retryBuildTx(callerAddress, contractId, method, args = [])
           });
           throw {
             status: 429,
-            message:
-              "Stellar Horizon rate limit exceeded. Please try again later.",
+            message: "Stellar Horizon rate limit exceeded. Please try again later.",
           };
         }
         const delay = baseBackoffMs * Math.pow(2, attempt - 1);
@@ -542,8 +517,7 @@ export async function retryBuildTx(callerAddress, contractId, method, args = [])
         if (isLastAttempt) {
           throw {
             status: 503,
-            message:
-              "Stellar RPC is currently unavailable. Please try again later.",
+            message: "Stellar RPC is currently unavailable. Please try again later.",
           };
         }
         const delay = baseBackoffMs * Math.pow(2, attempt - 1);
@@ -580,10 +554,7 @@ export function vecToScVal(items) {
  */
 export async function getRoyaltyRateFromContract(contractId) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account(
-    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-    "0",
-  );
+  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -595,7 +566,7 @@ export async function getRoyaltyRateFromContract(contractId) {
   const sim = await withTimeout(
     server.simulateTransaction(tx),
     SOROBAN_RPC_TIMEOUT_MS,
-    "Soroban simulateTransaction",
+    "Soroban simulateTransaction"
   );
   if (SorobanRpc.Api.isSimulationError(sim)) return 0;
   return sim.result?.retval?.u32() ?? 0;
@@ -607,10 +578,7 @@ export async function getRoyaltyRateFromContract(contractId) {
  */
 export async function isContractInitialized(contractId) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account(
-    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-    "0",
-  );
+  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -622,7 +590,7 @@ export async function isContractInitialized(contractId) {
   const sim = await withTimeout(
     server.simulateTransaction(tx),
     SOROBAN_RPC_TIMEOUT_MS,
-    "Soroban simulateTransaction",
+    "Soroban simulateTransaction"
   );
   if (SorobanRpc.Api.isSimulationError(sim)) return false;
   return sim.result?.retval?.bool() ?? false;
@@ -634,10 +602,7 @@ export async function isContractInitialized(contractId) {
  */
 export async function getContractVersionFromContract(contractId) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account(
-    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-    "0",
-  );
+  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -649,7 +614,7 @@ export async function getContractVersionFromContract(contractId) {
   const sim = await withTimeout(
     server.simulateTransaction(tx),
     SOROBAN_RPC_TIMEOUT_MS,
-    "Soroban simulateTransaction",
+    "Soroban simulateTransaction"
   );
   if (SorobanRpc.Api.isSimulationError(sim)) return null;
 

@@ -4,19 +4,11 @@
 
 import { listWebhooks } from "./database/webhooks.js";
 import logger from "./logger.js";
-
-function parsePositiveInt(value, fallback) {
-  const n = parseInt(value ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
+import { sleep, parsePositiveInt } from "./utils.js";
 
 const WEBHOOK_MAX_RETRIES = parsePositiveInt(process.env.WEBHOOK_MAX_RETRIES, 3);
 const WEBHOOK_RETRY_BASE_MS = parsePositiveInt(process.env.WEBHOOK_RETRY_BASE_MS, 1000);
 const WEBHOOK_TIMEOUT_MS = parsePositiveInt(process.env.WEBHOOK_TIMEOUT_MS, 10_000);
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function postWebhook(url, payload) {
   const controller = new AbortController();

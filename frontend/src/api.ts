@@ -306,16 +306,6 @@ export const api = {
   getContractStatus: (contractId: string) =>
     get<{ initialized: boolean }>(`/contract/status/${contractId}`),
 
-  getContractBalance: (contractId: string, tokenId: string) =>
-    get<{ balance: string }>(
-      `/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`,
-    ),
-
-  getContractVersion: (contractId: string) =>
-    get<{ contractId: string; version: string }>(
-      `/contract/version/${contractId}`,
-    ),
-
   // NEW: Fetch royalty rate from contract
   getRoyaltyRate: (contractId: string) =>
     get<{ royaltyRate: number }>(`/secondary-royalty/rate/${contractId}`),
