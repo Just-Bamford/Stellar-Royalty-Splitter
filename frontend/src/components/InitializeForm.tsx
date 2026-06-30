@@ -43,7 +43,6 @@ interface Props {
   onSuccess: () => void;
 }
 
-const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const MAX_COLLABORATORS = 50;
 const BASIS_POINTS_TOTAL = 10_000;
 const VALIDATION_DEBOUNCE_MS = 300;
@@ -464,14 +463,20 @@ export default function InitializeForm({
       setPendingCommit(null);
       setPhase("form");
       setStatus("ok", `Initialized. Tx: ${hash}`);
+      reset();
       onSuccess();
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : "Unknown error";
-      setStatus("error", errorMessage);
-    } finally {
-      setLoading(false);
+      if (errorMessage.includes("409") || errorMessage.includes("already initialized")) {
+        setStatus(
+          "error",
+          "⚠️ This contract is already initialized. You cannot re-initialize an existing contract."
+        );
+      } else {
+        setStatus("error", errorMessage);
+      }
     }
-  }
+  };
 
   return (
     <div className="card">
@@ -630,33 +635,36 @@ export default function InitializeForm({
         </aside>
       </div>
 
-      {collaborators.length >= MAX_COLLABORATORS - 5 && collaborators.length < MAX_COLLABORATORS && (
-        <div className="status info">
-          Approaching the limit — max {MAX_COLLABORATORS} collaborators allowed ({MAX_COLLABORATORS - collaborators.length} remaining).
-        </div>
-      )}
-      {collaborators.length >= MAX_COLLABORATORS && (
-        <div className="status error">
-          Maximum of {MAX_COLLABORATORS} collaborators reached. Remove one to add another.
-        </div>
-      )}
+        {fields.length >= MAX_COLLABORATORS - 5 && fields.length < MAX_COLLABORATORS && (
+          <div className="status info">
+            Approaching the limit — max {MAX_COLLABORATORS} collaborators allowed ({MAX_COLLABORATORS - fields.length} remaining).
+          </div>
+        )}
+        {fields.length >= MAX_COLLABORATORS && (
+          <div className="status error">
+            Maximum of {MAX_COLLABORATORS} collaborators reached. Remove one to add another.
+          </div>
+        )}
 
-      <div className="row">
-        <button className="btn-add" onClick={addRow} disabled={collaborators.length >= MAX_COLLABORATORS}>
-          + Add collaborator
-        </button>
-        <button
-          className="btn-primary"
-          onClick={submit}
-          disabled={!canSubmit}
-        >
-          {loading
-            ? "Submitting…"
-            : phase === "committed"
-              ? "Reveal & initialize"
-              : "Commit initialization"}
-        </button>
-      </div>
+        <div className="row">
+          <button
+            type="button"
+            className="btn-add"
+            onClick={() => append({ address: "", basisPoints: "" as any })}
+            disabled={fields.length >= MAX_COLLABORATORS || isSubmitting}
+          >
+            + Add collaborator
+          </button>
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={isSubmitting || hasErrors}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? "Submitting…" : "Initialize contract"}
+          </button>
+        </div>
+      </form>
 
       {status && <FormStatus type={status.type} message={status.message} />}
     </div>

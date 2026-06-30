@@ -65,13 +65,6 @@ export default function DistributeForm({
   onSuccess,
 }: Props) {
   const { network } = useNetwork();
-  const { current: txEntry, beginTransaction, updatePhase, reset: resetTx } = useTransaction();
-  const isInFlight = useIsTransactionInFlight();
-  // #414: real-time confirmation polling (5s interval, 60s timeout, aborts on unmount).
-  const { poll: pollTransaction } = useTransactionPolling();
-
-  const [tokenId, setTokenId] = useState("");
-  const [amount, setAmount] = useState("");
   const [contractBalance, setContractBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [collaborators, setCollaborators] = useState<CollaboratorShare[]>([]);
@@ -92,6 +85,22 @@ export default function DistributeForm({
     () => `${DRAFT_KEY_PREFIX}:${walletAddress}:${contractId || "no-contract"}`,
     [contractId, walletAddress],
   );
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+    reset,
+    setValue,
+  } = useForm({
+    resolver: zodResolver(distributeFormSchema),
+    defaultValues: { tokenId: "", amount: "" },
+    mode: "onChange",
+  });
+
+  const tokenId = watch("tokenId");
+  const amount = watch("amount");
 
   useEffect(() => {
     const draft = readDraft(draftKey);
@@ -195,7 +204,7 @@ export default function DistributeForm({
     return () => clearTimeout(timer);
   }, [contractId, tokenId]);
 
-  const parsedAmount = parseFloat(amount);
+  const parsedAmount = typeof amount === "string" ? parseFloat(amount) : amount;
   const parsedBalance = contractBalance !== null ? parseFloat(contractBalance) : null;
   const exceedsBalance =
     parsedBalance !== null && !isNaN(parsedAmount) && parsedAmount > parsedBalance;
@@ -237,13 +246,9 @@ export default function DistributeForm({
 
     if (!contractId)
       return setStatus("error", "Enter a contract ID first.");
-    if (!tokenId)
-      return setStatus("error", "Enter a token address.");
-    if (!tokenIdValid)
-      return setStatus("error", "Enter a valid Stellar token address (C...).");
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0)
-      return setStatus("error", "Enter a valid amount.");
-    if (exceedsBalance)
+    }
+
+    if (exceedsBalance) {
       return setStatus("error", "Amount exceeds contract balance.");
     // #504: never let a user sign a tx the contract will reject while paused.
     if (isPaused)
@@ -354,12 +359,12 @@ export default function DistributeForm({
     } finally {
       retryAbortRef.current = null;
     }
-  }
+  };
 
   function restoreDraft() {
     if (!draftPrompt) return;
-    setTokenId(draftPrompt.tokenId);
-    setAmount(draftPrompt.amount);
+    setValue("tokenId", draftPrompt.tokenId);
+    setValue("amount", draftPrompt.amount as any);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
     setStatus("info", "Previous distribute draft restored.");
@@ -372,8 +377,7 @@ export default function DistributeForm({
   }
 
   function clearForm() {
-    setTokenId("");
-    setAmount("");
+    reset();
     setContractBalance(null);
     setDraftPrompt(null);
     setDraftDecisionMade(true);
@@ -385,10 +389,7 @@ export default function DistributeForm({
   return (
     <form
       className="card"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
+      onSubmit={handleSubmit(onSubmit)}
     >
       <span className="badge">Distribute</span>
 
@@ -402,10 +403,20 @@ export default function DistributeForm({
             <p>Saved token and amount values are available for this contract.</p>
           </div>
           <div className="restore-actions">
-            <button type="button" className="btn-primary" onClick={restoreDraft} disabled={loading}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={restoreDraft}
+              disabled={isSubmitting}
+            >
               Restore
             </button>
-            <button type="button" className="btn-secondary" onClick={discardDraft} disabled={loading}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={discardDraft}
+              disabled={isSubmitting}
+            >
               Discard
             </button>
           </div>
@@ -438,25 +449,40 @@ export default function DistributeForm({
           {balanceLoading
             ? "Fetching balance…"
             : contractBalance !== null
-            ? `Available balance: ${contractBalance}`
-            : "Could not fetch balance."}
+              ? `Available balance: ${contractBalance}`
+              : "Could not fetch balance."}
         </p>
       )}
 
-      <FormInput
+      <label htmlFor="distribute-amount">Amount</label>
+      <input
         id="distribute-amount"
         label="Amount"
         type="text"
         inputMode="decimal"
         placeholder="0"
-        value={amount}
-        error={exceedsBalance ? `Amount exceeds available balance of ${contractBalance}` : undefined}
-        showSuccess={Boolean(amount) && !isNaN(parsedAmount) && parsedAmount > 0 && !exceedsBalance}
-        onChange={(e) => setAmount(e.target.value)}
-        disabled={contractBalance === null || loading}
+        {...register("amount")}
+        disabled={contractBalance === null || isSubmitting}
+        aria-invalid={exceedsBalance || errors.amount ? "true" : undefined}
+        aria-describedby={
+          exceedsBalance || errors.amount ? "distribute-amount-error" : undefined
+        }
       />
+      {errors.amount && (
+        <p className="field-error" id="distribute-amount-error" role="alert">
+          {errors.amount.message}
+        </p>
+      )}
+      {exceedsBalance && (
+        <p className="field-error" id="distribute-amount-error" role="alert">
+          Amount exceeds available balance of {contractBalance}.
+        </p>
+      )}
+
       {collaboratorsLoading && (
-        <p className="description" aria-live="polite">Loading recipients…</p>
+        <p className="description" aria-live="polite">
+          Loading recipients…
+        </p>
       )}
       {recipientBreakdown.length > 0 && (
         <div className="recipient-preview" aria-label="Recipient breakdown preview">
