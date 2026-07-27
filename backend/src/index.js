@@ -23,6 +23,8 @@ import { initializeSigningKey } from "./signing-key.js";
 import { sendError, normalizeErrorCode } from "./error-response.js";
 import { preferencesRouter } from "./routes/preferences.js";
 import emailDigestRouter from "./routes/email-digest.js";
+import { disputesRouter } from "./routes/disputes.js";
+import { referralsRouter } from "./routes/referrals.js";
 import { sendWeeklyDigests } from "./jobs/weekly-digest-job.js";
 import { isEmailConfigured } from "./email/email-service.js";
 import { startRetryScheduler } from "./jobs/retry-failed-distributions.js";
@@ -33,12 +35,7 @@ import { csvImportRouter } from "./routes/csv-import.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
-import { kycWebhooksRouter } from "./routes/kyc-webhooks.js";
-import { paymentSchedulesRouter } from "./routes/payment-schedules.js";
-import { contributorPerformanceRouter } from "./routes/contributor-performance.js";
-import { complianceReportsRouter } from "./routes/compliance-reports.js";
-import { startPaymentScheduleJob } from "./jobs/payment-schedule-job.js";
-import { startComplianceReportScheduler } from "./jobs/compliance-report-job.js";
+import { earningsHistoryRouter } from "./routes/earnings-history.js";
 import { initializeWebSocket } from "./websocket.js";
 
 // Initialize database on startup
@@ -171,11 +168,18 @@ app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
 app.use("/api/v1/preferences", preferencesRouter);
 app.use("/api/v1", emailDigestRouter);
+app.use("/api/v1/disputes", writeLimiter);
+app.use("/api/v1/disputes", disputesRouter);
+app.use("/api/v1/referrals", writeLimiter);
+app.use("/api/v1/referrals", referralsRouter);
 app.use("/metrics", metricsRouter);
 app.use("/api/v1/metrics", metricsRouter);
 
 // Contributor performance rankings (#586)
 app.use("/api/v1/ranking", rankingRouter);
+
+// Contributor tiers (#589)
+app.use("/api/v1/tiers", tiersRouter);
 
 // API documentation (#587)
 app.use("/api/docs", docsRouter);
@@ -193,19 +197,8 @@ app.use("/api/v1/notifications", notificationsRouter);
 app.use("/api/v1/payment-holds", writeLimiter);
 app.use("/api/v1/payment-holds", paymentHoldsRouter);
 
-// KYC Integration Hooks (#598)
-app.use("/api/v1/kyc", writeLimiter);
-app.use("/api/v1/kyc", kycWebhooksRouter);
-
-// Payment Schedule Templates (#599)
-app.use("/api/v1/payment-schedules", writeLimiter);
-app.use("/api/v1/payment-schedules", paymentSchedulesRouter);
-
-// Contributor Performance Metrics (#600)
-app.use("/api/v1/contributor-performance", contributorPerformanceRouter);
-
-// Automated Compliance Reports (#601)
-app.use("/api/v1/compliance-reports", complianceReportsRouter);
+// Contributor earnings history (#564)
+app.use("/api/v1", earningsHistoryRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const adminLimiter = rateLimit({
@@ -261,11 +254,8 @@ const wss = initializeWebSocket(server);
 // Start the failed-distribution retry scheduler
 const retryScheduler = startRetryScheduler();
 
-// Start payment schedule job (#599)
-const paymentScheduleJob = startPaymentScheduleJob();
-
-// Start compliance report scheduler (#601)
-const complianceScheduler = startComplianceReportScheduler();
+// Start the webhook retry scheduler
+const webhookRetryScheduler = startWebhookRetryScheduler();
 
 // Start weekly email digest scheduler if email is configured
 let digestInterval = null;
@@ -307,11 +297,8 @@ const handleShutdown = createGracefulShutdownHandler({
     if (retryScheduler) {
       retryScheduler.stop();
     }
-    if (paymentScheduleJob) {
-      paymentScheduleJob.stop();
-    }
-    if (complianceScheduler) {
-      complianceScheduler.stop();
+    if (webhookRetryScheduler) {
+      webhookRetryScheduler.stop();
     }
   },
 });

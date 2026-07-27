@@ -1,0 +1,224 @@
+.cs {
+  padding: 1.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.cs-header {
+  margin-bottom: 1.5rem;
+}
+.cs-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 0.3rem;
+}
+.cs-subtitle {
+  font-size: 0.875rem;
+  color: var(--color-text-muted, #888);
+  margin: 0;
+}
+
+/* Form card */
+.cs-form-card {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.cs-form-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.cs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.cs-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.cs-field label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #555);
+}
+.cs-field input,
+.cs-field select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--color-surface, #fff);
+}
+.cs-field input:focus,
+.cs-field select:focus {
+  outline: none;
+  border-color: var(--color-primary, #667eea);
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.cs-submit-btn {
+  padding: 0.55rem 1.25rem;
+  border-radius: 7px;
+  border: none;
+  background: var(--color-primary, #667eea);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  align-self: flex-start;
+}
+.cs-submit-btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.cs-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-submit-msg {
+  font-size: 0.8125rem;
+  margin: 0;
+}
+.cs-submit-msg--ok {
+  color: #15803d;
+}
+.cs-submit-msg--err {
+  color: #b91c1c;
+}
+
+/* List header */
+.cs-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.cs-list-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.cs-list-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.cs-refresh-btn {
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #ddd);
+  background: var(--color-surface, #fff);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.cs-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-error {
+  padding: 0.7rem 1rem;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.cs-loading,
+.cs-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--color-text-muted, #888);
+  font-size: 0.9rem;
+}
+
+/* Badges */
+.cs-badge {
+  display: inline-block;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.cs-badge--active {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+.cs-badge--suspended {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+.cs-badge--deactivated {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+/* Table */
+.cs-table-wrapper {
+  overflow-x: auto;
+}
+.cs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.cs-table th {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #888);
+  border-bottom: 2px solid var(--color-border, #e5e7eb);
+  white-space: nowrap;
+}
+.cs-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--color-border, #f0f0f0);
+  vertical-align: middle;
+}
+.cs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cs-address {
+  font-family: monospace;
+  font-size: 0.8125rem;
+}
+
+.cs-reason {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted, #666);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 600px) {
+  .cs {
+    padding: 1rem;
+  }
+}

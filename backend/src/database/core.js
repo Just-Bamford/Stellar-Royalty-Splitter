@@ -430,6 +430,62 @@ export function initializeDatabase() {
         `,
       },
       {
+        // #606: Transaction fee display — stores Soroban minResourceFee per tx
+        version: 10,
+        sql: `
+          CREATE TABLE IF NOT EXISTS transaction_fees (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            transactionId INTEGER NOT NULL UNIQUE,
+            contractId    TEXT NOT NULL,
+            feeStroops    TEXT NOT NULL,
+            recordedAt    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_transaction_fees_contractId
+            ON transaction_fees(contractId);
+          CREATE INDEX IF NOT EXISTS idx_transaction_fees_transactionId
+            ON transaction_fees(transactionId);
+        `,
+      },
+      {
+        // #605: Contributor notification preferences
+        version: 11,
+        sql: `
+          CREATE TABLE IF NOT EXISTS notification_preferences (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL UNIQUE,
+            email         INTEGER NOT NULL DEFAULT 1,
+            sms           INTEGER NOT NULL DEFAULT 0,
+            inApp         INTEGER NOT NULL DEFAULT 1,
+            push          INTEGER NOT NULL DEFAULT 0,
+            updatedAt     DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_notification_preferences_walletAddress
+            ON notification_preferences(walletAddress);
+        `,
+      },
+      {
+        // #602: Contributor verification workflow
+        version: 12,
+        sql: `
+          CREATE TABLE IF NOT EXISTS contributor_verification (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL UNIQUE,
+            step          TEXT NOT NULL DEFAULT 'email'
+              CHECK(step IN ('email', 'kyc', 'manual_review', 'verified', 'rejected')),
+            status        TEXT NOT NULL DEFAULT 'pending'
+              CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
+            adminNote     TEXT,
+            createdAt     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt     DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_contributor_verification_walletAddress
+            ON contributor_verification(walletAddress);
+          CREATE INDEX IF NOT EXISTS idx_contributor_verification_step
+            ON contributor_verification(step);
+        `,
+      },
+      {
         version: 4,
         sql: `
         CREATE TABLE IF NOT EXISTS contract_event_archive (
@@ -591,6 +647,28 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_contract_event_archive_contractId ON contract_event_archive(contractId);
     CREATE INDEX IF NOT EXISTS idx_contract_event_archive_timestamp ON contract_event_archive(COALESCE(blockTime, timestamp));
     CREATE INDEX IF NOT EXISTS idx_contract_event_archive_contract_time ON contract_event_archive(contractId, COALESCE(blockTime, timestamp));
+
+    CREATE TABLE IF NOT EXISTS contributor_status (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contractId TEXT NOT NULL,
+      address TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active', 'suspended', 'deactivated')),
+      reason TEXT,
+      suspendedAt DATETIME,
+      deactivatedAt DATETIME,
+      updatedBy TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(contractId, address)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_contributor_status_contract
+      ON contributor_status(contractId);
+    CREATE INDEX IF NOT EXISTS idx_contributor_status_address
+      ON contributor_status(contractId, address);
+    CREATE INDEX IF NOT EXISTS idx_contributor_status_status
+      ON contributor_status(contractId, status);
   `);
 
   // Migration guards for existing databases

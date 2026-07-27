@@ -6,9 +6,12 @@ import { sendError } from "../error-response.js";
 import {
   isAdminRotateTokenValid,
   reloadSigningKeyFromSecretsFile,
+  reloadSigningKeyFromSecretsProvider,
   rotateSigningKey,
+  getSigningKeyStatus,
 } from "../signing-key.js";
 import { requireAdminBearerOrRole, createUser } from "../middleware/rbac.js";
+import { addAuditLog } from "../database/index.js";
 
 export const adminRouter = Router();
 
@@ -51,19 +54,62 @@ function requireAdminRotateToken(req, res, next) {
 }
 
 /**
- * POST /admin/rotate-key
- * Body: { secretKey?: string, reloadFromFile?: boolean }
- * Header: Authorization: Bearer <ADMIN_ROTATE_TOKEN>
+ * GET /admin/key-status
+ * Returns current signing key status (public key, last rotation, provider).
+ * Requires admin privilege.
  */
+adminRouter.get(
+  "/key-status",
+  requireAdminBearerOrRole("admin"),
+  (_req, res) => {
+    res.json(getSigningKeyStatus());
+  },
+);
+
+/**
+ * POST /admin/rotate-key
+ * Body: { secretKey?: string, reloadFromFile?: boolean, reloadFromProvider?: boolean }
+ * Header: Authorization: Bearer <ADMIN_ROTATE_TOKEN>  (legacy) or x-api-key (RBAC)
+ */
+const rotateKeySchemaExtended = z
+  .object({
+    secretKey: z
+      .string()
+      .regex(/^S[A-Z2-7]{55}$/, "Invalid Stellar secret key")
+      .optional(),
+    reloadFromFile: z.boolean().optional(),
+    reloadFromProvider: z.boolean().optional(),
+  })
+  .refine(
+    (body) =>
+      Boolean(body.secretKey) ||
+      body.reloadFromFile === true ||
+      body.reloadFromProvider === true,
+    { message: "Provide secretKey, reloadFromFile, or reloadFromProvider" },
+  );
+
 adminRouter.post(
   "/rotate-key",
   requireAdminRotateToken,
-  validate(rotateKeySchema),
-  (req, res, next) => {
+  validate(rotateKeySchemaExtended),
+  async (req, res, next) => {
     try {
-      const result = req.body.reloadFromFile
-        ? reloadSigningKeyFromSecretsFile()
-        : rotateSigningKey(req.body.secretKey, { source: "api" });
+      let result;
+      if (req.body.reloadFromProvider) {
+        result = await reloadSigningKeyFromSecretsProvider();
+      } else if (req.body.reloadFromFile) {
+        result = reloadSigningKeyFromSecretsFile();
+      } else {
+        result = rotateSigningKey(req.body.secretKey, { source: "api" });
+      }
+
+      // Audit trail — contractId omitted for global admin actions
+      try {
+        addAuditLog("__global__", "signing_key_rotated", null, {
+          source: result.source,
+          publicKey: result.publicKey,
+        });
+      } catch (_) { /* non-fatal */ }
 
       res.json({
         publicKey: result.publicKey,

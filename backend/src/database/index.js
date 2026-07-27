@@ -33,7 +33,14 @@ export {
 } from "./transactions.js";
 
 // Webhooks (#295)
-export { registerWebhook, listWebhooks, deleteWebhook } from "./webhooks.js";
+export {
+  registerWebhook,
+  listWebhooks,
+  deleteWebhook,
+  updateWebhookRetryState,
+  getWebhooksDueForRetry,
+  resetWebhookRetryCount,
+} from "./webhooks.js";
 
 // Audit logging
 export { getAuditLog, addAuditLog, countAuditLog } from "./audit.js";
@@ -50,10 +57,37 @@ export {
 } from "./secondary-royalties.js";
 
 // Analytics
-export { getAnalyticsData } from "./analytics.js";
+export {
+  getAnalyticsData,
+  getContributorEarningsHistory,
+  getContributorEarningsEvents,
+  getContributorContracts,
+} from "./analytics.js";
 
 // Payment preferences (#584)
 export { getPaymentPreference, savePaymentPreference } from "./payment-preferences.js";
+
+// Transaction fee display (#606)
+export {
+  recordTransactionFee,
+  getTransactionFee,
+  getFeesByContract,
+} from "./transaction-fees.js";
+
+// Notification preferences (#605)
+export {
+  getNotificationPreferences,
+  saveNotificationPreferences,
+} from "./notification-preferences.js";
+
+// Contributor verification (#602)
+export {
+  getVerification,
+  upsertVerification,
+  getVerificationsByStep,
+  VERIFICATION_STEPS,
+  VERIFICATION_STATUSES,
+} from "./contributor-verification.js";
 
 // Contract event archival
 export {
@@ -130,47 +164,36 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
-// KYC integration (#598)
+// Disputes / ticket system (#607)
 export {
-  upsertKycStatus,
-  getKycStatus,
-  logKycEvent,
-  getKycEvents,
-  getAllKycEvents,
-} from "./kyc.js";
+  createDispute,
+  getDisputeByTicketId,
+  getDisputesByWallet,
+  countDisputesByWallet,
+  getAllDisputes,
+  countAllDisputes,
+  updateDisputeStatus,
+  addDisputeComment,
+  getDisputeComments,
+} from "./disputes.js";
 
-// Payment schedule templates (#599)
+// Referral tracking (#603)
 export {
-  createPaymentSchedule,
-  getPaymentSchedule,
-  getSchedulesByContract,
-  getAllEnabledSchedules,
-  getDueSchedules,
-  updatePaymentSchedule,
-  markScheduleRun,
-  deletePaymentSchedule,
-  logScheduledDistribution,
-  getScheduleHistory,
-  computeNextRunAt,
-} from "./payment-schedules.js";
-
-// Contributor performance metrics (#600)
-export {
-  computeAndSavePerformance,
-  getContributorPerformance,
-  getContributorProfile,
-  getContractPerformanceLeaderboard,
-  computeLiveMetrics,
-} from "./contributor-performance.js";
-
-// Compliance reports (#601)
-export {
-  saveComplianceReport,
-  getComplianceReport,
-  listComplianceReports,
-  getComplianceScheduleConfig,
-  updateComplianceScheduleConfig,
-} from "./compliance-reports.js";
+  DEFAULT_REFERRAL_BONUS_STROOPS,
+  generateReferralLink,
+  getReferralLinkByWallet,
+  getReferralLinkByCode,
+  registerReferral,
+  activateReferral,
+  getReferralByReferred,
+  getReferralsByReferrer,
+  countReferralsByReferrer,
+  awardReferralBonus,
+  getBonusesByReferrer,
+  getReferralDashboard,
+  getAllReferrals,
+  countAllReferrals,
+} from "./referrals.js";
 
 // Default export for backwards compatibility
 import { db } from "./core.js";
