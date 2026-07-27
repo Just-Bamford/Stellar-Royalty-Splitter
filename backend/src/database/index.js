@@ -130,6 +130,15 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
+// Contributor performance metrics (#600)
+export {
+  computeAndSavePerformance,
+  getContributorPerformance,
+  getContributorProfile,
+  getContractPerformanceLeaderboard,
+  computeLiveMetrics,
+} from "./contributor-performance.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
