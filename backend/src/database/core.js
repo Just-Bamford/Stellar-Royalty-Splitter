@@ -305,6 +305,45 @@ export function initializeDatabase() {
         `,
       },
       {
+        // #578: Admin two-factor authentication
+        version: 11,
+        sql: `
+          CREATE TABLE IF NOT EXISTS user_2fa (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL UNIQUE,
+            secretEncrypted TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            confirmedAt DATETIME,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+          );
+
+          CREATE TABLE IF NOT EXISTS user_2fa_backup_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            codeHash TEXT NOT NULL,
+            usedAt DATETIME,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+          );
+
+          CREATE TABLE IF NOT EXISTS user_2fa_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            tokenHash TEXT NOT NULL UNIQUE,
+            expiresAt DATETIME NOT NULL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_user_2fa_userId ON user_2fa(userId);
+          CREATE INDEX IF NOT EXISTS idx_user_2fa_backup_userId ON user_2fa_backup_codes(userId);
+          CREATE INDEX IF NOT EXISTS idx_user_2fa_sessions_userId ON user_2fa_sessions(userId);
+          CREATE INDEX IF NOT EXISTS idx_user_2fa_sessions_token ON user_2fa_sessions(tokenHash);
+        `,
+      },
+      {
         version: 4,
         sql: `
         CREATE TABLE IF NOT EXISTS contract_event_archive (

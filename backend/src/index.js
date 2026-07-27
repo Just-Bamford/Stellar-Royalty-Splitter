@@ -33,6 +33,7 @@ import { csvImportRouter } from "./routes/csv-import.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
+import { authRouter } from "./routes/auth.js";
 import { initializeWebSocket } from "./websocket.js";
 
 // Initialize database on startup
@@ -186,6 +187,10 @@ app.use("/api/v1/notifications", notificationsRouter);
 // Payment hold/release system (#596)
 app.use("/api/v1/payment-holds", writeLimiter);
 app.use("/api/v1/payment-holds", paymentHoldsRouter);
+
+// Admin two-factor authentication (#578)
+app.use("/api/v1/auth", writeLimiter);
+app.use("/api/v1/auth", authRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const adminLimiter = rateLimit({

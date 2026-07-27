@@ -44,12 +44,21 @@ function getErrorMessage(data: unknown, status: number) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const headers = new Headers(init?.headers);
+  const sessionToken = localStorage.getItem("srs_2fa_session");
+  if (sessionToken) {
+    headers.set("x-2fa-session", sessionToken);
+  }
+
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   const data = await readJson(res);
 
   if (res.status === 401) {
-    notifySessionExpired();
-    throw new Error(SESSION_EXPIRED_MESSAGE);
+    const isTwoFactorPath = path.includes("/auth/2fa/");
+    if (!isTwoFactorPath) {
+      notifySessionExpired();
+      throw new Error(SESSION_EXPIRED_MESSAGE);
+    }
   }
 
   if (res.ok) {
@@ -371,6 +380,63 @@ export const api = {
     post<OnboardingReminderResponse>(`/v1/onboarding/${walletAddress}/remind`, {
       email,
     }),
+
+  // Two-factor authentication (#578)
+  getTwoFactorStatus: (walletAddress: string) =>
+    get<{
+      success: boolean;
+      data: {
+        walletAddress: string;
+        role: string | null;
+        enabled: boolean;
+        pending: boolean;
+        verifiedSessionRequired: boolean;
+        sessionVerified: boolean;
+      };
+    }>(`/v1/auth/2fa/status/${walletAddress}`),
+
+  setupTwoFactor: (walletAddress: string) =>
+    post<{
+      success: boolean;
+      data: {
+        secret: string;
+        otpauthUrl: string;
+        backupCodes: string[];
+        message: string;
+      };
+    }>("/v1/auth/2fa/setup", { walletAddress }),
+
+  confirmTwoFactor: (walletAddress: string, code: string) =>
+    post<{
+      success: boolean;
+      data: { enabled: boolean; sessionToken: string; expiresAt: string };
+    }>("/v1/auth/2fa/confirm", { walletAddress, code }),
+
+  verifyTwoFactor: (walletAddress: string, code: string) =>
+    post<{
+      success: boolean;
+      data: { verified: boolean; sessionToken: string; expiresAt: string };
+    }>("/v1/auth/2fa/verify", { walletAddress, code }),
+
+  recoverTwoFactor: (walletAddress: string, backupCode: string) =>
+    post<{
+      success: boolean;
+      data: {
+        recovered: boolean;
+        sessionToken: string;
+        expiresAt: string;
+        message: string;
+      };
+    }>("/v1/auth/2fa/recover", { walletAddress, backupCode }),
+
+  disableTwoFactor: (
+    walletAddress: string,
+    body: { code?: string; backupCode?: string },
+  ) =>
+    post<{ success: boolean; data: { enabled: boolean } }>(
+      "/v1/auth/2fa/disable",
+      { walletAddress, ...body },
+    ),
 };
 
 export interface OnboardingItem {

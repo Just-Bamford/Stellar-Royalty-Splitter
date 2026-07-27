@@ -336,7 +336,7 @@ export default function App() {
         );
       case "admin":
         return contractId ? (
-          <AdminDashboard contractId={contractId} />
+          <AdminDashboard contractId={contractId} walletAddress={walletAddress} />
         ) : (
           <div className="page-empty">
             <p>Please select a contract first</p>

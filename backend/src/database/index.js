@@ -113,6 +113,20 @@ export {
   getTransactionsPendingHoldRelease,
 } from "./payment-holds.js";
 
+// Two-factor authentication (#578)
+export {
+  getTwoFactorStatus,
+  beginTwoFactorSetup,
+  confirmTwoFactorSetup,
+  decryptTwoFactorSecret,
+  consumeBackupCode,
+  disableTwoFactor,
+  createVerifiedSession,
+  isSessionValid,
+  revokeSessions,
+  getUserByWallet,
+} from "./two-factor.js";
+
 // Email digest (#569)
 export {
   subscribeEmailDigest,
