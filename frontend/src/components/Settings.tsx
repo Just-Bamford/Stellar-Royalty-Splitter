@@ -4,6 +4,7 @@ import { useSettings, SettingsType } from "../context/SettingsContext";
 
 import { CopyButton } from "./CopyButton";
 import { PaymentPreferences } from "./PaymentPreferences";
+import { NotificationPreferences } from "./NotificationPreferences";
 import "./Settings.css";
 
 interface SettingsProps {
@@ -210,6 +211,9 @@ export const Settings: React.FC<SettingsProps> = ({
 
         {/* Payment Preferences */}
         <PaymentPreferences walletAddress={walletAddress ?? ""} />
+
+        {/* Notification Preferences (#605) */}
+        <NotificationPreferences walletAddress={walletAddress ?? ""} />
 
         {/* About Section */}
         <section className="settings-section">

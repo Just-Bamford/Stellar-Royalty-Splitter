@@ -371,6 +371,32 @@ export const api = {
     post<OnboardingReminderResponse>(`/v1/onboarding/${walletAddress}/remind`, {
       email,
     }),
+
+  getEarningsHistory: (
+    walletAddress: string,
+    params?: { start?: string; end?: string; contracts?: string[] },
+  ) => {
+    const search = new URLSearchParams();
+    if (params?.start) search.set("start", params.start);
+    if (params?.end) search.set("end", params.end);
+    if (params?.contracts?.length) search.set("contracts", params.contracts.join(","));
+    const query = search.toString();
+    return get<{
+      success: boolean;
+      message?: string;
+      data: {
+        walletAddress: string;
+        snapshots: Array<{ date: string; contractId: string; amount: number }>;
+        events: Array<{
+          type: "contract_added" | "distribution_failure" | "contract_removed";
+          contractId: string;
+          date: string;
+          label: string;
+        }>;
+        contracts: string[];
+      };
+    }>(`/v1/earnings-history/${walletAddress}${query ? `?${query}` : ""}`);
+  },
 };
 
 export interface OnboardingItem {
