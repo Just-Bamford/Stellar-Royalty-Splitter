@@ -277,6 +277,44 @@ export function initializeDatabase() {
         `,
       },
       {
+        // #599: Payment schedule templates
+        version: 12,
+        sql: `
+          CREATE TABLE IF NOT EXISTS payment_schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            contractId TEXT NOT NULL,
+            schedule_type TEXT NOT NULL CHECK(schedule_type IN ('monthly', 'biweekly', 'weekly', 'custom')),
+            day_of_month INTEGER CHECK(day_of_month BETWEEN 1 AND 28),
+            day_of_week INTEGER CHECK(day_of_week BETWEEN 0 AND 6),
+            hour_of_day INTEGER NOT NULL DEFAULT 9 CHECK(hour_of_day BETWEEN 0 AND 23),
+            timezone TEXT NOT NULL DEFAULT 'UTC',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_by TEXT NOT NULL DEFAULT 'admin',
+            last_run_at DATETIME,
+            next_run_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_payment_schedules_contract ON payment_schedules(contractId);
+          CREATE INDEX IF NOT EXISTS idx_payment_schedules_enabled ON payment_schedules(enabled);
+          CREATE INDEX IF NOT EXISTS idx_payment_schedules_next_run ON payment_schedules(next_run_at);
+
+          CREATE TABLE IF NOT EXISTS scheduled_distribution_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scheduleId INTEGER NOT NULL,
+            contractId TEXT NOT NULL,
+            triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status TEXT NOT NULL CHECK(status IN ('triggered', 'failed', 'skipped')),
+            error_message TEXT,
+            transaction_id INTEGER,
+            FOREIGN KEY(scheduleId) REFERENCES payment_schedules(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_scheduled_dist_log_schedule ON scheduled_distribution_log(scheduleId);
+          CREATE INDEX IF NOT EXISTS idx_scheduled_dist_log_contract ON scheduled_distribution_log(contractId);
+        `,
+      },
+      {
         // #596: Payment hold/release system
         version: 10,
         sql: `

@@ -130,6 +130,21 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
+// Payment schedule templates (#599)
+export {
+  createPaymentSchedule,
+  getPaymentSchedule,
+  getSchedulesByContract,
+  getAllEnabledSchedules,
+  getDueSchedules,
+  updatePaymentSchedule,
+  markScheduleRun,
+  deletePaymentSchedule,
+  logScheduledDistribution,
+  getScheduleHistory,
+  computeNextRunAt,
+} from "./payment-schedules.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
