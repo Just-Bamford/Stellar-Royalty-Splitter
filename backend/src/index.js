@@ -33,6 +33,8 @@ import { csvImportRouter } from "./routes/csv-import.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
+import { complianceReportsRouter } from "./routes/compliance-reports.js";
+import { startComplianceReportScheduler } from "./jobs/compliance-report-job.js";
 import { initializeWebSocket } from "./websocket.js";
 
 // Initialize database on startup
@@ -187,6 +189,9 @@ app.use("/api/v1/notifications", notificationsRouter);
 app.use("/api/v1/payment-holds", writeLimiter);
 app.use("/api/v1/payment-holds", paymentHoldsRouter);
 
+// Automated Compliance Reports (#601)
+app.use("/api/v1/compliance-reports", complianceReportsRouter);
+
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const adminLimiter = rateLimit({
   windowMs: 60_000,
@@ -241,6 +246,9 @@ const wss = initializeWebSocket(server);
 // Start the failed-distribution retry scheduler
 const retryScheduler = startRetryScheduler();
 
+// Start compliance report scheduler (#601)
+const complianceScheduler = startComplianceReportScheduler();
+
 // Start weekly email digest scheduler if email is configured
 let digestInterval = null;
 if (isEmailConfigured()) {
@@ -280,6 +288,9 @@ const handleShutdown = createGracefulShutdownHandler({
     }
     if (retryScheduler) {
       retryScheduler.stop();
+    }
+    if (complianceScheduler) {
+      complianceScheduler.stop();
     }
   },
 });

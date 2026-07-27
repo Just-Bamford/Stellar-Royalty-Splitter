@@ -130,6 +130,15 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
+// Compliance reports (#601)
+export {
+  saveComplianceReport,
+  getComplianceReport,
+  listComplianceReports,
+  getComplianceScheduleConfig,
+  updateComplianceScheduleConfig,
+} from "./compliance-reports.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
