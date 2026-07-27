@@ -277,6 +277,39 @@ export function initializeDatabase() {
         `,
       },
       {
+        // #601: Automated compliance reports
+        version: 14,
+        sql: `
+          CREATE TABLE IF NOT EXISTS compliance_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_type TEXT NOT NULL CHECK(report_type IN ('monthly', 'quarterly', 'annual', 'custom')),
+            period_start DATETIME NOT NULL,
+            period_end DATETIME NOT NULL,
+            generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            generated_by TEXT NOT NULL DEFAULT 'system',
+            file_path TEXT,
+            emailed_to TEXT,
+            status TEXT NOT NULL DEFAULT 'generated' CHECK(status IN ('generated', 'emailed', 'failed')),
+            summary TEXT,
+            UNIQUE(report_type, period_start, period_end)
+          );
+          CREATE INDEX IF NOT EXISTS idx_compliance_reports_type ON compliance_reports(report_type);
+          CREATE INDEX IF NOT EXISTS idx_compliance_reports_period ON compliance_reports(period_start, period_end);
+          CREATE INDEX IF NOT EXISTS idx_compliance_reports_generated ON compliance_reports(generated_at);
+
+          CREATE TABLE IF NOT EXISTS compliance_report_schedules (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            monthly_enabled INTEGER NOT NULL DEFAULT 1,
+            quarterly_enabled INTEGER NOT NULL DEFAULT 1,
+            annual_enabled INTEGER NOT NULL DEFAULT 1,
+            email_recipients TEXT NOT NULL DEFAULT '[]',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          INSERT OR IGNORE INTO compliance_report_schedules (id, monthly_enabled, quarterly_enabled, annual_enabled, email_recipients)
+          VALUES (1, 1, 1, 1, '[]');
+        `,
+      },
+      {
         // #596: Payment hold/release system
         version: 10,
         sql: `
