@@ -7,14 +7,17 @@ import { BulkContributorUpload } from "./BulkContributorUpload";
 import { ContributorTaxInfo } from "./ContributorTaxInfo";
 import { TaxComplianceReport } from "./TaxComplianceReport";
 import { PaymentHoldManager } from "./PaymentHoldManager";
+import { TwoFactorChallenge, TwoFactorManagement } from "./TwoFactorAuth";
 import "./AdminDashboard.css";
 
 interface AdminDashboardProps {
   contractId: string;
+  walletAddress?: string | null;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   contractId,
+  walletAddress = null,
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -22,6 +25,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [initHistory, setInitHistory] = useState<TransactionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [contractVersion, setContractVersion] = useState<string>("loading...");
+  const [twoFactorGate, setTwoFactorGate] = useState<"loading" | "ok" | "challenge">("loading");
 
   useEffect(() => {
     if (contractId) {
@@ -29,6 +33,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       loadContractVersion();
     }
   }, [contractId]);
+
+  useEffect(() => {
+    async function checkTwoFactor() {
+      if (!walletAddress) {
+        setTwoFactorGate("ok");
+        return;
+      }
+      try {
+        const status = await api.getTwoFactorStatus(walletAddress);
+        if (status.data.enabled && !status.data.sessionVerified) {
+          setTwoFactorGate("challenge");
+        } else {
+          setTwoFactorGate("ok");
+        }
+      } catch {
+        setTwoFactorGate("ok");
+      }
+    }
+    void checkTwoFactor();
+  }, [walletAddress]);
 
   const loadInitializeHistory = async () => {
     setLoading(true);
@@ -107,17 +131,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
   }
 
-  // Render-only loading flag derived from the existing version sentinel.
-  // The fetch sets contractVersion to "loading..." before the request resolves,
-  // so this shows a skeleton in place of the raw sentinel without touching the
-  // data-fetching logic (out of scope per the issue).
   const versionLoading = contractVersion === "loading...";
+
+  if (twoFactorGate === "loading") {
+    return (
+      <div className="admin-dashboard">
+        <Skeleton width="100%" height="120px" />
+      </div>
+    );
+  }
+
+  if (twoFactorGate === "challenge" && walletAddress) {
+    return (
+      <div className="admin-dashboard">
+        <TwoFactorChallenge
+          walletAddress={walletAddress}
+          onVerified={() => setTwoFactorGate("ok")}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="admin-dashboard">
       <div className="admin-header">
         <h1>⚙️ Admin Dashboard</h1>
       </div>
+
+      {walletAddress && (
+        <div className="admin-2fa-section">
+          <TwoFactorManagement walletAddress={walletAddress} />
+        </div>
+      )}
 
       {/* Contract Info Card */}
       <div className="contract-card">

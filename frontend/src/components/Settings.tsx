@@ -4,6 +4,7 @@ import { useSettings, SettingsType } from "../context/SettingsContext";
 
 import { CopyButton } from "./CopyButton";
 import { PaymentPreferences } from "./PaymentPreferences";
+import { TwoFactorManagement } from "./TwoFactorAuth";
 import "./Settings.css";
 
 interface SettingsProps {
@@ -254,6 +255,13 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         </section>
       </div>
+
+      {walletAddress && (
+        <section className="settings-section">
+          <h2 className="section-title">Security</h2>
+          <TwoFactorManagement walletAddress={walletAddress} />
+        </section>
+      )}
 
       {/* Action Buttons */}
       <div className="settings-actions">
