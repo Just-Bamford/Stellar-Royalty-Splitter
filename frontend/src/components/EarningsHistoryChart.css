@@ -1,0 +1,170 @@
+.earnings-history {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1rem;
+}
+
+.earnings-history-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.earnings-history-header h1 {
+  margin: 0;
+}
+
+.earnings-history-header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted, #6b7280);
+}
+
+.earnings-range-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.range-btn {
+  border: 1px solid var(--border-color, #d1d5db);
+  background: var(--card-bg, #fff);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+}
+
+.range-btn.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: #fff;
+}
+
+.earnings-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.summary-card {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.summary-label {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.85rem;
+}
+
+.summary-card strong.positive {
+  color: #16a34a;
+}
+
+.summary-card strong.negative {
+  color: #dc2626;
+}
+
+.contract-toggle-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.contract-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.contract-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+}
+
+.earnings-chart-panel {
+  min-height: 280px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.earnings-empty-state,
+.earnings-history-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.earnings-error,
+.earnings-offline-banner {
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.earnings-error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.earnings-offline-banner {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.earnings-events ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.earnings-events li {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 120px 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.event-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.event-contract_added {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.event-distribution_failure {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+@media (max-width: 768px) {
+  .earnings-history {
+    padding: 0.75rem;
+  }
+
+  .earnings-events li {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+
+  .earnings-chart-panel {
+    overflow-x: auto;
+  }
+}
