@@ -277,6 +277,29 @@ export function initializeDatabase() {
         `,
       },
       {
+        // #600: Contributor performance metrics
+        version: 13,
+        sql: `
+          CREATE TABLE IF NOT EXISTS contributor_performance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL,
+            contractId TEXT NOT NULL,
+            success_rate REAL NOT NULL DEFAULT 0,
+            avg_payout_time_hours REAL,
+            reliability_score REAL NOT NULL DEFAULT 0,
+            total_payouts INTEGER NOT NULL DEFAULT 0,
+            total_earned REAL NOT NULL DEFAULT 0,
+            period_start DATETIME NOT NULL,
+            period_end DATETIME NOT NULL,
+            computed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(walletAddress, contractId, period_start)
+          );
+          CREATE INDEX IF NOT EXISTS idx_contributor_perf_wallet ON contributor_performance(walletAddress);
+          CREATE INDEX IF NOT EXISTS idx_contributor_perf_contract ON contributor_performance(contractId);
+          CREATE INDEX IF NOT EXISTS idx_contributor_perf_score ON contributor_performance(reliability_score DESC);
+        `,
+      },
+      {
         // #596: Payment hold/release system
         version: 10,
         sql: `
