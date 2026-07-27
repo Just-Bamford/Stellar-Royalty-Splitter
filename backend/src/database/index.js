@@ -130,6 +130,48 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
+// KYC integration (#598)
+export {
+  upsertKycStatus,
+  getKycStatus,
+  logKycEvent,
+  getKycEvents,
+  getAllKycEvents,
+} from "./kyc.js";
+
+// Payment schedule templates (#599)
+export {
+  createPaymentSchedule,
+  getPaymentSchedule,
+  getSchedulesByContract,
+  getAllEnabledSchedules,
+  getDueSchedules,
+  updatePaymentSchedule,
+  markScheduleRun,
+  deletePaymentSchedule,
+  logScheduledDistribution,
+  getScheduleHistory,
+  computeNextRunAt,
+} from "./payment-schedules.js";
+
+// Contributor performance metrics (#600)
+export {
+  computeAndSavePerformance,
+  getContributorPerformance,
+  getContributorProfile,
+  getContractPerformanceLeaderboard,
+  computeLiveMetrics,
+} from "./contributor-performance.js";
+
+// Compliance reports (#601)
+export {
+  saveComplianceReport,
+  getComplianceReport,
+  listComplianceReports,
+  getComplianceScheduleConfig,
+  updateComplianceScheduleConfig,
+} from "./compliance-reports.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
