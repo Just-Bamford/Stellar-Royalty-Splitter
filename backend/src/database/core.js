@@ -277,6 +277,37 @@ export function initializeDatabase() {
         `,
       },
       {
+        // #598: KYC integration hooks
+        version: 11,
+        sql: `
+          CREATE TABLE IF NOT EXISTS contributor_kyc (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL UNIQUE,
+            verification_status TEXT NOT NULL DEFAULT 'not_started'
+              CHECK(verification_status IN ('not_started', 'pending', 'verified', 'rejected', 'expired')),
+            provider TEXT CHECK(provider IN ('veriff', 'jumio', 'manual')),
+            provider_session_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_contributor_kyc_wallet ON contributor_kyc(walletAddress);
+          CREATE INDEX IF NOT EXISTS idx_contributor_kyc_status ON contributor_kyc(verification_status);
+
+          CREATE TABLE IF NOT EXISTS kyc_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            walletAddress TEXT,
+            raw_payload TEXT NOT NULL,
+            resolved_status TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_kyc_events_wallet ON kyc_events(walletAddress);
+          CREATE INDEX IF NOT EXISTS idx_kyc_events_provider ON kyc_events(provider);
+          CREATE INDEX IF NOT EXISTS idx_kyc_events_created ON kyc_events(created_at);
+        `,
+      },
+      {
         // #596: Payment hold/release system
         version: 10,
         sql: `

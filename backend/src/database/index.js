@@ -130,6 +130,15 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
+// KYC integration (#598)
+export {
+  upsertKycStatus,
+  getKycStatus,
+  logKycEvent,
+  getKycEvents,
+  getAllKycEvents,
+} from "./kyc.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
