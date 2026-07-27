@@ -126,6 +126,9 @@ export default function CollaboratorTable({
   const [paymentData, setPaymentData] =
     useState<Map<string, number> | null>(null);
 
+  // ── tier data ──────────────────────────────────────────────────────────
+  const [tierData, setTierData] = useState<Map<string, string> | null>(null);
+
   /* ── Fetch collaborators & analytics ─────────────────────────────────── */
   useEffect(() => {
     if (!contractId) return;
@@ -148,11 +151,24 @@ export default function CollaboratorTable({
       })
       .catch(() => null);
 
-    Promise.all([basePromise, analyticsPromise])
-      .then(([collabData, payData]) => {
+    // Best-effort tiers fetch
+    const tiersPromise = api
+      .getContractTiers(contractId)
+      .then((res) => {
+        const map = new Map<string, string>();
+        for (const t of res.data ?? []) {
+          map.set(t.walletAddress, t.tier);
+        }
+        return map;
+      })
+      .catch(() => null);
+
+    Promise.all([basePromise, analyticsPromise, tiersPromise])
+      .then(([collabData, payData, tierData]) => {
         setCollaborators(collabData);
         setNames(loadNames(contractId));
         setPaymentData(payData);
+        setTierData(tierData);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -478,11 +494,14 @@ export default function CollaboratorTable({
           <thead>
             <tr>
               <th>Address</th>
+              <th>Tier</th>
               <th style={{ textAlign: "right" }}>Share</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c) => (
+            {filtered.map((c) => {
+              const tier = tierData?.get(c.address) ?? "regular";
+              return (
               <tr key={c.address}>
                 <td>
                   {/* Editable name */}
@@ -546,6 +565,11 @@ export default function CollaboratorTable({
                     {copied === c.address ? "✓" : "⧉"}
                   </button>
                 </td>
+                <td>
+                  <span className={`tier-badge tier-badge--${tier}`} title={tier}>
+                    {tier === "vip" ? "⭐ VIP" : tier === "trial" ? "🔹 Trial" : "Regular"}
+                  </span>
+                </td>
                 <td style={{ textAlign: "right" }}>
                   <span>{(c.basisPoints / 100).toFixed(2)}%</span>
                   <div
@@ -554,7 +578,8 @@ export default function CollaboratorTable({
                   />
                 </td>
               </tr>
-            ))}
+              );})
+            }
           </tbody>
         </table>
       )}

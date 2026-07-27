@@ -25,6 +25,9 @@ import { CopyButton } from "./components/CopyButton";
 import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { ContributorOnboardingChecklist } from "./components/ContributorOnboardingChecklist";
+import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
+import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
+import { useWebSocket } from "./hooks/useWebSocket";
 
 import "./App.css";
 
@@ -298,9 +301,25 @@ export default function App() {
             <p>Please select a contract first</p>
           </div>
         );
+      case "earnings-history":
+        return walletAddress ? (
+          <EarningsHistoryChart walletAddress={walletAddress} />
+        ) : (
+          <div className="page-empty">
+            <p>Please connect your wallet to view earnings history</p>
+          </div>
+        );
       case "forecast":
         return contractId ? (
           <EarningsForecastCalculator contractId={contractId} />
+        ) : (
+          <div className="page-empty">
+            <p>Please select a contract first</p>
+          </div>
+        );
+      case "timeline":
+        return contractId ? (
+          <ContractTimeline contractId={contractId} />
         ) : (
           <div className="page-empty">
             <p>Please select a contract first</p>
@@ -337,6 +356,24 @@ export default function App() {
       case "admin":
         return contractId ? (
           <AdminDashboard contractId={contractId} />
+        ) : (
+          <div className="page-empty">
+            <p>Please select a contract first</p>
+          </div>
+        );
+      case "health":
+        return <SystemHealthDashboard />;
+      case "earnings":
+        return walletAddress ? (
+          <MultiContractEarnings walletAddress={walletAddress} />
+        ) : (
+          <div className="page-empty">
+            <p>Please connect your wallet to view your earnings.</p>
+          </div>
+        );
+      case "suspension":
+        return contractId ? (
+          <ContributorSuspension contractId={contractId} walletAddress={walletAddress} />
         ) : (
           <div className="page-empty">
             <p>Please select a contract first</p>
@@ -468,6 +505,16 @@ export default function App() {
 
       <div className="app-content">
         <div className="app-sidebar">
+          <button
+            className="sidebar-toggle-btn"
+            aria-expanded={sidebarOpen}
+            aria-controls="sidebar-cards"
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            ⚙️ Wallet & Contract
+            <span className={`sidebar-toggle-chevron ${sidebarOpen ? "open" : ""}`} aria-hidden="true">▼</span>
+          </button>
+          <div id="sidebar-cards" className={`app-sidebar-cards ${sidebarOpen ? "open" : ""}`}>
           <div className="sidebar-card">
             <h3>🔗 Wallet Connection</h3>
             <WalletConnect
@@ -552,6 +599,7 @@ export default function App() {
               </div>
             </div>
           )}
+          </div>
         </div>
 
         <div className="app-main">{renderPage()}</div>
