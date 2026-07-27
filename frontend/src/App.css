@@ -261,6 +261,47 @@
   display: none;
 }
 
+/* ── Sidebar toggle (#591) ─────────────────────────────────────────────── */
+.sidebar-toggle-btn {
+  display: none; /* shown only on mobile via media query */
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-toggle-btn:hover {
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.sidebar-toggle-chevron {
+  margin-left: auto;
+  transition: transform 0.25s ease;
+  display: inline-block;
+}
+
+.sidebar-toggle-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* Collapsible wrapper for the sidebar cards on mobile */
+.app-sidebar-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .app-content {
@@ -309,6 +350,27 @@
     flex-direction: column;
     gap: var(--spacing-sm);
     flex-wrap: nowrap;
+  }
+
+  /* Show the toggle button on mobile */
+  .sidebar-toggle-btn {
+    display: flex;
+  }
+
+  /* Sidebar cards collapse when closed */
+  .app-sidebar-cards {
+    gap: var(--spacing-sm);
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: max-height 0.3s ease, opacity 0.25s ease;
+  }
+
+  .app-sidebar-cards.open {
+    max-height: 1200px;
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .sidebar-card {

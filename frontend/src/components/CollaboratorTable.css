@@ -412,3 +412,34 @@
     padding: 0.4rem 0.2rem;
   }
 }
+
+/* ── Tier Badges (#589) ──────────────────────────────────────────────────── */
+.tier-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tier-badge--vip {
+  background: #fef9c3;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.tier-badge--regular {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.tier-badge--trial {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+.dark .tier-badge--vip    { background: #78350f; color: #fde68a; border-color: #92400e; }
+.dark .tier-badge--trial  { background: #1e3a8a; color: #bfdbfe; border-color: #1e40af; }
