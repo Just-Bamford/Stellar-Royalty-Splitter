@@ -35,6 +35,9 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 import express from "express";
 const { paymentSchedulesRouter } = await import("../src/routes/payment-schedules.js");
 
+// Import the real computeNextRunAt at top level (not inside describe) for unit tests
+const { computeNextRunAt: realCompute } = await import("../src/database/payment-schedules.js");
+
 const app = express();
 app.use(express.json());
 app.use("/api/v1/payment-schedules", paymentSchedulesRouter);
@@ -289,8 +292,6 @@ describe("GET /api/v1/payment-schedules/schedule/:id/history", () => {
 // ---------------------------------------------------------------------------
 
 describe("computeNextRunAt", () => {
-  const { computeNextRunAt: realCompute } = await import("../src/database/payment-schedules.js");
-
   test("monthly: returns next occurrence of day_of_month", () => {
     const base = new Date("2026-07-15T10:00:00Z");
     const next = realCompute({ schedule_type: "monthly", day_of_month: 1, hour_of_day: 9 }, base);
