@@ -54,6 +54,24 @@ describe("CONTRACT_ERROR_MESSAGES map (#677)", () => {
       expect(CONTRACT_ERROR_MESSAGES[code]).toBeDefined();
     }
   });
+
+  test("code 34 maps to NoPendingAdminRotation (#778)", () => {
+    expect(CONTRACT_ERROR_MESSAGES[34]).toContain("rotation");
+  });
+
+  test("code 35 maps to AdminRotationTimelockNotElapsed (#778)", () => {
+    expect(CONTRACT_ERROR_MESSAGES[35]).toContain("timelock");
+  });
+
+  test("code 36 maps to InvalidTimelockDuration (#778)", () => {
+    expect(CONTRACT_ERROR_MESSAGES[36]).toContain("timelock");
+  });
+
+  test("codes 34-36 (#778) are documented", () => {
+    for (const code of [34, 35, 36]) {
+      expect(CONTRACT_ERROR_MESSAGES[code]).toBeDefined();
+    }
+  });
 });
 
 describe("extractContractError (#677)", () => {

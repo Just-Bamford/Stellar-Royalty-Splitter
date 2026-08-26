@@ -65,6 +65,9 @@ export const CONTRACT_ERROR_MESSAGES: Record<number, string> = {
   27: "Input exceeds the maximum allowed size.",
   32: "Batch distribute cannot process more than the maximum allowed number of tokens in one call.",
   33: "Royalty amount must be greater than zero.",
+  34: "No admin rotation is currently pending.",
+  35: "Admin rotation timelock has not elapsed yet.",
+  36: "Admin rotation timelock duration is outside the allowed range.",
 };
 
 /**

@@ -36,6 +36,10 @@ instead of polling storage (#661).
 | `("royalty", "adm_prop")` | `propose_admin_transfer` | `Address new_admin` | First step of the two-step admin transfer — nominates a pending admin. |
 | `("royalty", "adm_acc")` | `accept_admin` | `(Address previous_admin, Address new_admin)` | Second step — the pending admin accepted and is now current admin. |
 | `("royalty", "withdraw")` | `withdraw` | `(Address token, i128 amount)` | Admin recovered stuck token balance to their own address. |
+| `("royalty", "rot_init")` | `initiate_admin_rotation` | `(Address new_admin, u64 initiated_at)` | A timelocked admin rotation was started; completes via `finalize_admin_rotation` after the configured timelock elapses. |
+| `("royalty", "rot_cncl")` | `cancel_admin_rotation` | `Address new_admin` | A pending admin rotation was cancelled before completing. |
+| `("royalty", "rot_fin")` | `finalize_admin_rotation` | `(Address previous_admin, Address new_admin)` | A timelocked admin rotation completed; `new_admin` is now the contract admin. |
+| `("royalty", "rot_tlck")` | `set_admin_rotation_timelock` | `u64 seconds` | The admin rotation timelock duration was changed. |
 
 ## Distribution events
 

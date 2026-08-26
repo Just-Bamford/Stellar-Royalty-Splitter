@@ -41,6 +41,9 @@ The frontend utility at [`frontend/src/lib/contract-errors.ts`](../frontend/src/
 | 27 | `InputTooLarge` | `set_admins` called with more than `MAX_ADMIN_LIST` (10) addresses. | Reduce the admin list to 10 entries or fewer. |
 | 32 | `TooManyBatchTokens` | `batch_distribute` called with more than `MAX_BATCH_TOKENS` (50) token addresses. | Split the token list into multiple `batch_distribute` calls of 50 tokens or fewer. |
 | 33 | `RoyaltyAmountNotPositive` | `record_secondary_royalty` called with `royalty_amount ≤ 0`. | Provide a positive royalty amount. |
+| 34 | `NoPendingAdminRotation` | `cancel_admin_rotation` / `finalize_admin_rotation` called with no rotation in progress. | Call `get_pending_admin_rotation()` first to confirm one is pending. |
+| 35 | `AdminRotationTimelockNotElapsed` | `finalize_admin_rotation` called before `initiated_at + timelock` has passed. | Wait until the timelock elapses; check `get_pending_admin_rotation()` and `get_admin_rotation_timelock()`. |
+| 36 | `InvalidTimelockDuration` | `set_admin_rotation_timelock` called with a value outside `[MIN_ADMIN_ROTATION_TIMELOCK, MAX_ADMIN_ROTATION_TIMELOCK]` (1 hour – 30 days). | Choose a duration within the allowed range. |
 
 ---
 

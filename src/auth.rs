@@ -29,6 +29,12 @@ pub mod msg {
     pub const RECORD_SECONDARY_PAYER: &str =
         "record_secondary_royalty: payer authorization required";
     pub const SET_ADMINS_ADMIN: &str = "set_admins: admin authorization required";
+    pub const INITIATE_ADMIN_ROTATION_ADMIN: &str =
+        "initiate_admin_rotation: admin authorization required";
+    pub const CANCEL_ADMIN_ROTATION_ADMIN: &str =
+        "cancel_admin_rotation: admin authorization required";
+    pub const SET_ADMIN_ROTATION_TIMELOCK_ADMIN: &str =
+        "set_admin_rotation_timelock: admin authorization required";
 }
 
 /// Requires admin authorization; panics with `message` if missing.

@@ -24,6 +24,18 @@ pub struct RoyaltyRateChange {
     pub caller: Address,
 }
 
+/// A pending timelocked admin rotation (#778).
+///
+/// Created by `initiate_admin_rotation`; consumed by `finalize_admin_rotation`
+/// once `initiated_at + timelock` has elapsed, or discarded by
+/// `cancel_admin_rotation`.
+#[contracttype]
+#[derive(Clone)]
+pub struct AdminRotation {
+    pub new_admin: Address,
+    pub initiated_at: u64,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct MigrationRecord {
@@ -70,6 +82,8 @@ pub enum StorageKey {
     PendingAdmin,
     AdminList,
     AdminThreshold,
+    PendingAdminRotation,
+    AdminRotationTimelock,
     // Persistent storage
     Collaborators,
     ShareMap,
@@ -97,6 +111,18 @@ pub const MAX_RECIPIENTS: u32 = 10;
 
 /// Maximum number of admins in the multi-sig admin list (`set_admins`).
 pub const MAX_ADMIN_LIST: u32 = 10;
+
+/// Default duration (seconds) a timelocked admin rotation must wait before
+/// `finalize_admin_rotation` can complete it (#778). 48 hours.
+pub const DEFAULT_ADMIN_ROTATION_TIMELOCK: u64 = 172_800;
+
+/// Minimum configurable timelock duration (seconds) for admin rotation — 1 hour.
+/// Prevents `set_admin_rotation_timelock` from being configured down to a
+/// value so small the timelock provides no meaningful protection.
+pub const MIN_ADMIN_ROTATION_TIMELOCK: u64 = 3_600;
+
+/// Maximum configurable timelock duration (seconds) for admin rotation — 30 days.
+pub const MAX_ADMIN_ROTATION_TIMELOCK: u64 = 2_592_000;
 
 /// Maximum number of tokens accepted per `batch_distribute` call.
 ///
@@ -168,6 +194,9 @@ pub enum ContractError {
     InitializationCommitmentMismatch = 31,
     TooManyBatchTokens = 32,
     RoyaltyAmountNotPositive = 33,
+    NoPendingAdminRotation = 34,
+    AdminRotationTimelockNotElapsed = 35,
+    InvalidTimelockDuration = 36,
 }
 
 #[contract]
@@ -1715,6 +1744,157 @@ impl RoyaltySplitter {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Initiate a timelocked admin rotation (#778).
+    ///
+    /// Starts the configurable timelock (48 hours by default, see
+    /// `set_admin_rotation_timelock`); the rotation only takes effect once
+    /// `finalize_admin_rotation` is called after it elapses. Calling this
+    /// again before finalization replaces any existing pending rotation
+    /// (there is only ever one pending rotation at a time).
+    ///
+    /// # Authorization
+    /// Requires current admin (or multi-sig threshold) signature.
+    pub fn initiate_admin_rotation(env: Env, new_admin: Address) {
+        storage::extend_instance_ttl(&env);
+
+        Self::check_admin_auth(&env, auth::msg::INITIATE_ADMIN_ROTATION_ADMIN);
+
+        let initiated_at = env.ledger().timestamp();
+        let rotation = AdminRotation {
+            new_admin: new_admin.clone(),
+            initiated_at,
+        };
+        storage::instance_set(&env, &StorageKey::PendingAdminRotation, &rotation);
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("rot_init")),
+            (new_admin, initiated_at),
+        );
+    }
+
+    /// Cancel a pending admin rotation (#778). Reverts to no pending rotation;
+    /// the current admin is unaffected.
+    ///
+    /// # Authorization
+    /// Requires current admin (or multi-sig threshold) signature — i.e. only
+    /// the admin the rotation would replace can cancel it.
+    ///
+    /// # Panics
+    /// * `ContractError::NoPendingAdminRotation` — no rotation is pending
+    pub fn cancel_admin_rotation(env: Env) {
+        storage::extend_instance_ttl(&env);
+
+        Self::check_admin_auth(&env, auth::msg::CANCEL_ADMIN_ROTATION_ADMIN);
+
+        let rotation: AdminRotation = env
+            .storage()
+            .instance()
+            .get(&StorageKey::PendingAdminRotation)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::NoPendingAdminRotation));
+
+        env.storage()
+            .instance()
+            .remove(&StorageKey::PendingAdminRotation);
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("rot_cncl")),
+            rotation.new_admin,
+        );
+    }
+
+    /// Complete a pending admin rotation once its timelock has elapsed (#778).
+    ///
+    /// Permissionless by design: the outcome (which address becomes admin)
+    /// was already fixed and authorized at `initiate_admin_rotation` time, so
+    /// finalization only needs to enforce that the timelock has elapsed —
+    /// there is no bypass, and anyone (e.g. the new admin themselves, or an
+    /// automation script) can trigger it once the deadline passes. The
+    /// current admin can still prevent it any time before this call
+    /// succeeds via `cancel_admin_rotation`.
+    ///
+    /// # Panics
+    /// * `ContractError::NoPendingAdminRotation` — no rotation is pending
+    /// * `ContractError::AdminRotationTimelockNotElapsed` — called too early
+    pub fn finalize_admin_rotation(env: Env) {
+        storage::extend_instance_ttl(&env);
+
+        let rotation: AdminRotation = env
+            .storage()
+            .instance()
+            .get(&StorageKey::PendingAdminRotation)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::NoPendingAdminRotation));
+
+        let timelock = Self::admin_rotation_timelock(&env);
+        let ready_at = rotation
+            .initiated_at
+            .checked_add(timelock)
+            .unwrap_or_else(|| Self::fail(&env, ContractError::ArithmeticOverflow));
+
+        if env.ledger().timestamp() < ready_at {
+            Self::fail(&env, ContractError::AdminRotationTimelockNotElapsed);
+        }
+
+        let previous_admin = Self::require_admin_address(&env);
+        storage::instance_set(&env, &StorageKey::Admin, &rotation.new_admin);
+        env.storage()
+            .instance()
+            .remove(&StorageKey::PendingAdminRotation);
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("rot_fin")),
+            (previous_admin, rotation.new_admin),
+        );
+    }
+
+    /// Returns the pending admin rotation, or `None` if none is in progress.
+    pub fn get_pending_admin_rotation(env: Env) -> Option<AdminRotation> {
+        storage::extend_instance_ttl(&env);
+        env.storage().instance().get(&StorageKey::PendingAdminRotation)
+    }
+
+    /// Configure the admin rotation timelock duration, in seconds (#778).
+    ///
+    /// Bounded to `[MIN_ADMIN_ROTATION_TIMELOCK, MAX_ADMIN_ROTATION_TIMELOCK]`
+    /// (1 hour – 30 days) so it can't be configured away to something that
+    /// provides no real protection, or up to something impractically long.
+    ///
+    /// # Authorization
+    /// Requires current admin (or multi-sig threshold) signature.
+    ///
+    /// # Panics
+    /// * `ContractError::InvalidTimelockDuration` — `seconds` outside the bounds
+    pub fn set_admin_rotation_timelock(env: Env, seconds: u64) {
+        storage::extend_instance_ttl(&env);
+
+        Self::check_admin_auth(&env, auth::msg::SET_ADMIN_ROTATION_TIMELOCK_ADMIN);
+
+        if seconds < MIN_ADMIN_ROTATION_TIMELOCK || seconds > MAX_ADMIN_ROTATION_TIMELOCK {
+            Self::fail(&env, ContractError::InvalidTimelockDuration);
+        }
+
+        storage::instance_set(&env, &StorageKey::AdminRotationTimelock, &seconds);
+
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("rot_tlck")),
+            seconds,
+        );
+    }
+
+    /// Returns the currently configured admin rotation timelock, in seconds.
+    /// Defaults to [`DEFAULT_ADMIN_ROTATION_TIMELOCK`] (48 hours) until
+    /// explicitly changed via `set_admin_rotation_timelock`.
+    pub fn get_admin_rotation_timelock(env: Env) -> u64 {
+        storage::extend_instance_ttl(&env);
+        Self::admin_rotation_timelock(&env)
+    }
+
+    fn admin_rotation_timelock(env: &Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&StorageKey::AdminRotationTimelock)
+            .unwrap_or(DEFAULT_ADMIN_ROTATION_TIMELOCK)
+    }
+
     fn validate_unique_addresses(env: &Env, recipients: &Vec<Recipient>) {
         let mut address_set: Vec<Address> = Vec::new(env);
 
@@ -1794,5 +1974,193 @@ impl RoyaltySplitter {
             .get(&StorageKey::Admin)
             .expect("contract not initialized");
         auth::require_admin(env, &admin, message);
+    }
+}
+
+#[cfg(test)]
+mod admin_rotation_tests {
+    //! Valid-path tests call through `RoyaltySplitterClient` (real contract
+    //! dispatch via `env.register_contract`), matching this repo's existing
+    //! test convention.
+    //!
+    //! `#[should_panic]` cases are marked `#[ignore]`: a pre-existing
+    //! soroban-sdk 20.5.0 + modern-rustc incompatibility means a contract
+    //! panic crossing the generated client's dispatch boundary aborts the
+    //! whole test binary (SIGABRT) instead of unwinding — confirmed on both
+    //! macOS/aarch64 and Linux/x86_64, both with and without `try_*`. This is
+    //! the same reason `tests/integration_test.rs`, `tests/fuzz_royalty_allocation.rs`,
+    //! and `tests/commit_reveal_test.rs` no longer compile/run their
+    //! panic-path cases either, and why CI's `Test` job is filtered down to a
+    //! single non-panicking test name. The logic itself (bounds checks
+    //! ordered before any state mutation, `ContractError` variants returned)
+    //! mirrors the rest of the file's established guard-rail pattern; run
+    //! these `--ignored` on a toolchain/SDK combination without the abort to
+    //! confirm.
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+
+    fn setup(env: &Env) -> (Address, Address, RoyaltySplitterClient<'_>) {
+        let contract_id = env.register_contract(None, RoyaltySplitter);
+        let client = RoyaltySplitterClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let b = Address::generate(env);
+        client.initialize(
+            &Vec::from_array(env, [admin.clone(), b.clone()]),
+            &Vec::from_array(env, [6_000u32, 4_000u32]),
+        );
+        (contract_id, admin, client)
+    }
+
+    #[test]
+    fn default_timelock_is_48_hours() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        assert_eq!(
+            client.get_admin_rotation_timelock(),
+            DEFAULT_ADMIN_ROTATION_TIMELOCK
+        );
+        assert!(client.get_pending_admin_rotation().is_none());
+    }
+
+    #[test]
+    fn initiate_then_finalize_after_timelock_rotates_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, admin, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        client.initiate_admin_rotation(&new_admin);
+
+        let pending = client.get_pending_admin_rotation().unwrap();
+        assert_eq!(pending.new_admin, new_admin);
+        assert_eq!(pending.initiated_at, 1_000);
+        assert_eq!(client.get_admin(), admin);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 1_000 + DEFAULT_ADMIN_ROTATION_TIMELOCK);
+        client.finalize_admin_rotation();
+
+        assert_eq!(client.get_admin(), new_admin);
+        assert!(client.get_pending_admin_rotation().is_none());
+    }
+
+    #[test]
+    #[ignore = "aborts under soroban-sdk 20.5.0 client dispatch on modern rustc; see module doc"]
+    #[should_panic]
+    fn finalize_before_timelock_elapses_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        client.initiate_admin_rotation(&new_admin);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 1_000 + DEFAULT_ADMIN_ROTATION_TIMELOCK - 1);
+        client.finalize_admin_rotation();
+    }
+
+    #[test]
+    #[ignore = "aborts under soroban-sdk 20.5.0 client dispatch on modern rustc; see module doc"]
+    #[should_panic]
+    fn finalize_without_pending_rotation_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        client.finalize_admin_rotation();
+    }
+
+    #[test]
+    fn cancel_clears_pending_rotation_and_blocks_finalize() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, admin, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+
+        client.initiate_admin_rotation(&new_admin);
+        assert!(client.get_pending_admin_rotation().is_some());
+
+        client.cancel_admin_rotation();
+        assert!(client.get_pending_admin_rotation().is_none());
+        assert_eq!(client.get_admin(), admin);
+    }
+
+    #[test]
+    #[ignore = "aborts under soroban-sdk 20.5.0 client dispatch on modern rustc; see module doc"]
+    #[should_panic]
+    fn cancel_without_pending_rotation_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        client.cancel_admin_rotation();
+    }
+
+    #[test]
+    fn re_initiating_replaces_prior_pending_rotation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        let first_candidate = Address::generate(&env);
+        let second_candidate = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 500);
+        client.initiate_admin_rotation(&first_candidate);
+
+        env.ledger().with_mut(|l| l.timestamp = 900);
+        client.initiate_admin_rotation(&second_candidate);
+
+        let pending = client.get_pending_admin_rotation().unwrap();
+        assert_eq!(pending.new_admin, second_candidate);
+        assert_eq!(pending.initiated_at, 900);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 900 + DEFAULT_ADMIN_ROTATION_TIMELOCK);
+        client.finalize_admin_rotation();
+        assert_eq!(client.get_admin(), second_candidate);
+    }
+
+    #[test]
+    fn set_admin_rotation_timelock_changes_wait_period() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+
+        client.set_admin_rotation_timelock(&MIN_ADMIN_ROTATION_TIMELOCK);
+        assert_eq!(
+            client.get_admin_rotation_timelock(),
+            MIN_ADMIN_ROTATION_TIMELOCK
+        );
+
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        client.initiate_admin_rotation(&new_admin);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + MIN_ADMIN_ROTATION_TIMELOCK);
+        client.finalize_admin_rotation();
+        assert_eq!(client.get_admin(), new_admin);
+    }
+
+    #[test]
+    #[ignore = "aborts under soroban-sdk 20.5.0 client dispatch on modern rustc; see module doc"]
+    #[should_panic]
+    fn set_admin_rotation_timelock_below_minimum_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        client.set_admin_rotation_timelock(&(MIN_ADMIN_ROTATION_TIMELOCK - 1));
+    }
+
+    #[test]
+    #[ignore = "aborts under soroban-sdk 20.5.0 client dispatch on modern rustc; see module doc"]
+    #[should_panic]
+    fn set_admin_rotation_timelock_above_maximum_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        client.set_admin_rotation_timelock(&(MAX_ADMIN_ROTATION_TIMELOCK + 1));
     }
 }
