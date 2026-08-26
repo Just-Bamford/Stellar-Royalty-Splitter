@@ -3,8 +3,8 @@ pub mod auth;
 mod storage;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
-    Map, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token,
+    xdr::ToXdr, Address, BytesN, Env, Map, String, Vec,
 };
 
 #[contracttype]
@@ -334,11 +334,12 @@ impl RoyaltySplitter {
             Self::fail(&env, ContractError::AlreadyInitialized);
         }
 
-        let nonce: u32 = env
+        let current_nonce: u32 = env
             .storage()
             .instance()
             .get(&StorageKey::InitializeNonce)
-            .unwrap_or(0)
+            .unwrap_or(0);
+        let nonce: u32 = current_nonce
             .checked_add(1)
             .unwrap_or_else(|| Self::fail(&env, ContractError::ArithmeticOverflow));
 
@@ -348,7 +349,7 @@ impl RoyaltySplitter {
         storage::instance_set(&env, &StorageKey::InitializeNonce, &nonce);
 
         env.events().publish(
-            (symbol_short!("royalty"), symbol_short!("init_commit")),
+            (symbol_short!("royalty"), symbol_short!("initcmt")),
             (collaborators_hash, shares_hash, nonce),
         );
     }
@@ -381,8 +382,8 @@ impl RoyaltySplitter {
             Self::fail(&env, ContractError::InitializationRevealTooEarly);
         }
 
-        let collaborators_hash = env.crypto().sha256(&env.serialize(&collaborators));
-        let shares_hash = env.crypto().sha256(&env.serialize(&shares));
+        let collaborators_hash = env.crypto().sha256(&collaborators.clone().to_xdr(&env));
+        let shares_hash = env.crypto().sha256(&shares.clone().to_xdr(&env));
         if collaborators_hash != committed_collaborators || shares_hash != committed_shares {
             Self::fail(&env, ContractError::InitializationCommitmentMismatch);
         }
@@ -1101,36 +1102,18 @@ impl RoyaltySplitter {
         Self::distribute_with_override(env.clone(), token, Vec::new(&env));
     }
 
-    /// Distribute royalties for multiple tokens in a single transaction.
-    ///
-    /// Executes multiple independent distributions atomically, reducing total
-    /// ledger fees for high-frequency royalty scenarios. Each token distribution
-    /// is processed independently using the same logic as `distribute()`.
+    /// Distribute royalties for multiple tokens in one transaction, using the
+    /// same per-token payout logic as `distribute()`. Admin auth and the
+    /// paused check happen once for the whole batch.
     ///
     /// # Arguments
-    /// * `tokens` - List of token addresses to distribute (e.g., XLM, USDC, etc.)
-    ///
-    /// # Distribution Logic
-    /// For each token:
-    /// - Uses the default recipient list (or collaborators if no defaults set)
-    /// - Each recipient receives: (token_balance * their_share) / 10,000
-    /// - The last recipient receives any remaining dust from integer division
-    /// - Emits individual distribution events for each token
+    /// * `tokens` - Token addresses to distribute.
     ///
     /// # Authorization
-    /// Requires admin signature (checked once for the entire batch)
+    /// Requires admin signature (checked once for the entire batch).
     ///
-    /// # Panics
-    /// * `"contract not initialized"` — called before `initialize`
-    /// * `"contract is paused"` — contract is currently paused
-    /// * `"recipients list cannot be empty"` — no recipients are configured
-    /// * `"no balance to distribute"` — any token has zero balance
-    /// * `"amount too small"` — any token balance is less than recipient count
-    ///
-    /// # Gas Considerations
-    /// Processing N tokens in one call is more efficient than N separate calls,
-    /// but be mindful of transaction complexity limits. Each distribution performs
-    /// token transfers equal to the number of recipients.
+    /// See [`ContractError`] for panic conditions (uninitialized, paused,
+    /// empty recipients, zero balance, amount too small).
     pub fn batch_distribute(env: Env, tokens: Vec<Address>) {
         storage::extend_instance_ttl(&env);
 
