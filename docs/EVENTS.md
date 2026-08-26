@@ -41,11 +41,13 @@ instead of polling storage (#661).
 
 | Topic | Emitted by | Payload | Description |
 |---|---|---|---|
-| `("royalty", "dist")` | `distribute`, `distribute_with_override`, `batch_distribute` | `(Address recipient, i128 amount, Address token, Symbol distribution_type)` | One event **per recipient** per token payout. `distribution_type` is `"primary"` for `distribute`/`distribute_with_override`, `"batch"` for `batch_distribute`. |
-| `("royalty", "dist_all")` | `distribute_with_override` (and via it, `distribute`), `batch_distribute` | `(Address token, i128 total_amount)` | One event **per token** summarizing the total amount distributed across all recipients. |
+| `("royalty", "dist")` | `distribute`, `distribute_with_override`, `batch_distribute`, `distribute_resilient` | `(Address recipient, i128 amount, Address token, Symbol distribution_type)` | One event **per recipient** per token payout. `distribution_type` is `"primary"` for `distribute`/`distribute_with_override`/`distribute_resilient`, `"batch"` for `batch_distribute`. Only emitted for *successful* transfers when the caller is `distribute_resilient`. |
+| `("royalty", "dist_all")` | `distribute_with_override` (and via it, `distribute`), `batch_distribute`, `distribute_resilient` | `(Address token, i128 total_amount)` | One event **per token** summarizing the total amount distributed. For `distribute_resilient` this is the amount actually transferred (may be less than the full balance if any recipient's transfer failed), and it is only emitted if at least one transfer succeeded. |
 | `("royalty", "batch")` | `batch_distribute` | `u32 token_count` | Fired once per `batch_distribute` call, after all per-token distributions complete. |
 | `("royalty", "sec_pay")` | `distribute_secondary_royalties` | `(Address recipient, i128 amount, Address token, Symbol "secondary")` | One event **per recipient** for a secondary royalty pool payout. |
 | `("royalty", "sec_dist")` | `distribute_secondary_royalties` | `(Address token, i128 pool_amount)` | Fired once per call, summarizing the total secondary pool amount distributed. |
+| `("royalty", "dist_strt")` | `distribute_resilient` | `(Address token, i128 total_amount, u32 recipient_count)` | Fired once, before any transfer is attempted. |
+| `("royalty", "dist_fail")` | `distribute_resilient` | `(Address token, Vec<Address> failed_recipients)` | Fired once, only if at least one recipient's transfer failed — lists every recipient whose transfer did not succeed. |
 
 ### Why both a per-recipient and a summary event?
 
