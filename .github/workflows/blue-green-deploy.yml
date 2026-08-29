@@ -43,7 +43,7 @@ jobs:
       HEALTH_URL: ${{ vars.HEALTH_URL }}
       ROLLBACK_WINDOW: ${{ github.event.inputs.rollback_window }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
