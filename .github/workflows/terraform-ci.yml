@@ -139,7 +139,7 @@ jobs:
 
       - name: Configure AWS credentials
         if: steps.creds.outputs.available == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           # OIDC rather than long-lived access keys: no static credentials in
           # repository secrets, and the role can be scoped to this repository.
