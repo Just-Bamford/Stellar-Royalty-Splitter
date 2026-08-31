@@ -7,10 +7,10 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = { version = "=20.0.0", features = ["alloc"] }
+soroban-sdk = { version = "=20.5.0", features = ["alloc"] }
 
 [dev-dependencies]
-soroban-sdk = { version = "=20.0.0", features = ["testutils"] }
+soroban-sdk = { version = "=20.5.0", features = ["testutils"] }
 proptest = { version = "1.5", features = ["std"] }
 stellar-royalty-splitter = { path = ".", features = ["testutils"] }
 criterion = { version = "0.5", features = ["html_reports"] }
