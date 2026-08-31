@@ -150,7 +150,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # On a push to main this artifact is the candidate baseline: download
           # it, commit it, and open a pull request. See docs/PERFORMANCE.md.
