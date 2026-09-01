@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+#
+# Instance bootstrap for the Stellar Royalty Splitter API (#870).
+#
+# Responsibilities, in order:
+#   1. Attach and mount the persistent data volume holding the SQLite database.
+#   2. Install the runtime and the CloudWatch agent.
+#   3. Write the application environment from SSM Parameter Store.
+#
+# Deliberately NOT responsible for deploying application code. Terraform
+# provisions infrastructure; the release pipeline puts code on it. Baking a
+# `git clone` in here would make every infrastructure change a code deploy and
+# every code deploy an instance replacement.
+#
+# Failures are loud: the script aborts, the health check never passes, and the
+# ASG replaces the instance rather than leaving a half-configured one in
+# service.
+
+set -euo pipefail
+
+exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+echo "=== bootstrap starting: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+
+AWS_REGION="${aws_region}"
+APP_PORT="${app_port}"
+DATA_VOLUME_ID="${data_volume_id}"
+DATA_MOUNT_POINT="${data_mount_point}"
+DATABASE_PATH="${database_path}"
+LOG_GROUP_NAME="${log_group_name}"
+METRICS_NAMESPACE="${metrics_namespace}"
+ENVIRONMENT="${environment}"
+SSM_PARAMETER_PATH="${ssm_parameter_path}"
+
+IMDS_TOKEN="$(curl -sf -X PUT http://169.254.169.254/latest/api/token \
+  -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')"
+INSTANCE_ID="$(curl -sf -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)"
+
+echo "instance=$INSTANCE_ID region=$AWS_REGION environment=$ENVIRONMENT"
+
+# ── 1. Data volume ───────────────────────────────────────────────────────────
+#
+# The SQLite database must survive instance replacement, so it lives on a
+# volume attached here rather than on the root disk.
+
+if [ -n "$DATA_VOLUME_ID" ]; then
+  echo "--- attaching data volume $DATA_VOLUME_ID ---"
+
+  # The volume may still be detaching from the instance being replaced.
+  for attempt in $(seq 1 30); do
+    if aws ec2 attach-volume \
+        --region "$AWS_REGION" \
+        --volume-id "$DATA_VOLUME_ID" \
+        --instance-id "$INSTANCE_ID" \
+        --device /dev/sdf >/dev/null 2>&1; then
+      echo "attach requested"
+      break
+    fi
+
+    ATTACHED_HERE="$(aws ec2 describe-volumes \
+      --region "$AWS_REGION" \
+      --volume-ids "$DATA_VOLUME_ID" \
+      --query "Volumes[0].Attachments[?InstanceId=='$INSTANCE_ID'].State" \
+      --output text 2>/dev/null || true)"
+
+    if [ "$ATTACHED_HERE" = "attached" ]; then
+      echo "already attached to this instance"
+      break
+    fi
+
+    echo "attach attempt $attempt failed; the previous instance may still be releasing it"
+    sleep 10
+  done
+
+  aws ec2 wait volume-in-use --region "$AWS_REGION" --volume-ids "$DATA_VOLUME_ID"
+
+  # Nitro instances expose the volume under a different name than the one
+  # requested, so resolve it rather than assuming /dev/sdf.
+  DEVICE=""
+  for attempt in $(seq 1 30); do
+    for candidate in /dev/sdf /dev/xvdf /dev/nvme1n1 /dev/nvme2n1; do
+      if [ -b "$candidate" ]; then
+        DEVICE="$candidate"
+        break 2
+      fi
+    done
+    sleep 2
+  done
+
+  if [ -z "$DEVICE" ]; then
+    echo "FATAL: data volume attached but no block device appeared" >&2
+    exit 1
+  fi
+
+  echo "resolved device: $DEVICE"
+
+  # Only format a volume that has no filesystem. Formatting one that does
+  # would destroy the audit database.
+  if ! blkid "$DEVICE" >/dev/null 2>&1; then
+    echo "no filesystem found; formatting as ext4 (first boot for this volume)"
+    mkfs.ext4 -L srs-data "$DEVICE"
+  else
+    echo "existing filesystem found; leaving it alone"
+  fi
+
+  mkdir -p "$DATA_MOUNT_POINT"
+
+  # Mount by UUID: device names are not stable across reboots.
+  VOLUME_UUID="$(blkid -s UUID -o value "$DEVICE")"
+  if ! grep -q "$VOLUME_UUID" /etc/fstab; then
+    echo "UUID=$VOLUME_UUID $DATA_MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
+  fi
+
+  mount -a
+
+  if ! mountpoint -q "$DATA_MOUNT_POINT"; then
+    echo "FATAL: $DATA_MOUNT_POINT did not mount" >&2
+    exit 1
+  fi
+
+  echo "data volume mounted at $DATA_MOUNT_POINT"
+  df -h "$DATA_MOUNT_POINT"
+fi
+
+# ── 2. Runtime ───────────────────────────────────────────────────────────────
+
+echo "--- installing runtime ---"
+
+dnf update -y
+dnf install -y nodejs npm sqlite awscli amazon-cloudwatch-agent
+
+node --version
+npm --version
+
+npm install -g pm2
+
+# Unprivileged service account. The application never needs root.
+if ! id -u srs >/dev/null 2>&1; then
+  useradd --system --create-home --shell /usr/sbin/nologin srs
+fi
+
+install -d -o srs -g srs -m 0750 /opt/stellar-royalty-splitter
+
+if [ -n "$DATA_VOLUME_ID" ]; then
+  chown -R srs:srs "$DATA_MOUNT_POINT"
+  chmod 0750 "$DATA_MOUNT_POINT"
+fi
+
+# ── 3. Application environment ───────────────────────────────────────────────
+#
+# Non-secret configuration comes from SSM Parameter Store, so it can be changed
+# without an infrastructure apply. Secrets are NOT written here — the
+# application reads them at startup through backend/src/secrets-manager.js, so
+# they never touch the instance filesystem.
+
+echo "--- writing application environment ---"
+
+ENV_FILE=/opt/stellar-royalty-splitter/.env
+touch "$ENV_FILE"
+chown srs:srs "$ENV_FILE"
+chmod 0640 "$ENV_FILE"
+
+{
+  echo "NODE_ENV=production"
+  echo "PORT=$APP_PORT"
+  echo "DATABASE_PATH=$DATABASE_PATH"
+  echo "AWS_REGION=$AWS_REGION"
+  echo "SECRETS_PROVIDER=aws"
+} > "$ENV_FILE"
+
+# Parameters under the environment's path are appended as NAME=value. Anything
+# the application needs that is not a secret belongs here.
+aws ssm get-parameters-by-path \
+  --region "$AWS_REGION" \
+  --path "$SSM_PARAMETER_PATH" \
+  --recursive \
+  --with-decryption \
+  --query 'Parameters[].[Name,Value]' \
+  --output text 2>/dev/null | while IFS="$(printf '\t')" read -r param_name param_value; do
+    echo "$(basename "$param_name")=$param_value" >> "$ENV_FILE"
+  done || echo "no SSM parameters found under $SSM_PARAMETER_PATH"
+
+# ── 4. Observability ─────────────────────────────────────────────────────────
+
+echo "--- configuring CloudWatch agent ---"
+
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CWCONFIG
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/user-data.log",
+            "log_group_name": "$LOG_GROUP_NAME",
+            "log_stream_name": "{instance_id}/bootstrap"
+          },
+          {
+            "file_path": "/home/srs/.pm2/logs/royalty-api-out.log",
+            "log_group_name": "$LOG_GROUP_NAME",
+            "log_stream_name": "{instance_id}/app"
+          },
+          {
+            "file_path": "/home/srs/.pm2/logs/royalty-api-error.log",
+            "log_group_name": "$LOG_GROUP_NAME",
+            "log_stream_name": "{instance_id}/app-error"
+          }
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "namespace": "$METRICS_NAMESPACE",
+    "append_dimensions": {
+      "InstanceId": "$${aws:InstanceId}",
+      "AutoScalingGroupName": "$${aws:AutoScalingGroupName}"
+    },
+    "metrics_collected": {
+      "mem": {
+        "measurement": ["mem_used_percent"]
+      },
+      "disk": {
+        "measurement": ["used_percent"],
+        "resources": ["/", "$DATA_MOUNT_POINT"]
+      }
+    }
+  }
+}
+CWCONFIG
+
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+echo "=== bootstrap complete: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+echo "Application code is deployed separately; the health check stays red until it is."

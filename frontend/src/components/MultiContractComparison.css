@@ -1,0 +1,50 @@
+.mcc {
+  margin-top: 1.5rem;
+}
+
+.mcc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mcc-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.mcc-warning {
+  background: var(--warning-bg, #fff7e6);
+  border: 1px solid var(--warning-border, #f0c36d);
+  color: var(--warning-text, #8a6100);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.mcc-totals {
+  margin-bottom: 1.5rem;
+}
+
+.mcc-table th,
+.mcc-table td {
+  white-space: nowrap;
+}
+
+.mcc-row-error td {
+  opacity: 0.75;
+}
+
+.mcc-total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--border-color, #ccc);
+}
+
+.mcc-empty,
+.mcc-loading {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted, #666);
+}

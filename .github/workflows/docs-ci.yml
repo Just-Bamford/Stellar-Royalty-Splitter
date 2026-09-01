@@ -1,0 +1,174 @@
+name: Documentation CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-ci.yml"
+
+jobs:
+  validate-runbooks:
+    name: Validate Runbooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Validate runbook structure
+        run: |
+          # Check required runbooks exist
+          REQUIRED_RUNBOOKS=(
+            "docs/incident-response/runbooks/rpc-down.md"
+            "docs/incident-response/runbooks/db-locked.md"
+            "docs/incident-response/runbooks/contract-paused.md"
+            "docs/incident-response/runbooks/high-error-rate.md"
+            "docs/incident-response/runbooks/websocket-down.md"
+          )
+
+          for runbook in "${REQUIRED_RUNBOOKS[@]}"; do
+            if [ ! -f "$runbook" ]; then
+              echo "Missing required runbook: $runbook"
+              exit 1
+            fi
+          done
+
+          echo "✅ All required runbooks exist"
+
+      - name: Validate runbook sections
+        run: |
+          # Check each runbook has required sections
+          REQUIRED_SECTIONS=(
+            "Symptom Detection"
+            "Diagnosis Steps"
+            "Recovery Steps"
+            "Verification Steps"
+          )
+
+          for runbook in docs/incident-response/runbooks/*.md; do
+            echo "Checking $runbook..."
+            for section in "${REQUIRED_SECTIONS[@]}"; do
+              if ! grep -q "## $section" "$runbook"; then
+                echo "Missing section '$section' in $runbook"
+                exit 1
+              fi
+            done
+          done
+
+          echo "✅ All runbooks have required sections"
+
+      - name: Validate links
+        run: |
+          # Check for broken internal links
+          find docs/ -name "*.md" -exec grep -oP '\[.*?\]\((.*?)\)' {} \; | while read -r link; do
+            # Extract URL from markdown link
+            url=$(echo "$link" | grep -oP '\((.*?)\)' | tr -d '()')
+            
+            # Skip external links
+            if [[ "$url" == http* ]]; then
+              continue
+            fi
+
+            # Check if file exists
+            if [ ! -f "$url" ] && [ ! -d "$url" ]; then
+              echo "Broken link: $link"
+              exit 1
+            fi
+          done
+
+          echo "✅ All links are valid"
+
+      - name: Check runbook freshness
+        run: |
+          # Check if runbooks are older than 90 days
+          MAX_AGE_DAYS=90
+          CURRENT_DATE=$(date +%s)
+
+          for runbook in docs/incident-response/runbooks/*.md; do
+            FILE_DATE=$(stat -c %Y "$runbook" 2>/dev/null || stat -f %m "$runbook")
+            AGE_DAYS=$(( (CURRENT_DATE - FILE_DATE) / 86400 ))
+
+            if [ "$AGE_DAYS" -gt "$MAX_AGE_DAYS" ]; then
+              echo "⚠️ Warning: $runbook is $AGE_DAYS days old (max: $MAX_AGE_DAYS)"
+            fi
+          done
+
+          echo "✅ Runbook freshness check passed"
+
+  validate-postmortem:
+    name: Validate Postmortem Template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate postmortem template
+        run: |
+          TEMPLATE="docs/incident-response/postmortem-template.md"
+
+          if [ ! -f "$TEMPLATE" ]; then
+            echo "Missing postmortem template: $TEMPLATE"
+            exit 1
+          fi
+
+          # Check required sections
+          REQUIRED_SECTIONS=(
+            "Incident Summary"
+            "Timeline"
+            "Root Cause Analysis"
+            "Resolution"
+            "Lessons Learned"
+            "Action Items"
+          )
+
+          for section in "${REQUIRED_SECTIONS[@]}"; do
+            if ! grep -q "## $section" "$TEMPLATE"; then
+              echo "Missing section '$section' in postmortem template"
+              exit 1
+            fi
+          done
+
+          echo "✅ Postmortem template is valid"
+
+  validate-on-call-guide:
+    name: Validate On-Call Guide
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate on-call guide
+        run: |
+          GUIDE="docs/incident-response/on-call-guide.md"
+
+          if [ ! -f "$GUIDE" ]; then
+            echo "Missing on-call guide: $GUIDE"
+            exit 1
+          fi
+
+          # Check required sections
+          REQUIRED_SECTIONS=(
+            "Before Your Shift"
+            "During Your Shift"
+            "Escalation Procedure"
+            "Communication Templates"
+          )
+
+          for section in "${REQUIRED_SECTIONS[@]}"; do
+            if ! grep -q "## $section" "$GUIDE"; then
+              echo "Missing section '$section' in on-call guide"
+              exit 1
+            fi
+          done
+
+          echo "✅ On-call guide is valid"

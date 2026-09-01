@@ -1,0 +1,3 @@
+# Fuzz run reports are generated per run and uploaded as a CI artifact.
+# They are machine-readable evidence of a specific run, not source.
+reports/

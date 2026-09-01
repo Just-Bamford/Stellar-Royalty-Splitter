@@ -1,0 +1,154 @@
+/* #588 Admin Key Rotation Panel */
+.key-rotation-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.key-rotation-panel h3 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-primary);
+}
+
+.key-status-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.key-status-item {
+  background: var(--bg-secondary);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.85rem;
+}
+
+.key-status-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.key-status-value {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.key-status-value.configured { color: #16a34a; font-family: inherit; font-weight: 600; }
+.key-status-value.unconfigured { color: #dc2626; font-family: inherit; font-weight: 600; }
+
+.key-rotate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rotate-method-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.rotate-method-tab {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rotate-method-tab.active,
+.rotate-method-tab:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--bg-card);
+}
+
+.rotate-method-tab.active {
+  font-weight: 600;
+}
+
+.key-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.key-input {
+  flex: 1;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 0.82rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.key-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.rotate-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.rotate-btn {
+  padding: 0.55rem 1.1rem;
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.rotate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rotate-btn:not(:disabled):hover {
+  opacity: 0.87;
+}
+
+.rotate-result {
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.rotate-result.success {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.rotate-result.error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.dark .rotate-result.success { background: #14532d; color: #86efac; border-color: #166534; }
+.dark .rotate-result.error   { background: #7f1d1d; color: #fca5a5; border-color: #991b1b; }

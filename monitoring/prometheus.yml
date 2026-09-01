@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/royalty-splitter-alerts.yml
+
+scrape_configs:
+  - job_name: royalty-splitter-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:3001"]
+        labels:
+          service: royalty-splitter-api
+          environment: production
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  - job_name: royalty-splitter-health
+    metrics_path: /api/v1/health
+    static_configs:
+      - targets: ["backend:3001"]
+        labels:
+          service: royalty-splitter-api
+          probe: detailed-health

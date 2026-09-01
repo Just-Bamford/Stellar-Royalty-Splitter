@@ -1,0 +1,151 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  validate-version:
+    name: Validate Release Version
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Validate versions
+        run: |
+          FRONTEND_VERSION=$(node -e "console.log(require('./frontend/package.json').version)")
+          BACKEND_VERSION=$(node -e "console.log(require('./backend/package.json').version)")
+
+          echo "Frontend version: $FRONTEND_VERSION"
+          echo "Backend version: $BACKEND_VERSION"
+
+          # Validate semantic versioning
+          if ! [[ $FRONTEND_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid frontend version: $FRONTEND_VERSION"
+            exit 1
+          fi
+          if ! [[ $BACKEND_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid backend version: $BACKEND_VERSION"
+            exit 1
+          fi
+
+          # Check versions match (major.minor must align)
+          FRONTEND_MM=$(echo $FRONTEND_VERSION | cut -d. -f1-2)
+          BACKEND_MM=$(echo $BACKEND_VERSION | cut -d. -f1-2)
+          if [ "$FRONTEND_MM" != "$BACKEND_MM" ]; then
+            echo "Version mismatch: frontend $FRONTEND_VERSION, backend $BACKEND_VERSION"
+            exit 1
+          fi
+
+          echo "✅ Version validation passed"
+
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+        continue-on-error: false
+
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit + integration tests
+        run: npm test
+
+      - name: Run chaos tests (#782)
+        # Chaos suite exercises retryBuildTx, withTimeout, Horizon
+        # connectivity under adversarial conditions (cascading failures,
+        # timeouts, 429 rate-limits, concurrent lock release on failure).
+        # Runs after unit tests so failures are clearly attributable.
+        run: node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns="tests/chaos"
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage (Node 20.x)
+        if: matrix.node-version == '20.x'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/coverage/coverage-final.json
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+
+      - name: Publish coverage summary
+        if: always() && matrix.node-version == '22.x'
+        run: |
+          echo "## Backend coverage (Node ${{ matrix.node-version }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e '
+              const s = require("./coverage/coverage-summary.json").total;
+              const pct = (m) => `${s[m].pct}% (${s[m].covered}/${s[m].total})`;
+              console.log("| Metric | Coverage |");
+              console.log("|---|---|");
+              console.log(`| Statements | ${pct("statements")} |`);
+              console.log(`| Branches | ${pct("branches")} |`);
+              console.log(`| Functions | ${pct("functions")} |`);
+              console.log(`| Lines | ${pct("lines")} |`);
+            ' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "_No coverage summary produced._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage report
+        if: always() && matrix.node-version == '22.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 14

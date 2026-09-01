@@ -1,0 +1,24 @@
+# Development environment values.
+#
+# Copy to terraform.tfvars and adjust. Everything here has a working default;
+# these are the values most worth reviewing.
+
+aws_region = "us-east-1"
+
+# Keep the three environments non-overlapping.
+vpc_cidr = "10.10.0.0/16"
+
+instance_type = "t3.small"
+
+# Set to 0 to park the environment overnight. The data volume survives.
+desired_capacity = 1
+
+# Strongly recommended: narrow this to your office or VPN range. The default
+# leaves the development API reachable from anywhere.
+# allowed_ingress_cidrs = ["203.0.113.0/24"]
+
+# Optional. Without a certificate the ALB serves plain HTTP.
+# certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+
+# Confirmed by email before any alarm reaches them.
+# alert_email_addresses = ["oncall@example.com"]

@@ -1,0 +1,322 @@
+.tx-detail-container {
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+.tx-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color, #f3f4f6);
+}
+
+.tx-detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tx-back-btn {
+  padding: 8px 14px;
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-primary, #374151);
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tx-back-btn:hover {
+  background: var(--bg-hover, #e5e7eb);
+}
+
+.tx-detail-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tx-status-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tx-status-badge.confirmed {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.tx-status-badge.pending {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.tx-status-badge.failed {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.tx-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tx-share-btn {
+  padding: 8px 16px;
+  background-color: #4f46e5;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tx-share-btn:hover {
+  background-color: #4338ca;
+}
+
+/* Metadata Grid */
+.tx-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.tx-meta-card {
+  background-color: var(--bg-secondary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.tx-meta-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.tx-meta-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  word-break: break-all;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tx-hash-link {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.tx-hash-link:hover {
+  text-decoration: underline;
+}
+
+/* Section Block */
+.tx-detail-section {
+  margin-bottom: 28px;
+}
+
+.tx-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  margin: 0 0 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Payouts Table & Progress */
+.tx-payouts-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tx-payouts-table th,
+.tx-payouts-table td {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border-color, #f3f4f6);
+}
+
+.tx-payouts-table th {
+  background-color: var(--bg-secondary, #f9fafb);
+  color: var(--text-secondary, #4b5563);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tx-payouts-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tx-share-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+}
+
+.tx-share-bar-track {
+  flex: 1;
+  height: 8px;
+  background-color: var(--bg-secondary, #e5e7eb);
+  border-radius: 9999px;
+  overflow: hidden;
+  min-width: 80px;
+}
+
+.tx-share-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5 0%, #10b981 100%);
+  border-radius: 9999px;
+}
+
+.tx-share-percent-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+  min-width: 50px;
+  text-align: right;
+}
+
+/* Audit History Timeline */
+.tx-audit-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tx-audit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background-color: var(--bg-secondary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  border-left: 4px solid #4f46e5;
+}
+
+.tx-audit-icon {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.tx-audit-content {
+  flex: 1;
+}
+
+.tx-audit-action {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin-bottom: 2px;
+}
+
+.tx-audit-user {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.tx-audit-time {
+  font-size: 12px;
+  color: var(--text-secondary, #9ca3af);
+  white-space: nowrap;
+}
+
+/* Raw Contract Events Inspector */
+.tx-events-inspector {
+  background-color: var(--bg-secondary, #0f172a);
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #1e293b;
+}
+
+.tx-events-json {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Toast Message */
+.tx-toast {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tx-toast.success {
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+/* Mobile Responsive */
+@media (max-width: 640px) {
+  .tx-detail-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tx-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .tx-payouts-table th,
+  .tx-payouts-table td {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}

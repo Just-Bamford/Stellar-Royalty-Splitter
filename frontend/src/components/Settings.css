@@ -1,0 +1,339 @@
+/* Settings Styles */
+.settings {
+  padding: 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.settings-header {
+  margin-bottom: 2rem;
+}
+
+.settings-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: #2d3748;
+  font-size: 2rem;
+}
+
+.settings-subtitle {
+  margin: 0;
+  color: #718096;
+  font-size: 0.95rem;
+}
+
+.settings-contract-id {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.save-status {
+  background: #c6f6d5;
+  border: 1px solid #9ae6b4;
+  color: #22543d;
+  padding: 1rem;
+  border-radius: 0.8rem;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Settings Content */
+.settings-content {
+  background: white;
+  border-radius: 1rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  overflow: hidden;
+}
+
+.settings-section {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 2rem;
+}
+
+.settings-section:last-of-type {
+  border-bottom: none;
+}
+
+.section-title {
+  margin: 0 0 1.5rem 0;
+  color: #2d3748;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+/* Setting Items */
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #f7fafc;
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.setting-label {
+  flex: 1;
+}
+
+.setting-label label {
+  display: block;
+  color: #2d3748;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.setting-description {
+  margin: 0;
+  color: #718096;
+  font-size: 0.9rem;
+}
+
+/* Form Controls */
+.setting-select,
+.setting-input {
+  padding: 0.75rem 1rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  color: #2d3748;
+  background: white;
+  transition: border-color 0.2s;
+  min-width: 200px;
+}
+
+.setting-select:focus,
+.setting-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.setting-input {
+  font-family: inherit;
+}
+
+/* Toggle Button */
+.toggle-btn {
+  padding: 0.6rem 1.2rem;
+  border: 2px solid #e2e8f0;
+  background: white;
+  color: #718096;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+  min-width: 100px;
+}
+
+.toggle-btn:hover {
+  border-color: #cbd5e0;
+  background: #f7fafc;
+}
+
+.toggle-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+}
+
+/* About Section */
+.about-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+}
+
+.about-item h3 {
+  margin: 0 0 0.5rem 0;
+  color: #2d3748;
+  font-size: 1rem;
+}
+
+.about-item p {
+  margin: 0.25rem 0;
+  color: #718096;
+  font-size: 0.9rem;
+}
+
+.about-description {
+  margin-top: 0.5rem !important;
+  color: #a0aec0;
+  font-size: 0.85rem !important;
+}
+
+.about-item a {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.about-item a:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+/* Settings Actions */
+.settings-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 0.8rem 1.5rem;
+  border: none;
+  border-radius: 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+  background: white;
+  color: #2d3748;
+  border: 2px solid #e2e8f0;
+}
+
+.btn-secondary:hover {
+  border-color: #cbd5e0;
+  background: #f7fafc;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .settings {
+    padding: 1.5rem;
+  }
+
+  .settings-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .settings-section {
+    padding: 1.5rem;
+  }
+
+  .setting-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .setting-select,
+  .setting-input {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .toggle-btn {
+    width: 100%;
+  }
+
+  .about-content {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .settings-actions {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings {
+    padding: 1rem;
+  }
+
+  .settings-header h1 {
+    font-size: 1.3rem;
+  }
+
+  .settings-section {
+    padding: 1rem;
+  }
+
+  .section-title {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+
+  .setting-item {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+  }
+
+  .setting-label label {
+    font-size: 0.95rem;
+  }
+
+  .setting-description {
+    font-size: 0.85rem;
+  }
+
+  .setting-select,
+  .setting-input {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+  }
+
+  .toggle-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .about-item h3 {
+    font-size: 0.95rem;
+  }
+
+  .about-item p {
+    font-size: 0.85rem;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    padding: 0.7rem 1.2rem;
+    font-size: 0.9rem;
+  }
+}

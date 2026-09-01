@@ -1,0 +1,21 @@
+# Backend configuration for the prod environment.
+#
+# Copy to backend.hcl, fill in the values for your account, and run:
+#   terraform init -backend-config=backend.hcl
+#
+# backend.hcl is gitignored: the bucket name embeds an account id, which is not
+# secret but is account-specific and should not be committed.
+#
+# The state bucket and lock table must exist before the first init — see
+# "Bootstrapping remote state" in infra/terraform/README.md.
+
+bucket = "srs-terraform-state-<ACCOUNT_ID>"
+key    = "prod/terraform.tfstate"
+region = "us-east-1"
+
+# DynamoDB provides the state lock. Without it two concurrent applies can
+# corrupt state.
+dynamodb_table = "srs-terraform-locks"
+
+# State contains resource attributes and should always be encrypted at rest.
+encrypt = true

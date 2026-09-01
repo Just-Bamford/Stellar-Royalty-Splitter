@@ -1,0 +1,245 @@
+.resale-history {
+  margin-top: 2rem;
+}
+
+.resale-history h3 {
+  margin-bottom: 1.5rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e0e0e0;
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  padding: 0.75rem 1.5rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #666;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s ease;
+  margin-bottom: -2px;
+}
+
+.tab:hover {
+  color: #333;
+  background-color: #f5f5f5;
+}
+
+.tab.active {
+  color: #0066cc;
+  border-bottom-color: #0066cc;
+}
+
+.content {
+  padding: 1rem 0;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: #999;
+  font-style: italic;
+}
+
+.table-container {
+  overflow-x: auto;
+}
+
+.resale-table,
+.distribution-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.resale-table thead,
+.distribution-table thead {
+  background-color: #f9f9f9;
+  border-bottom: 2px solid #ddd;
+}
+
+.resale-table th,
+.distribution-table th {
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+}
+
+.resale-table td,
+.distribution-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #eee;
+}
+
+.resale-table tbody tr:hover,
+.distribution-table tbody tr:hover {
+  background-color: #f9f9f9;
+}
+
+.nft-id,
+.address,
+.tx-hash {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-size: 0.85rem;
+  color: #0066cc;
+}
+
+.royalty-amount {
+  font-weight: 600;
+  color: #28a745;
+}
+
+.amount {
+  font-weight: 600;
+  color: #28a745;
+}
+
+.status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status.pending {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status.confirmed {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status.failed {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+@media (max-width: 768px) {
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .resale-table,
+  .distribution-table {
+    font-size: 0.8rem;
+  }
+
+  .resale-table th,
+  .distribution-table th,
+  .resale-table td,
+  .distribution-table td {
+    padding: 0.5rem;
+  }
+
+  .nft-id,
+  .address,
+  .tx-hash {
+    font-size: 0.75rem;
+  }
+}
+
+.resale-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.resale-header h3 {
+  margin: 0;
+}
+
+.refresh-btn {
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  border: 1px solid #0066cc;
+  color: #0066cc;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s ease;
+}
+
+.refresh-btn:hover {
+  background: #e8f0fe;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.error-banner button {
+  margin-left: auto;
+  padding: 0.3rem 0.75rem;
+  background: #721c24;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.error-banner button:hover {
+  background: #5a1520;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.pagination button {
+  padding: 0.4rem 0.9rem;
+  background: #0066cc;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s ease;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #0052a3;
+}
+
+.pagination button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "stellar-royalty-splitter-fuzz",
+  "private": true,
+  "type": "module",
+  "description": "Marks tests/fuzz/ as ESM so Jest parses the suites the same way it parses backend/src (#866). The fuzz suites import backend modules directly and share the backend's dependency tree; they intentionally add no dependencies of their own."
+}

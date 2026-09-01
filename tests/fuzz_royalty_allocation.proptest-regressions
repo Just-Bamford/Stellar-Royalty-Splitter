@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 604e84d9d2c2c65553a88dfc4d52485628c18a3131afcca0c4cf6717b952c050 # shrinks to raw = [], amount = 2
+cc cd9b2e6233f39ee6da4e1736136ecea64ce9981dd17ceca586d500c2ec98697f # shrinks to raw = [RawRecipient { address_index: 3, share: 467638768 }, RawRecipient { address_index: 0, share: 3827328528 }], amount = 1

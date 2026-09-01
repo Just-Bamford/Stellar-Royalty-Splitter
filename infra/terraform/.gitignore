@@ -1,0 +1,32 @@
+# Terraform state — must live in the remote backend, never in git.
+# State records every resource attribute, so a committed state file leaks the
+# entire infrastructure description.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.tfstate.lock.info
+
+# Environment-specific values. The examples are committed; the real files are
+# not, because they embed account ids, certificate ARNs, and ingress ranges.
+*.tfvars
+!*.tfvars.example
+backend.hcl
+!backend.hcl.example
+
+# Local development overrides.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Saved plans can contain resolved variable values.
+*.tfplan
+tfplan
+
+crash.log
+crash.*.log
+
+# Dependency lock files belong to root configurations (environments/), where a
+# pinned provider version is what makes a plan reproducible. Inside reusable
+# modules they are noise — the consuming configuration decides the version.
+modules/*/.terraform.lock.hcl

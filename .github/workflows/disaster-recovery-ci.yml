@@ -1,0 +1,286 @@
+name: Disaster Recovery CI
+
+# Scheduled disaster-recovery exercises (#865).
+#
+# The point of running these on a schedule rather than on demand is that
+# backups rot silently. An encryption key gets rotated without updating the
+# restore path, a migration changes what valid data means, a bucket policy
+# tightens — none of it is visible until a restore is attempted, and the worst
+# time to find out is during an incident.
+#
+# Pull requests run the exercises that need nothing but the repository, so a
+# change that breaks a recovery script is caught at review time. The monthly
+# run is the real exercise and files an issue when it fails, because a failing
+# recovery procedure is a production risk rather than a test-maintenance chore.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/disaster-recovery-test.sh"
+      - "docs/DISASTER_RECOVERY_RUNBOOK.md"
+      - "scripts/**"
+      - ".github/workflows/disaster-recovery-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/disaster-recovery-test.sh"
+      - "docs/DISASTER_RECOVERY_RUNBOOK.md"
+      - "scripts/**"
+      - ".github/workflows/disaster-recovery-ci.yml"
+  schedule:
+    # 06:00 UTC on the first of each month — the monthly dry run the runbook
+    # commits to.
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Single scenario key, or blank for all"
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip the destructive steps"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  lint:
+    name: Script quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check every shell script
+        # A recovery script that will not parse cannot be run during an
+        # incident, so this is a genuine correctness check rather than style.
+        run: |
+          failed=0
+          for script in infra/*.sh scripts/*.sh; do
+            [ -f "$script" ] || continue
+            if bash -n "$script"; then
+              echo "ok    $script"
+            else
+              echo "FAIL  $script"
+              failed=$((failed + 1))
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1
+
+      - name: ShellCheck
+        # Advisory. The syntax check above is the blocking correctness gate;
+        # ShellCheck's style findings should not be able to block a recovery
+        # fix from merging during an incident.
+        continue-on-error: true
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "."
+          additional_files: "infra/disaster-recovery-test.sh"
+        env:
+          SHELLCHECK_OPTS: -e SC1091 -e SC2034
+
+  safety-guards:
+    name: Safety guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3
+
+      - name: Refuses to run without DR_ENVIRONMENT
+        run: |
+          if ./infra/disaster-recovery-test.sh --scenario config-recovery 2>/dev/null; then
+            echo "::error::The script ran without DR_ENVIRONMENT set"
+            exit 1
+          fi
+          echo "ok — refused"
+
+      - name: Refuses production-like environment names
+        # The guard that matters most. This script deletes files and mutates
+        # databases; if these assertions ever stop holding, it must not ship.
+        run: |
+          failed=0
+          check() {
+            local label="$1"; shift
+            set +e
+            env "$@" ./infra/disaster-recovery-test.sh --scenario config-recovery >/dev/null 2>&1
+            local code=$?
+            set -e
+            if [ "$code" -eq 2 ]; then
+              echo "ok    refused: $label"
+            else
+              echo "FAIL  did not refuse (exit $code): $label"
+              failed=$((failed + 1))
+            fi
+          }
+
+          check "DR_ENVIRONMENT=prod"        DR_ENVIRONMENT=prod
+          check "DR_ENVIRONMENT=production"  DR_ENVIRONMENT=production
+          check "DR_ENVIRONMENT=mainnet"     DR_ENVIRONMENT=mainnet
+          check "production bucket"          DR_ENVIRONMENT=staging BACKUP_S3_BUCKET=srs-prod-backups
+          check "production database path"   DR_ENVIRONMENT=staging DATABASE_PATH=/var/prod/audit.db
+          check "mainnet API url"            DR_ENVIRONMENT=staging API_BASE_URL=https://api.mainnet.example.com
+
+          [ "$failed" -eq 0 ] || exit 1
+
+  exercise:
+    name: Recovery exercises
+    runs-on: ubuntu-latest
+    needs: [lint, safety-guards]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3 openssl jq
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Select mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # The monthly exercise runs for real — a dry run proves nothing.
+            echo "dry_run=" >> "$GITHUB_OUTPUT"
+            echo "label=monthly exercise" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            [ "${{ github.event.inputs.dry_run }}" = "true" ] \
+              && echo "dry_run=--dry-run" >> "$GITHUB_OUTPUT" \
+              || echo "dry_run=" >> "$GITHUB_OUTPUT"
+            echo "label=manual run" >> "$GITHUB_OUTPUT"
+          else
+            # On a pull request the exercises run for real too — every scenario
+            # is self-contained and touches only its own scratch directory.
+            echo "dry_run=" >> "$GITHUB_OUTPUT"
+            echo "label=pull request check" >> "$GITHUB_OUTPUT"
+          fi
+
+          SCENARIO="${{ github.event.inputs.scenario }}"
+          [ -n "$SCENARIO" ] \
+            && echo "selection=--scenario $SCENARIO" >> "$GITHUB_OUTPUT" \
+            || echo "selection=--all" >> "$GITHUB_OUTPUT"
+
+      - name: Run exercises
+        id: run
+        env:
+          DR_ENVIRONMENT: ci
+          BACKUP_ENCRYPTION_KEY: ci-exercise-passphrase
+          # No live AWS: these exercises are self-contained by design, so they
+          # run on a fork pull request with no credentials at all.
+          DR_USE_LIVE_AWS: "false"
+        run: |
+          set +e
+          ./infra/disaster-recovery-test.sh \
+            ${{ steps.mode.outputs.selection }} \
+            ${{ steps.mode.outputs.dry_run }} \
+            --json-report dr-report.json \
+            2>&1 | tee dr-output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Disaster recovery — ${{ steps.mode.outputs.label }}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f dr-report.json ]; then
+            {
+              echo "| Scenario | Result | Duration | RTO |"
+              echo "|---|---|---|---|"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            jq -r '
+              .rtoTargetSeconds as $rto
+              | .scenarios[]
+              | "| \(.scenario) | \(if .status == "passed" then "✅" else "❌" end) \(.status) | \(.durationSeconds)s | \($rto)s |"
+            ' dr-report.json >> "$GITHUB_STEP_SUMMARY"
+
+            {
+              echo ""
+              echo "<details><summary>Full log</summary>"
+              echo ""
+              echo '```'
+              cat dr-output.txt
+              echo '```'
+              echo ""
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "_No report produced — the run failed before any scenario completed._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Retained for a year: comparing this month's durations against last
+          # year's is how a slowly degrading recovery path gets noticed.
+          name: dr-exercise-${{ github.run_id }}
+          path: |
+            dr-report.json
+            dr-output.txt
+          retention-days: 365
+          if-no-files-found: warn
+
+      - name: File an issue if the monthly exercise failed
+        if: always() && github.event_name == 'schedule' && steps.run.outputs.exitcode != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("node:fs");
+
+            let failures = "See the workflow run for details.";
+            try {
+              const report = JSON.parse(fs.readFileSync("dr-report.json", "utf8"));
+              failures = report.scenarios
+                .filter((s) => s.status !== "passed")
+                .map((s) => `- **${s.scenario}** (${s.durationSeconds}s) — ${s.message}`)
+                .join("\n");
+            } catch {
+              // Fall through to the generic message.
+            }
+
+            const title = `Disaster recovery exercise failed — ${new Date().toISOString().slice(0, 10)}`;
+            const body = [
+              "The monthly disaster recovery exercise failed.",
+              "",
+              "### Failing scenarios",
+              "",
+              failures,
+              "",
+              "### Why this matters",
+              "",
+              "A recovery procedure that does not work is only discovered during an",
+              "incident, which is the worst possible moment. This is a production",
+              "risk, not a test-maintenance chore.",
+              "",
+              `[Workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              "",
+              "See `docs/DISASTER_RECOVERY_RUNBOOK.md`.",
+            ].join("\n");
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ["disaster-recovery", "priority:high"],
+            });
+
+      - name: Fail on exercise failure
+        if: steps.run.outputs.exitcode != '0'
+        run: |
+          echo "::error title=Recovery exercise failed::One or more recovery procedures did not complete. See the job summary."
+          exit 1

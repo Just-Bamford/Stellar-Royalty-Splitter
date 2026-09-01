@@ -1,0 +1,212 @@
+/* ─── Payment Preferences ────────────────────────────────────────────────── */
+
+.payment-preferences {
+  /* inherits .settings-section layout */
+}
+
+.payment-preferences--disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.payment-preferences__notice,
+.payment-preferences__error {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+}
+
+.payment-preferences__notice {
+  color: #718096;
+  font-style: italic;
+}
+
+.payment-preferences__error {
+  color: #c53030;
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+}
+
+.payment-preferences__intro {
+  margin: 0 0 1.5rem 0;
+  color: #4a5568;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+/* ─── Method Cards Grid ─────────────────────────────────────────────────── */
+
+.payment-preferences__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.payment-method-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.payment-method-card:hover:not(:disabled) {
+  border-color: #b794f4;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+  transform: translateY(-2px);
+}
+
+.payment-method-card--selected {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  background: linear-gradient(135deg, #f0f4ff 0%, #faf5ff 100%);
+}
+
+.payment-method-card:focus-visible {
+  outline: 3px solid #667eea;
+  outline-offset: 2px;
+}
+
+/* Selected check badge */
+.payment-method-card__check {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* Card header */
+.payment-method-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.payment-method-card__icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.payment-method-card__label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+/* Card description */
+.payment-method-card__desc {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #4a5568;
+  line-height: 1.5;
+}
+
+/* Pros & Cons */
+.payment-method-card__pros-cons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.pros-list,
+.cons-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.pros-list__item,
+.cons-list__item {
+  font-size: 0.82rem;
+  color: #4a5568;
+  line-height: 1.45;
+}
+
+.pros-list__item {
+  color: #276749;
+}
+
+.cons-list__item {
+  color: #744210;
+}
+
+/* ─── Actions row ───────────────────────────────────────────────────────── */
+
+.payment-preferences__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ─── Status banner (success / error) ──────────────────────────────────── */
+
+.save-status--success {
+  background: #c6f6d5;
+  border-color: #9ae6b4;
+  color: #22543d;
+}
+
+.save-status--error {
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  color: #c53030;
+  padding: 1rem;
+  border-radius: 0.8rem;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
+  animation: slideIn 0.3s ease;
+}
+
+/* ─── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .payment-preferences__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-preferences__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 480px) {
+  .payment-method-card {
+    padding: 1rem;
+  }
+
+  .payment-method-card__label {
+    font-size: 0.98rem;
+  }
+
+  .payment-method-card__desc,
+  .pros-list__item,
+  .cons-list__item {
+    font-size: 0.8rem;
+  }
+}

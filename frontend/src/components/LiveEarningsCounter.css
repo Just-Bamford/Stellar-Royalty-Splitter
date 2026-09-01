@@ -1,0 +1,79 @@
+.live-earnings-counter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.counter-value-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.counter-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--heading-color, #2d3748);
+  transition: color 0.3s ease;
+}
+
+.live-earnings-counter.animating .counter-value {
+  color: var(--primary-color, #3182ce);
+}
+
+.delta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  background: rgba(72, 187, 120, 0.15);
+  color: #276749;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 6px;
+  animation: deltaFadeIn 0.3s ease-out, deltaPulse 0.5s ease-out;
+  white-space: nowrap;
+}
+
+@keyframes deltaFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes deltaPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(72, 187, 120, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(72, 187, 120, 0);
+  }
+}
+
+.last-update-time {
+  font-size: 0.75rem;
+  color: var(--muted-text-color, #a0aec0);
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .delta-badge {
+    background: rgba(72, 187, 120, 0.2);
+    color: #68d391;
+  }
+}
+
+/* Respect theme context */
+:root[data-theme="dark"] .delta-badge,
+.dark .delta-badge {
+  background: rgba(72, 187, 120, 0.2);
+  color: #68d391;
+}

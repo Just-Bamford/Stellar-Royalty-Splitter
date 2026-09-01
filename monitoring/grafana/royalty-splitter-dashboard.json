@@ -1,0 +1,19 @@
+{
+  "title": "Stellar Royalty Splitter Operations",
+  "uid": "stellar-royalty-splitter-ops",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "tags": ["stellar", "royalty-splitter", "operations"],
+  "templating": {"list": [{"name": "service", "type": "query", "query": "label_values(up, service)", "current": {"text": "royalty-splitter-api", "value": "royalty-splitter-api"}}]},
+  "panels": [
+    {"id": 1, "type": "stat", "title": "API availability", "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}, "targets": [{"expr": "min(up{service=\"$service\"})", "legendFormat": "up"}], "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}},
+    {"id": 2, "type": "timeseries", "title": "Request latency p50 / p95", "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0}, "targets": [{"expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"$service\"}[5m])))", "legendFormat": "p50"}, {"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"$service\"}[5m])))", "legendFormat": "p95"}]},
+    {"id": 3, "type": "timeseries", "title": "HTTP error rate", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}, "targets": [{"expr": "sum(rate(http_requests_total{service=\"$service\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"$service\"}[5m]))", "legendFormat": "5xx rate"}]},
+    {"id": 4, "type": "timeseries", "title": "Soroban RPC p95 latency", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}, "targets": [{"expr": "histogram_quantile(0.95, sum by (le, operationType) (rate(stellar_rpc_operation_duration_seconds_bucket[5m])))", "legendFormat": "{{operationType}}"}]},
+    {"id": 5, "type": "timeseries", "title": "Database pool utilization", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}, "targets": [{"expr": "stellar_db_pool_utilization_percent", "legendFormat": "pool utilization %"}, {"expr": "stellar_db_health_consecutive_failures", "legendFormat": "consecutive failures"}]},
+    {"id": 6, "type": "timeseries", "title": "Transactions", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}, "targets": [{"expr": "rate(stellar_transactions_successful_total[5m])", "legendFormat": "successful"}, {"expr": "rate(stellar_transactions_failed_total[5m])", "legendFormat": "failed"}]},
+    {"id": 7, "type": "timeseries", "title": "Node memory", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}, "targets": [{"expr": "process_resident_memory_bytes", "legendFormat": "resident bytes"}, {"expr": "nodejs_process_heap_size_used_bytes", "legendFormat": "heap used"}]},
+    {"id": 8, "type": "timeseries", "title": "Rate limiting and oversized payloads", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}, "targets": [{"expr": "rate(stellar_rate_limit_hits_total[5m])", "legendFormat": "rate limit hits"}, {"expr": "rate(stellar_oversized_requests_rejected_total[5m])", "legendFormat": "oversized requests"}]}
+  ]
+}

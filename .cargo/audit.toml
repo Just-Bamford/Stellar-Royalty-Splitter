@@ -1,0 +1,64 @@
+# cargo-audit configuration.
+#
+# Advisories listed under `ignore` are KNOWN, REVIEWED, and ACCEPTED — each one
+# needs a rationale and a review date below. Anything not listed here fails CI
+# (see .github/workflows/dependency-audit.yml).
+#
+# Adding an entry here is a security decision, not a way to quiet the build.
+# The remediation workflow is documented in SECURITY.md.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2024-0344 — timing variability in curve25519-dalek.
+  #
+  # Reached only as a transitive dependency of the pinned soroban-sdk 20.0.0
+  # (`soroban-sdk = "=20.0.0"` in Cargo.toml). The contract performs no
+  # secret-dependent scalar multiplication of its own: signing happens
+  # off-chain in the operator's wallet, and the contract verifies
+  # already-signed envelopes. No fixed release is reachable without moving off
+  # the pinned SDK, which is a deliberate, separately-planned upgrade.
+  #
+  # Accepted: 2026-08-28. Re-review when soroban-sdk is unpinned.
+  "RUSTSEC-2024-0344",
+
+  # RUSTSEC-2026-0009 — denial of service via stack exhaustion in `time`.
+  #
+  # Transitive under the same pinned soroban-sdk. The affected parsing path is
+  # not reachable from contract entrypoints, which take typed ScVal arguments
+  # rather than parsing user-supplied date strings.
+  #
+  # Accepted: 2026-08-28. Re-review when soroban-sdk is unpinned.
+  "RUSTSEC-2026-0009",
+
+  # RUSTSEC-2025-0056 — `adler` is unmaintained.
+  #
+  # Pulled in only through `backtrace` under `soroban-env-host` from the pinned
+  # Soroban SDK 20.0.0 test/host dependency stack. The contract itself does not
+  # call Adler checksum APIs, and replacing this requires a Soroban SDK upgrade.
+  #
+  # Accepted: 2026-08-31. Re-review when soroban-sdk is unpinned.
+  "RUSTSEC-2025-0056",
+
+  # RUSTSEC-2024-0436 — `paste` is unmaintained.
+  #
+  # Pulled in by `wasmi_core` through `soroban-wasmi`, again as part of the
+  # pinned Soroban SDK 20.0.0 stack. It is a proc-macro dependency, not runtime
+  # contract logic. No compatible replacement is reachable without moving SDKs.
+  #
+  # Accepted: 2026-08-31. Re-review when soroban-sdk is unpinned.
+  "RUSTSEC-2024-0436",
+
+  # RUSTSEC-2026-0097 — `rand` 0.8 is unsound with a custom logger using
+  # `rand::rng()`.
+  #
+  # This path is transitive through `soroban-sdk`/`soroban-env-host`. The
+  # contract does not call `rand::rng()` or install a custom logger in deployed
+  # WASM. Updating to rand 0.9 requires the pinned Soroban SDK to move first.
+  #
+  # Accepted: 2026-08-31. Re-review when soroban-sdk is unpinned.
+  "RUSTSEC-2026-0097",
+]
+
+# Warnings are escalated to errors by `--deny warnings` in CI, so unmaintained
+# or yanked crates surface as build failures rather than scrollback.
+informational_warnings = ["unmaintained", "unsound", "yanked"]

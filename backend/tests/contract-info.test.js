@@ -1,0 +1,191 @@
+import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
+import request from "supertest";
+import express from "express";
+
+const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const TOKEN = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const ADMIN = "GAPTAQKSMN2ILFVHXDE5V274BUPC6QCRMJZYJFNGW7ENT2X3BQOS4M3C";
+const COLLAB1 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
+const COLLAB2 = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
+
+const simulateTransaction = jest.fn();
+const getConfiguredContractId = jest.fn();
+const getNetworkLabel = jest.fn(() => "Testnet");
+
+await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
+  default: {
+    Address: {
+      fromScVal: jest.fn((scVal) => ({ toString: () => scVal })),
+    },
+    Contract: jest.fn().mockImplementation(() => ({
+      call: jest.fn((method, ...args) => ({ method, args })),
+    })),
+    SorobanRpc: {
+      Api: { isSimulationError: jest.fn((sim) => Boolean(sim.error)) },
+    },
+    TransactionBuilder: jest.fn().mockImplementation(() => {
+      let operation;
+      return {
+        addOperation: jest.fn((op) => {
+          operation = op;
+          return {
+            setTimeout: jest.fn(() => ({
+              build: jest.fn(() => ({ operation })),
+            })),
+          };
+        }),
+      };
+    }),
+    BASE_FEE: "100",
+    Account: jest.fn(),
+  },
+  Address: {
+    fromScVal: jest.fn((scVal) => ({ toString: () => scVal })),
+  },
+  Contract: jest.fn().mockImplementation(() => ({
+    call: jest.fn((method, ...args) => ({ method, args })),
+  })),
+  SorobanRpc: {
+    Api: { isSimulationError: jest.fn((sim) => Boolean(sim.error)) },
+  },
+  TransactionBuilder: jest.fn().mockImplementation(() => {
+    let operation;
+    return {
+      addOperation: jest.fn((op) => {
+        operation = op;
+        return {
+          setTimeout: jest.fn(() => ({
+            build: jest.fn(() => ({ operation })),
+          })),
+        };
+      }),
+    };
+  }),
+  BASE_FEE: "100",
+  Account: jest.fn(),
+}));
+
+await jest.unstable_mockModule("../src/stellar.js", () => ({
+  server: { simulateTransaction },
+  networkPassphrase: "Test SDF Network ; September 2015",
+  addressToScVal: jest.fn((address) => address),
+  getConfiguredContractId,
+  getNetworkLabel,
+  isContractInitialized: jest.fn(),
+  getContractVersionFromContract: jest.fn(),
+}));
+
+const { contractRouter, _resetContractStateCache } = await import("../src/routes/contract.js");
+
+const app = express();
+app.use("/api/v1/contract", contractRouter);
+app.use((err, _req, res, _next) => {
+  res.status(500).json({ error: err.message ?? "Internal server error" });
+});
+
+function shareEntry(address, basisPoints) {
+  return {
+    key: () => address,
+    val: () => ({ u32: () => basisPoints }),
+  };
+}
+
+describe("contract state routes", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    _resetContractStateCache();
+    getConfiguredContractId.mockReturnValue(CONTRACT);
+    process.env.ROYALTY_TOKEN_ID = TOKEN;
+    simulateTransaction.mockImplementation(({ operation }) => {
+      const responses = {
+        get_admin: { result: { retval: ADMIN } },
+        get_royalty_rate: { result: { retval: { u32: () => 750 } } },
+        get_all_shares: {
+          result: {
+            retval: {
+              map: () => ({
+                entries: [shareEntry(COLLAB1, 6000), shareEntry(COLLAB2, 4000)],
+              }),
+            },
+          },
+        },
+        get_balance: {
+          result: {
+            retval: {
+              i128: () => ({ hi: () => 0, lo: () => 12345 }),
+            },
+          },
+        },
+      };
+      return Promise.resolve(responses[operation.method]);
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("returns configured contract info", async () => {
+    const res = await request(app).get("/api/v1/contract/info");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      contractId: CONTRACT,
+      adminAddress: ADMIN,
+      royaltyRate: 750,
+      balance: "12345",
+      tokenId: TOKEN,
+      network: "Testnet",
+      recipients: [
+        { address: COLLAB1, basisPoints: 6000 },
+        { address: COLLAB2, basisPoints: 4000 },
+      ],
+    });
+  });
+
+  test("returns current contract state with network information", async () => {
+    const res = await request(app).get("/api/v1/contract/state");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      contractId: CONTRACT,
+      adminAddress: ADMIN,
+      royaltyRate: 750,
+      balance: "12345",
+      tokenId: TOKEN,
+      network: "Testnet",
+      networkPassphrase: "Test SDF Network ; September 2015",
+      recipients: [
+        { address: COLLAB1, basisPoints: 6000 },
+        { address: COLLAB2, basisPoints: 4000 },
+      ],
+    });
+  });
+
+  test("caches contract state for 30 seconds", async () => {
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(1_000);
+
+    const first = await request(app).get("/api/v1/contract/state");
+    expect(first.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(4);
+
+    nowSpy.mockReturnValue(30_999);
+    const cached = await request(app).get("/api/v1/contract/state");
+    expect(cached.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(4);
+
+    nowSpy.mockReturnValue(31_001);
+    const refreshed = await request(app).get("/api/v1/contract/state");
+    expect(refreshed.status).toBe(200);
+    expect(simulateTransaction).toHaveBeenCalledTimes(8);
+  });
+
+  test("400 when no contract ID is configured or provided", async () => {
+    getConfiguredContractId.mockReturnValue(null);
+
+    const res = await request(app).get("/api/v1/contract/info");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/contractId/i);
+  });
+});

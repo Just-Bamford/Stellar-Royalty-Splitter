@@ -1,0 +1,73 @@
+groups:
+  - name: royalty-splitter-availability
+    interval: 30s
+    rules:
+      - alert: RoyaltySplitterApiDown
+        expr: up{job="royalty-splitter-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: platform
+          runbook: api-down
+        annotations:
+          summary: Royalty Splitter API is unreachable
+          description: Prometheus cannot scrape the API for more than two minutes.
+          action: Check deployment health, container logs, and upstream networking; roll back the latest release if the process will not recover.
+
+      - alert: RoyaltySplitterHighRequestLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: request-latency
+        annotations:
+          summary: API p95 request latency is above two seconds
+          action: Inspect RPC and database latency panels, then scale or disable the slow dependency before investigating application regressions.
+
+      - alert: RoyaltySplitterHighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+          runbook: elevated-errors
+        annotations:
+          summary: API 5xx error rate exceeds five percent
+          action: Correlate errors with deployment and dependency panels; pause writes or roll back if errors are release-related.
+
+  - name: royalty-splitter-dependencies
+    interval: 30s
+    rules:
+      - alert: RoyaltySplitterRpcLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(stellar_rpc_operation_duration_seconds_bucket[5m]))) > 3
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: rpc-degradation
+        annotations:
+          summary: Soroban RPC p95 latency is above three seconds
+          action: Check RPC provider status and timeout counters, then fail over or increase capacity according to the provider runbook.
+
+      - alert: RoyaltySplitterDatabaseDegraded
+        expr: stellar_db_health_consecutive_failures >= 3 or stellar_db_pool_utilization_percent > 90
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+          runbook: database-degraded
+        annotations:
+          summary: Database health or pool utilization is degraded
+          action: Inspect database connectivity, pool saturation, and recent migrations; drain or restart the API only after preserving evidence.
+
+      - alert: RoyaltySplitterProcessMemoryHigh
+        expr: process_resident_memory_bytes / nodejs_process_heap_size_total_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: resource-exhaustion
+        annotations:
+          summary: API process memory exceeds 85 percent of the heap limit
+          action: Check for traffic or cache growth, capture a heap profile if available, and scale or restart under the deployment policy.

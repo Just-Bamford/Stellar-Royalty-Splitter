@@ -1,0 +1,188 @@
+name: Deploy
+
+# Promotion pipeline: test → build → staging → (manual approval) → production.
+#
+# The production gate is enforced by the GitHub Environment named
+# `production`, which must be configured with a required reviewer
+# (Settings → Environments → production → Required reviewers). Without that
+# reviewer configured the `deploy-production` job runs unattended, so the
+# approval gate is a repository setting, not something this file can assert
+# on its own.
+#
+# Environment-specific configuration comes from GitHub Environment secrets
+# and variables; see config/env/*.example for the full key list and
+# DEPLOYMENT.md for the runbook.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Environment to deploy"
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never let two deploys of the same environment interleave.
+  group: deploy-${{ github.event.inputs.target || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. Test ───────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+
+      - name: Run backend tests (includes tests/security/)
+        working-directory: backend
+        run: npm test
+
+  # ── 2. Build ──────────────────────────────────────────────────────────────
+  build:
+    name: Build contract WASM
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build release WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-wasm
+          path: target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 30
+
+  # ── 3. Staging ────────────────────────────────────────────────────────────
+  # Every push to main that passes tests lands on staging automatically.
+  deploy-staging:
+    name: Deploy to staging
+    needs: build
+    if: github.event_name == 'push' || github.event.inputs.target == 'staging'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: contract-wasm
+          path: target/wasm32-unknown-unknown/release/
+
+      - name: Validate environment configuration
+        env:
+          STELLAR_NETWORK: ${{ vars.STELLAR_NETWORK }}
+          SOROBAN_RPC_URL: ${{ vars.SOROBAN_RPC_URL }}
+          HORIZON_URL: ${{ vars.HORIZON_URL }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN }}
+        run: |
+          # Fail fast on missing configuration rather than mid-deploy.
+          # Values are never echoed — only presence is reported.
+          for key in STELLAR_NETWORK SOROBAN_RPC_URL HORIZON_URL FRONTEND_ORIGIN; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error title=Missing configuration::$key is not set for the staging environment."
+              exit 1
+            fi
+            echo "  [OK] $key is set"
+          done
+
+      - name: Deploy to staging
+        run: |
+          echo "::notice title=Deploy::Deploying to staging (testnet)"
+          # scripts/deploy.sh builds, optimizes, deploys and records the
+          # contract id. It requires a funded `stellar keys` identity on the
+          # runner, so this step is a no-op placeholder until the deploy
+          # runner and its identity are provisioned.
+          echo "Would run: STELLAR_NETWORK=testnet STELLAR_IDENTITY=${{ vars.STELLAR_IDENTITY }} ./scripts/deploy.sh"
+
+      - name: Post-deploy validation
+        run: |
+          echo "Would run: ./scripts/validate-deployment.sh post \$CONTRACT_ID"
+
+  # ── 4. Production ─────────────────────────────────────────────────────────
+  # Gated by the `production` GitHub Environment's required reviewer. The job
+  # queues until a reviewer approves it in the Actions UI.
+  deploy-production:
+    name: Deploy to production
+    needs: deploy-staging
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'production'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: contract-wasm
+          path: target/wasm32-unknown-unknown/release/
+
+      - name: Validate environment configuration
+        env:
+          STELLAR_NETWORK: ${{ vars.STELLAR_NETWORK }}
+          SOROBAN_RPC_URL: ${{ vars.SOROBAN_RPC_URL }}
+          HORIZON_URL: ${{ vars.HORIZON_URL }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN }}
+        run: |
+          for key in STELLAR_NETWORK SOROBAN_RPC_URL HORIZON_URL FRONTEND_ORIGIN; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error title=Missing configuration::$key is not set for the production environment."
+              exit 1
+            fi
+            echo "  [OK] $key is set"
+          done
+
+          # A wildcard CORS origin in production is refused by the backend at
+          # startup; catch it here rather than after cutover.
+          if [ "${FRONTEND_ORIGIN}" = "*" ]; then
+            echo "::error title=Unsafe CORS::FRONTEND_ORIGIN must be an exact https origin in production, not '*'."
+            exit 1
+          fi
+
+          if [ "${STELLAR_NETWORK}" != "mainnet" ]; then
+            echo "::error title=Wrong network::production must deploy against mainnet, got '${STELLAR_NETWORK}'."
+            exit 1
+          fi
+
+      - name: Record current version for rollback
+        run: |
+          # The contract currently serving traffic stays live for the rollback
+          # window; see DEPLOYMENT.md § Blue-green deployment.
+          echo "PREVIOUS_CONTRACT_ID=${{ vars.ROYALTY_CONTRACT_ID }}" >> "$GITHUB_ENV"
+          echo "::notice title=Rollback target::Previous contract retained for rollback"
+
+      - name: Deploy to production
+        run: |
+          echo "::notice title=Deploy::Deploying to production (mainnet)"
+          echo "Would run: STELLAR_NETWORK=mainnet STELLAR_IDENTITY=${{ vars.STELLAR_IDENTITY }} ./scripts/deploy.sh"
+
+      - name: Post-deploy validation
+        run: |
+          echo "Would run: ./scripts/validate-deployment.sh post \$CONTRACT_ID"

@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/package.json"
+      - "backend/package.json"
+      - "CHANGELOG.md"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 1.0.0)"
+        required: false
+
+jobs:
+  validate-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Parse versions
+        id: versions
+        run: |
+          FRONTEND_VERSION=$(node -e "console.log(require('./frontend/package.json').version)")
+          BACKEND_VERSION=$(node -e "console.log(require('./backend/package.json').version)")
+          echo "frontend=$FRONTEND_VERSION" >> $GITHUB_OUTPUT
+          echo "backend=$BACKEND_VERSION" >> $GITHUB_OUTPUT
+          echo "Frontend version: $FRONTEND_VERSION"
+          echo "Backend version: $BACKEND_VERSION"
+
+      - name: Validate versions
+        run: |
+          FRONTEND_VERSION=${{ steps.versions.outputs.frontend }}
+          BACKEND_VERSION=${{ steps.versions.outputs.backend }}
+
+          echo "🔍 Validating version formats..."
+
+          # Validate semantic versioning
+          if ! [[ $FRONTEND_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid frontend version: $FRONTEND_VERSION"
+            exit 1
+          fi
+          if ! [[ $BACKEND_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid backend version: $BACKEND_VERSION"
+            exit 1
+          fi
+
+          echo "✅ Version formats valid"
+
+          # Check versions match (major.minor must align)
+          FRONTEND_MM=$(echo $FRONTEND_VERSION | cut -d. -f1-2)
+          BACKEND_MM=$(echo $BACKEND_VERSION | cut -d. -f1-2)
+          if [ "$FRONTEND_MM" != "$BACKEND_MM" ]; then
+            echo "❌ Version mismatch: frontend $FRONTEND_VERSION, backend $BACKEND_VERSION"
+            echo "Major.Minor must align for aligned releases"
+            exit 1
+          fi
+
+          echo "✅ Versions aligned"
+
+      - name: Check version updated
+        run: |
+          FRONTEND_VERSION=${{ steps.versions.outputs.frontend }}
+
+          # Get last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          LAST_VERSION=${LAST_TAG#v}
+
+          if [ "$FRONTEND_VERSION" = "$LAST_VERSION" ]; then
+            echo "❌ Version not updated: still at $FRONTEND_VERSION (last release: $LAST_VERSION)"
+            exit 1
+          fi
+
+          echo "✅ Version updated from $LAST_VERSION to $FRONTEND_VERSION"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          node .github/scripts/generate-changelog.js
+          CHANGELOG_ENTRY=$(cat CHANGELOG_ENTRY.md)
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_ENTRY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Validate changelog
+        run: |
+          if [ ! -f CHANGELOG.md ]; then
+            echo "❌ CHANGELOG.md not found"
+            exit 1
+          fi
+          if ! grep -q "## \[" CHANGELOG.md; then
+            echo "❌ CHANGELOG.md missing version entries"
+            exit 1
+          fi
+
+          echo "✅ CHANGELOG.md validation passed"
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.versions.outputs.frontend }}
+          release_name: Release v${{ steps.versions.outputs.frontend }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Release v${{ steps.versions.outputs.frontend }} created successfully"
+          echo ""
+          echo "📦 Release Details:"
+          echo "  Frontend: v${{ steps.versions.outputs.frontend }}"
+          echo "  Backend: v${{ steps.versions.outputs.backend }}"
+          echo ""
+          echo "🔗 Release URL: ${{ steps.create_release.outputs.html_url }}"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Release creation failed"
+          echo ""
+          echo "⚠️  Important: No tag was created."
+          echo "Please fix validation errors and try again."
+          exit 1

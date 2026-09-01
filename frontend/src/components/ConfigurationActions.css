@@ -1,0 +1,75 @@
+.configuration-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+}
+
+.configuration-actions-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: var(--shadow-md);
+  width: fit-content;
+}
+
+.configuration-actions-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.configuration-actions-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.configuration-actions-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.configuration-actions-info {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.configuration-actions-duplicate {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.configuration-actions-duplicate:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5568d3 0%, #6d3d8f 100%);
+}
+
+/* Dark mode */
+[data-theme="dark"] .configuration-actions {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .configuration-actions {
+    padding: var(--spacing-md);
+  }
+
+  .configuration-actions-btn {
+    width: 100%;
+  }
+}

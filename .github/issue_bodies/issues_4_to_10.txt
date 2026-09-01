@@ -1,0 +1,201 @@
+ISSUE 4 BODY:
+The contract has a `VERSION` constant and an `update_wasm()` entrypoint for upgrades, but there is no formal state migration framework. If a future version introduces breaking storage changes (e.g., new required fields, changed data types), old instances will fail or behave unexpectedly after upgrade. The current design preserves instance storage blindly, which works for additive changes but not for schema evolution.
+
+**Relevant files:**
+- `src/lib.rs` - VERSION constant (line ~45), update_wasm function
+- `src/storage.rs` - storage access patterns
+
+## Solution
+
+Design a contract versioning and migration system:
+1. Embed a migration function in the contract that runs on-demand (`migrate()` entrypoint)
+2. Track applied migrations in storage to prevent re-running
+3. Document migration patterns for future developers (e.g., "how to add a new field", "how to deprecate a field")
+4. Add tests for migration scenarios (initialize on old version, upgrade, verify state is correct)
+
+## Acceptance Criteria
+
+- [ ] Add a `migrate(from_version: String)` entrypoint that applies version-specific state transformations
+- [ ] Store applied migrations in persistent storage with timestamps
+- [ ] Write at least one example migration (e.g., adding a new optional field)
+- [ ] Add integration tests confirming state is correctly transformed
+- [ ] Document migration patterns in a new `MIGRATIONS.md` file
+- [ ] Verify upgrade path from current version to next version works
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.
+
+---
+
+ISSUE 5 BODY:
+The contract has `record_secondary_royalty()` and `distribute_secondary_royalties()` functions, but test coverage for edge cases is sparse:
+- Multiple secondary royalties recorded in the same block without distribution
+- Secondary pool overflow or underflow scenarios
+- Rounding behavior when distributing a secondary pool with many collaborators
+- State consistency after a failed distribution attempt
+
+**Relevant files:**
+- `tests/integration_test.rs` - existing tests
+- `src/lib.rs` - record_secondary_royalty (line ~900), distribute_secondary_royalties (line ~1000)
+
+## Solution
+
+Add comprehensive integration tests for secondary royalty scenarios, focusing on state transitions, rounding correctness, and failure recovery. Test the secondary pool as a separate payment lane independent of primary distributions.
+
+## Acceptance Criteria
+
+- [ ] Test recording multiple secondary royalties without intermediate distribution
+- [ ] Verify secondary pool balance accumulates correctly
+- [ ] Test distribution of secondary pool with varying collaborator counts (2, 5, 10)
+- [ ] Verify rounding: last collaborator receives remainder, total matches input
+- [ ] Test that secondary royalties use correct token (set by first record_secondary_royalty call)
+- [ ] Add at least 5 new integration tests; all existing tests pass
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.
+
+---
+
+ISSUE 6 BODY:
+Both backend and frontend validate Stellar addresses (G...) independently using different approaches. Backend uses Zod schemas in `backend/src/validation.js`, while frontend has scattered regex or SDK-based checks. Inconsistencies between layers can allow invalid addresses to be accepted upstream. No single source of truth for address format or checksum validation.
+
+**Relevant files:**
+- `backend/src/validation.js` - address validation
+- `frontend/src/utils/` - likely scattered validation
+- `frontend/src/components/WalletConnect.tsx` - wallet validation
+
+## Solution
+
+Extract address validation into a shared utility module or package. Ensure both backend (Zod) and frontend (TypeScript type guards) use the same validation rules. Test the utility against known valid/invalid Stellar addresses and verify it matches Stellar SDK behavior.
+
+## Acceptance Criteria
+
+- [ ] Create a shared validation utility for Stellar G... addresses
+- [ ] Utility exports both a Zod schema (for backend) and a type guard (for frontend)
+- [ ] Test against Stellar SDK's address validation
+- [ ] Update backend validation to use the shared utility
+- [ ] Update frontend components to use the shared utility
+- [ ] Add tests for edge cases: checksums, length, character sets
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.
+
+---
+
+ISSUE 7 BODY:
+Backend has rate limiting (`express-rate-limit`) configured with defaults, but the configuration is hardcoded and not well documented. Different endpoints may have different sensitivity (e.g., initialize should be stricter than health checks). Current setup lacks flexibility for operators to tune limits without code changes or clear guidance on recommended values.
+
+**Relevant files:**
+- `backend/src/middleware/` - likely rate-limit middleware
+- `backend/src/index.js` - middleware wiring
+
+## Solution
+
+Extract rate-limit configuration to environment variables or a dedicated config file. Document default limits for each endpoint category (health, read, write, admin). Add middleware that applies endpoint-specific limits. Write a tuning guide for operators.
+
+## Acceptance Criteria
+
+- [ ] Extract rate-limit configuration from code to environment variables
+- [ ] Document recommended limits for health, read, write, and admin endpoints
+- [ ] Add separate limiters for initialize, distribute, and read endpoints (if not already)
+- [ ] Add tests verifying rate limits are enforced (mock 100 requests, verify 429 on excess)
+- [ ] Write a `RATE_LIMITING.md` guide explaining tuning and per-endpoint configuration
+- [ ] Verify health/ready endpoints are not rate-limited (or have much higher limits)
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.
+
+---
+
+ISSUE 8 BODY:
+Current API endpoints (`/api/v1/initialize`, `/api/v1/distribute`) return unsigned XDR that the frontend signs and submits. Users have no way to preview the exact payout distribution or detect errors (e.g., insufficient balance, invalid recipient list) before signing. Frontend must wait until submission to show feedback, leading to poor UX when transactions fail.
+
+**Relevant files:**
+- `backend/src/routes/distribute.js` - XDR building
+- `backend/src/routes/initialize.js` - XDR building
+- `backend/src/stellar.js` - likely has simulation logic
+- `frontend/src/components/DistributeForm.tsx` - form submission
+
+## Solution
+
+Add a `/api/v1/simulate` endpoint that accepts the same parameters as distribute/initialize but returns detailed simulation results (final balances, actual payouts, gas cost, errors). Use Soroban RPC's `simulateTransaction` to preview outcomes without broadcasting. Wire this into distribute/initialize forms to show a confirmation dialog with exact payouts before user signs.
+
+## Acceptance Criteria
+
+- [ ] Create `/api/v1/simulate` endpoint accepting `{ contractId, walletAddress, operation (initialize|distribute), params }`
+- [ ] Endpoint calls Soroban RPC to simulate without broadcasting
+- [ ] Response includes simulation result, gas estimate, and detailed payout breakdown
+- [ ] Update frontend DistributeForm to call simulate and show payout preview
+- [ ] Add error scenarios: insufficient balance, invalid recipient, gas overflow
+- [ ] Add integration tests: valid simulate, simulate errors
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.
+
+---
+
+ISSUE 9 BODY:
+The contract uses `checked_bps_amount()` to calculate payout shares, which protects against overflow during the multiplication step. However, basis point calculations appear in multiple places (initialize validation, distribution payouts, secondary royalty distribution), and while the core math function is safe, there may be edge cases where:
+- Large amounts × basis points overflow before the safe function is called
+- Rounding dust could theoretically cause inconsistencies if not properly bounded
+- Integer division could lose precision on small amounts
+
+**Relevant files:**
+- `src/lib.rs` - checked_bps_amount function (lines ~80–90)
+- `src/lib.rs` - distribution logic calling checked_bps_amount
+
+## Solution
+
+Conduct a thorough audit of all basis point calculations. Document the bounds and assumptions (e.g., max amount, max basis points, max collaborators). Add property-based tests (proptest) to verify that:
+1. Total payout ≤ input amount
+2. Total payout ≥ input amount - (collaborators - 1) stroops (rounding bound)
+3. No overflow for any valid (amount, basis) pair within Stellar's bounds
+
+## Acceptance Criteria
+
+- [ ] Review all basis point calculations and document assumptions
+- [ ] Add property-based tests using proptest for various amount/basis combinations
+- [ ] Verify no overflow occurs for max i128 amounts and 10,000 basis points
+- [ ] Verify rounding dust is always ≤ (collaborators - 1) stroops
+- [ ] Document the audit findings in a comment or new doc file
+- [ ] All new and existing tests pass
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.
+
+---
+
+ISSUE 10 BODY:
+The InitializeForm component allows users to enter collaborators and shares, but validation feedback is minimal. Users don't see errors until after they attempt to submit, and errors (e.g., "shares must sum to 10,000") are generic backend responses rather than specific field-level guidance. No real-time validation prevents invalid submissions early.
+
+**Relevant files:**
+- `frontend/src/components/InitializeForm.tsx` - form logic
+- `frontend/src/api.ts` - API calls
+
+## Solution
+
+Add real-time validation to InitializeForm:
+1. Validate shares sum to 10,000 as user edits
+2. Validate each Stellar address format before submission
+3. Validate no duplicate addresses
+4. Show field-level error messages (red highlights, helper text)
+5. Disable submit button until form is valid
+
+## Acceptance Criteria
+
+- [ ] Shares sum validation runs as user types and shows error if not 10,000
+- [ ] Stellar address validation checks format for each collaborator
+- [ ] Duplicate address detection shows inline error
+- [ ] Error messages are clear and actionable ("Shares must total 10,000", not "Invalid request")
+- [ ] Submit button is disabled until form passes all validations
+- [ ] Add unit tests for form validation logic
+
+## Note for Contributors
+
+If you're assigned to this issue, write a better description for your PR. Clearly explain what was changed, why it was needed, how it was implemented, and how it was tested.

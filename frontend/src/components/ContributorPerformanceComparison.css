@@ -1,0 +1,113 @@
+.contributor-performance {
+  overflow: hidden;
+}
+
+.performance-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted-text-color, #718096);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.performance-sort select {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border-color, #cbd5e0);
+  border-radius: 6px;
+  background: var(--input-bg, #fff);
+  color: var(--text-color, #1a202c);
+}
+
+.performance-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.performance-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border-radius: 9px;
+  background: var(--bg-secondary, #f7fafc);
+  border: 1px solid var(--border-color, #edf2f7);
+}
+
+.performance-stat span,
+.performance-stat small {
+  color: var(--muted-text-color, #718096);
+}
+
+.performance-stat span {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.performance-stat strong {
+  overflow: hidden;
+  color: var(--heading-color, #2d3748);
+  font-size: 1.1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.performance-stat small {
+  font-size: 0.76rem;
+}
+
+.performance-stat-alert strong {
+  color: #b45309;
+}
+
+.performance-empty {
+  margin: 0;
+  color: var(--muted-text-color, #718096);
+  text-align: center;
+}
+
+.performance-table th,
+.performance-table td {
+  white-space: nowrap;
+}
+
+.performance-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.performance-status.active {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.performance-status.inactive {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+
+@media (max-width: 700px) {
+  .performance-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .performance-sort {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .performance-status {
+    transition: none;
+  }
+}

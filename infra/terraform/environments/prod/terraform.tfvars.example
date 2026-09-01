@@ -1,0 +1,34 @@
+# Production values.
+#
+# Copy to terraform.tfvars. Unlike dev, several of these have no default and
+# the apply will refuse to run until they are supplied — see the validation
+# blocks in variables.tf.
+
+aws_region = "us-east-1"
+vpc_cidr   = "10.30.0.0/16"
+
+instance_type       = "t3.medium"
+data_volume_size_gb = 100
+
+# REQUIRED. Use ["0.0.0.0/0"] if the API is genuinely public — the point is
+# that it is a stated decision rather than an inherited default.
+allowed_ingress_cidrs = ["0.0.0.0/0"]
+
+# REQUIRED. Production must not serve the API over plain HTTP.
+certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE_ME"
+
+# REQUIRED. At least one address; alarms nobody receives are not monitoring.
+alert_email_addresses = ["oncall@example.com"]
+
+# Frontend custom domain. The certificate must be issued in us-east-1 —
+# CloudFront reads certificates only from that region.
+# frontend_domain_aliases  = ["app.example.com"]
+# frontend_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE_ME"
+
+# SecurityHeadersPolicy, the AWS managed policy supplying HSTS and friends.
+# response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"
+
+# WAFv2 web ACL. Must be scoped CLOUDFRONT and created in us-east-1.
+# web_acl_arn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/..."
+
+# alb_access_logs_bucket = "srs-prod-alb-logs-123456789012"

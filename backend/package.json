@@ -1,0 +1,70 @@
+{
+  "name": "stellar-royalty-splitter-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "lint": "eslint src/**/*.js",
+    "format": "prettier --write src/**/*.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",
+    "test:backend": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/ --coverage",
+    "test:fuzz": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.fuzz.config.js",
+    "bench": "node benchmarks/index.js",
+    "bench:ci": "node benchmarks/index.js --repeat 3",
+    "bench:compare": "node benchmarks/compare.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 30000,
+    "transform": {},
+    "moduleNameMapper": {
+      "^better-sqlite3$": "<rootDir>/__mocks__/better-sqlite3.js"
+    },
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/database/index.js",
+      "!src/database.js"
+    ],
+    "coverageReporters": [
+      "text",
+      "text-summary",
+      "json-summary",
+      "lcov"
+    ],
+    "coverageDirectory": "coverage"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.0",
+    "supertest": "^7.2.2"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.57.0",
+    "@opentelemetry/resources": "1.30.0",
+    "@opentelemetry/sdk-node": "0.57.0",
+    "@opentelemetry/semantic-conventions": "1.30.0",
+    "@apollo/server": "^4.10.0",
+    "@stellar/stellar-sdk": "^12.0.0",
+    "better-sqlite3": "^9.2.0",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "express-rate-limit": "^8.3.2",
+    "graphql": "^16.8.0",
+    "helmet": "^8.1.0",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
+    "prom-client": "^15.0.0",
+    "winston": "^3.19.0",
+    "ws": "^8.21.1",
+    "zod": "^3.22.4"
+  }
+}

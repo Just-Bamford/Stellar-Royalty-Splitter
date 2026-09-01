@@ -1,0 +1,165 @@
+.tax-compliance-report {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.report-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.report-refresh-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #666);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.report-refresh-btn:hover {
+  background: var(--hover-bg, #f0f0f0);
+}
+
+.tax-report-loading {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary, #888);
+}
+
+.tax-report-error {
+  padding: 12px 16px;
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 8px;
+  color: #c0392b;
+  margin-bottom: 16px;
+}
+
+.report-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.report-card {
+  padding: 16px;
+  border-radius: 10px;
+  text-align: center;
+  border: 1px solid var(--border-color, #e0e0e0);
+}
+
+.report-card-value {
+  display: block;
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.report-card-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #666);
+}
+
+.report-card.compliant { border-color: rgba(39, 174, 96, 0.3); }
+.report-card.compliant .report-card-value { color: #27ae60; }
+.report-card.non-compliant { border-color: rgba(231, 76, 60, 0.3); }
+.report-card.non-compliant .report-card-value { color: #e74c3c; }
+.report-card.missing { border-color: rgba(243, 156, 18, 0.3); }
+.report-card.missing .report-card-value { color: #f39c12; }
+
+.report-section {
+  margin-bottom: 20px;
+}
+
+.report-section h4 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.report-table-wrapper {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.report-table th {
+  background: var(--hover-bg, #f5f5f5);
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  position: sticky;
+  top: 0;
+}
+
+.report-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.compliance-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.compliance-badge.compliant {
+  background: rgba(39, 174, 96, 0.1);
+  color: #27ae60;
+}
+
+.compliance-badge.non_compliant {
+  background: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
+}
+
+.compliance-badge.missing {
+  background: rgba(243, 156, 18, 0.1);
+  color: #f39c12;
+}
+
+.missing-section {
+  margin-top: 20px;
+}
+
+.missing-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(243, 156, 18, 0.05);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+
+.missing-status {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+  margin-left: auto;
+}
