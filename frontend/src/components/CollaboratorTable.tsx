@@ -1,8 +1,17 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+
 import { api } from "../api";
 import { queryClient } from "../lib/queryClient";
 import { TableSkeleton } from "./Skeleton";
 import CollaboratorAllocationChart from "./CollaboratorAllocationChart";
+import {
+  buildCollaboratorsCSV,
+  buildCollaboratorsJSON,
+  buildExportFilename,
+  downloadCSV,
+  downloadJSON,
+  type CollaboratorExportItem,
+} from "../utils/export";
 import "./CollaboratorTable.css";
 
 interface Collaborator {
@@ -26,6 +35,7 @@ interface ActiveFilters {
   shareRange: ShareRange;
   paymentStatus: PaymentStatus;
 }
+
 
 const SHARE_RANGE_LABELS: Record<ShareRange, string> = {
   all: "All shares",
@@ -102,6 +112,8 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
   const [retryCount, setRetryCount] = useState(0);
   const [sort, setSort] = useState<SortKey>("share");
   const [copied, setCopied] = useState<string | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+
 
   // ── debounced search ──────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState("");
@@ -243,6 +255,84 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     setFilters({ shareRange: "all", paymentStatus: "all" });
   }
 
+  /* ── Compute filtered & sorted list (must be before render guards for hooks) ── */
+  const searchLower = search.toLowerCase();
+  const filtered = useMemo(() => {
+    return collaborators
+      .filter((c) => {
+        // Share range filter
+        if (!matchesShareRange(c.basisPoints, filters.shareRange)) return false;
+        // Payment status filter
+        if (paymentData && filters.paymentStatus !== "all") {
+          const payoutCount = paymentData.get(c.address) ?? 0;
+          if (filters.paymentStatus === "paid" && payoutCount === 0) return false;
+          if (filters.paymentStatus === "unpaid" && payoutCount > 0) return false;
+        }
+        // Search filter: address + name
+        if (searchLower) {
+          const name = names.get(c.address);
+          const matchesAddress = c.address.toLowerCase().includes(searchLower);
+          const matchesName = name
+            ? name.toLowerCase().includes(searchLower)
+            : false;
+          if (!matchesAddress && !matchesName) return false;
+        }
+        return true;
+      })
+      .sort((a, b) =>
+        sort === "address"
+          ? a.address.localeCompare(b.address)
+          : b.basisPoints - a.basisPoints,
+      );
+  }, [collaborators, filters, paymentData, searchLower, names, sort]);
+
+  const isFiltered = hasActiveFilters();
+
+  const getExportItems = useCallback((): CollaboratorExportItem[] => {
+    return filtered.map((c) => {
+      const name = names.get(c.address);
+      const tier = tierData?.get(c.address);
+      const payoutCount = paymentData?.get(c.address);
+      let paymentStatus: "Paid" | "Unpaid" | "Unknown" = "Unknown";
+      if (paymentData !== null) {
+        paymentStatus = (payoutCount ?? 0) > 0 ? "Paid" : "Unpaid";
+      }
+      return {
+        address: c.address,
+        name: name || undefined,
+        basisPoints: c.basisPoints,
+        sharePercentage: +(c.basisPoints / 100).toFixed(2),
+        tier: tier || undefined,
+        paymentStatus,
+        payoutCount: payoutCount ?? 0,
+      };
+    });
+  }, [filtered, names, tierData, paymentData]);
+
+  const handleExportCSV = useCallback(() => {
+    setExportMenuOpen(false);
+    const items = getExportItems();
+    const csv = buildCollaboratorsCSV(items);
+    const filename = buildExportFilename("collaborators", "csv", contractId);
+    downloadCSV(csv, filename);
+  }, [getExportItems, contractId]);
+
+  const handleExportJSON = useCallback(() => {
+    setExportMenuOpen(false);
+    const items = getExportItems();
+    const json = buildCollaboratorsJSON(items, {
+      contractId,
+      activeFilters: {
+        shareRange: filters.shareRange,
+        paymentStatus: filters.paymentStatus,
+        searchQuery: search || undefined,
+        isFiltered,
+      },
+    });
+    const filename = buildExportFilename("collaborators", "json", contractId);
+    downloadJSON(json, filename);
+  }, [getExportItems, contractId, filters, search, isFiltered]);
+
   /* ── Render guards ──────────────────────────────────────────────────── */
   if (!contractId) return null;
   if (loading)
@@ -276,36 +366,6 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       </div>
     );
 
-  /* ── Compute filtered & sorted list ─────────────────────────────────── */
-  const searchLower = search.toLowerCase();
-  const filtered = collaborators
-    .filter((c) => {
-      // Share range filter
-      if (!matchesShareRange(c.basisPoints, filters.shareRange)) return false;
-      // Payment status filter
-      if (paymentData && filters.paymentStatus !== "all") {
-        const payoutCount = paymentData.get(c.address) ?? 0;
-        if (filters.paymentStatus === "paid" && payoutCount === 0) return false;
-        if (filters.paymentStatus === "unpaid" && payoutCount > 0) return false;
-      }
-      // Search filter: address + name
-      if (searchLower) {
-        const name = names.get(c.address);
-        const matchesAddress = c.address.toLowerCase().includes(searchLower);
-        const matchesName = name
-          ? name.toLowerCase().includes(searchLower)
-          : false;
-        if (!matchesAddress && !matchesName) return false;
-      }
-      return true;
-    })
-    .sort((a, b) =>
-      sort === "address"
-        ? a.address.localeCompare(b.address)
-        : b.basisPoints - a.basisPoints,
-    );
-
-  const isFiltered = hasActiveFilters();
   const filterChips: { label: string; onRemove: () => void }[] = [];
 
   if (filters.shareRange !== "all") {
@@ -331,6 +391,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       },
     });
   }
+
 
   return (
     <div className="card collab-table-card">
@@ -433,7 +494,42 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             Share ↓
           </button>
         </div>
+
+        {/* ── Export dropdown (#896) ──────────────────────────────────── */}
+        <div className="collab-export-dropdown" data-testid="collab-export-dropdown">
+          <button
+            type="button"
+            className="collab-export-btn"
+            onClick={() => setExportMenuOpen((open) => !open)}
+            aria-haspopup="true"
+            aria-expanded={exportMenuOpen}
+            aria-label="Export collaborator data"
+          >
+            ⬇️ Export {isFiltered ? `(${filtered.length})` : ""}
+          </button>
+          {exportMenuOpen && (
+            <div className="collab-export-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleExportCSV}
+                data-testid="export-collaborators-csv"
+              >
+                📄 Export as CSV
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleExportJSON}
+                data-testid="export-collaborators-json"
+              >
+                📋 Export as JSON
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
       {/* ── Active filter chips ───────────────────────────────────────── */}
       {filterChips.length > 0 && (
         <div className="collab-active-filters">

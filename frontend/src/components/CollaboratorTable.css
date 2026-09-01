@@ -443,3 +443,67 @@
 
 .dark .tier-badge--vip    { background: #78350f; color: #fde68a; border-color: #92400e; }
 .dark .tier-badge--trial  { background: #1e3a8a; color: #bfdbfe; border-color: #1e40af; }
+
+/* ── Export Dropdown (#896) ──────────────────────────────────────────────── */
+.collab-export-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.collab-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #1e293b);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.collab-export-btn:hover {
+  background: var(--bg-secondary, #f8fafc);
+  border-color: var(--accent-primary, #6366f1);
+  color: var(--accent-primary, #6366f1);
+}
+
+.collab-export-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  min-width: 160px;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.collab-export-menu button {
+  width: 100%;
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #1e293b);
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.15s ease);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.collab-export-menu button:hover {
+  background: var(--bg-secondary, #f1f5f9);
+  color: var(--accent-primary, #6366f1);
+}
+

@@ -727,4 +727,57 @@ describe("CollaboratorTable allocation chart", () => {
     rerender(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={1} />);
     await waitFor(() => expect(mockGetCollaborators).toHaveBeenCalledTimes(2));
   });
+
+  /* ── Multi-format Export (#896) ────────────────────────────────────────── */
+  describe("Multi-format Export (#896)", () => {
+    it("renders export button and toggles dropdown menu", async () => {
+      setup();
+      await waitFor(() => expect(screen.getByText(/Showing/i)).toBeInTheDocument());
+
+      const exportBtn = screen.getByRole("button", { name: /Export collaborator data/i });
+      expect(exportBtn).toBeInTheDocument();
+      expect(screen.queryByTestId("export-collaborators-csv")).not.toBeInTheDocument();
+
+      // Click to open menu
+      fireEvent.click(exportBtn);
+      expect(screen.getByTestId("export-collaborators-csv")).toBeInTheDocument();
+      expect(screen.getByTestId("export-collaborators-json")).toBeInTheDocument();
+    });
+
+    it("triggers CSV and JSON downloads when clicking menu options", async () => {
+      setup();
+      await waitFor(() => expect(screen.getByText(/Showing/i)).toBeInTheDocument());
+
+      const exportBtn = screen.getByRole("button", { name: /Export collaborator data/i });
+      fireEvent.click(exportBtn);
+
+      const csvOption = screen.getByTestId("export-collaborators-csv");
+      fireEvent.click(csvOption);
+
+      // Menu closes after click
+      expect(screen.queryByTestId("export-collaborators-csv")).not.toBeInTheDocument();
+
+      // Open and click JSON
+      fireEvent.click(exportBtn);
+      const jsonOption = screen.getByTestId("export-collaborators-json");
+      fireEvent.click(jsonOption);
+      expect(screen.queryByTestId("export-collaborators-json")).not.toBeInTheDocument();
+    });
+
+    it("updates export button text when filters are active", async () => {
+      setup();
+      await waitFor(() => expect(screen.getByText(/Showing/i)).toBeInTheDocument());
+
+      // Filter by share > 10%
+      const shareSelect = screen.getByLabelText("Filter by share percentage");
+      fireEvent.change(shareSelect, { target: { value: "gt10" } });
+
+      await waitFor(() => {
+        const exportBtn = screen.getByRole("button", { name: /Export collaborator data/i });
+        expect(exportBtn.textContent).toContain("Export (2)");
+      });
+    });
+  });
 });
+
+

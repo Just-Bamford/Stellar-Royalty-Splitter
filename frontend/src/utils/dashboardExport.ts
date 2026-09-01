@@ -25,12 +25,16 @@ export function buildExportFilename(
 
 function escapeCSVField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
-  const str = String(value);
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
 }
+
 
 /** Builds a CSV table from a list of homogeneous row objects. */
 export function buildDashboardCSV<T extends object>(
