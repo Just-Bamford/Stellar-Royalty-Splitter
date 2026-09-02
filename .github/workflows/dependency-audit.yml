@@ -92,7 +92,7 @@ jobs:
             ${{ runner.os }}-cargo-audit-
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        run: cargo install cargo-audit --locked --force
 
       # Advisories that are known, reviewed, and cannot currently be fixed are
       # listed explicitly in .cargo/audit.toml with a rationale and a review

@@ -95,6 +95,10 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
+      - name: Install shared dependencies
+        working-directory: shared
+        run: npm ci
+
       - name: Install dependencies
         run: npm ci
 
