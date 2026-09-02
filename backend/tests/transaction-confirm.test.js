@@ -39,6 +39,13 @@ await jest.unstable_mockModule("../src/webhook-delivery.js", () => ({
   deliverDistributeWebhooks,
 }));
 
+await jest.unstable_mockModule("../src/cache.js", () => ({
+  cacheSet: jest.fn(),
+  cacheGet: jest.fn(),
+  cacheKey: jest.fn(),
+  TTL: { history: 60000 },
+}));
+
 const { default: historyRouter } = await import("../src/routes/history.js");
 
 import express from "express";
@@ -91,7 +98,7 @@ describe("POST /api/v1/transaction/confirm/:txHash", () => {
       TX_HASH,
       "confirmed",
       "2026-05-31T12:00:00.000Z",
-      null,
+      null
     );
     expect(deliverDistributeWebhooks).toHaveBeenCalled();
   });
@@ -137,9 +144,7 @@ describe("POST /api/v1/transaction/confirm/:txHash", () => {
   });
 
   test("400 for invalid hash format", async () => {
-    const res = await request(app)
-      .post("/api/v1/transaction/confirm/not-a-hash")
-      .send({});
+    const res = await request(app).post("/api/v1/transaction/confirm/not-a-hash").send({});
 
     expect(res.status).toBe(400);
   });
@@ -157,9 +162,7 @@ describe("POST /api/v1/transaction/confirm/:txHash", () => {
       message: "Transaction not confirmed within 60000ms",
     });
 
-    const res = await request(app)
-      .post(`/api/v1/transaction/confirm/${TX_HASH}`)
-      .send({});
+    const res = await request(app).post(`/api/v1/transaction/confirm/${TX_HASH}`).send({});
 
     expect(res.status).toBe(504);
   });

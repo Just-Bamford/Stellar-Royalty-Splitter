@@ -42,6 +42,13 @@ await jest.unstable_mockModule("../src/webhook-delivery.js", () => ({
   deliverDistributeWebhooks: jest.fn(),
 }));
 
+await jest.unstable_mockModule("../src/cache.js", () => ({
+  cacheSet: jest.fn(),
+  cacheGet: jest.fn(),
+  cacheKey: jest.fn(),
+  TTL: { history: 60000 },
+}));
+
 const historyRouter = (await import("../src/routes/history.js")).default;
 
 const app = express();
@@ -75,15 +82,14 @@ describe("GET /api/v1/history/:contractId — recipient address search (#675)", 
     getTransactionHistory.mockReturnValue(makeRows(2));
     getTransactionCount.mockReturnValue(2);
 
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?recipient=${WALLET_B}`);
+    const res = await request(app).get(`/api/v1/history/${CONTRACT}?recipient=${WALLET_B}`);
 
     expect(res.status).toBe(200);
     expect(getTransactionHistory).toHaveBeenCalledWith(
       CONTRACT,
       expect.any(Number),
       expect.any(Number),
-      expect.objectContaining({ recipient: WALLET_B }),
+      expect.objectContaining({ recipient: WALLET_B })
     );
   });
 
@@ -91,8 +97,7 @@ describe("GET /api/v1/history/:contractId — recipient address search (#675)", 
     getTransactionHistory.mockReturnValue([]);
     getTransactionCount.mockReturnValue(0);
 
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?recipient=GNOBODY`);
+    const res = await request(app).get(`/api/v1/history/${CONTRACT}?recipient=GNOBODY`);
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(0);
@@ -117,15 +122,14 @@ describe("GET /api/v1/history/:contractId — date range filtering (#675)", () =
     getTransactionHistory.mockReturnValue(makeRows(3));
     getTransactionCount.mockReturnValue(3);
 
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?startDate=2024-01-01`);
+    const res = await request(app).get(`/api/v1/history/${CONTRACT}?startDate=2024-01-01`);
 
     expect(res.status).toBe(200);
     expect(getTransactionHistory).toHaveBeenCalledWith(
       CONTRACT,
       expect.any(Number),
       expect.any(Number),
-      expect.objectContaining({ startDate: "2024-01-01" }),
+      expect.objectContaining({ startDate: "2024-01-01" })
     );
   });
 
@@ -133,15 +137,14 @@ describe("GET /api/v1/history/:contractId — date range filtering (#675)", () =
     getTransactionHistory.mockReturnValue(makeRows(1));
     getTransactionCount.mockReturnValue(1);
 
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?endDate=2024-12-31`);
+    const res = await request(app).get(`/api/v1/history/${CONTRACT}?endDate=2024-12-31`);
 
     expect(res.status).toBe(200);
     expect(getTransactionHistory).toHaveBeenCalledWith(
       CONTRACT,
       expect.any(Number),
       expect.any(Number),
-      expect.objectContaining({ endDate: "2024-12-31" }),
+      expect.objectContaining({ endDate: "2024-12-31" })
     );
   });
 
@@ -149,28 +152,27 @@ describe("GET /api/v1/history/:contractId — date range filtering (#675)", () =
     getTransactionHistory.mockReturnValue(makeRows(2));
     getTransactionCount.mockReturnValue(2);
 
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?startDate=2024-01-01&endDate=2024-06-30`);
+    const res = await request(app).get(
+      `/api/v1/history/${CONTRACT}?startDate=2024-01-01&endDate=2024-06-30`
+    );
 
     expect(res.status).toBe(200);
     expect(getTransactionHistory).toHaveBeenCalledWith(
       CONTRACT,
       expect.any(Number),
       expect.any(Number),
-      expect.objectContaining({ startDate: "2024-01-01", endDate: "2024-06-30" }),
+      expect.objectContaining({ startDate: "2024-01-01", endDate: "2024-06-30" })
     );
   });
 
   test("returns 400 for an invalid startDate", async () => {
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?startDate=not-a-date`);
+    const res = await request(app).get(`/api/v1/history/${CONTRACT}?startDate=not-a-date`);
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/startDate/i);
   });
 
   test("returns 400 for an invalid endDate", async () => {
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?endDate=bad-date`);
+    const res = await request(app).get(`/api/v1/history/${CONTRACT}?endDate=bad-date`);
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/endDate/i);
   });
@@ -184,7 +186,7 @@ describe("GET /api/v1/history/:contractId — combined filters (#675)", () => {
     getTransactionCount.mockReturnValue(1);
 
     const res = await request(app).get(
-      `/api/v1/history/${CONTRACT}?type=distribute&recipient=${WALLET_A}&startDate=2024-01-01&endDate=2024-12-31`,
+      `/api/v1/history/${CONTRACT}?type=distribute&recipient=${WALLET_A}&startDate=2024-01-01&endDate=2024-12-31`
     );
 
     expect(res.status).toBe(200);
@@ -197,7 +199,7 @@ describe("GET /api/v1/history/:contractId — combined filters (#675)", () => {
         recipient: WALLET_A,
         startDate: "2024-01-01",
         endDate: "2024-12-31",
-      },
+      }
     );
   });
 
@@ -206,7 +208,7 @@ describe("GET /api/v1/history/:contractId — combined filters (#675)", () => {
     getTransactionCount.mockReturnValue(0);
 
     const res = await request(app).get(
-      `/api/v1/history/${CONTRACT}?type=initialize&recipient=${WALLET_B}`,
+      `/api/v1/history/${CONTRACT}?type=initialize&recipient=${WALLET_B}`
     );
 
     expect(res.status).toBe(200);
@@ -227,15 +229,21 @@ describe("GET /api/v1/history/:contractId — filter reset / no filters (#675)",
     const res = await request(app).get(`/api/v1/history/${CONTRACT}`);
 
     expect(res.status).toBe(200);
-    expect(getTransactionHistory).toHaveBeenCalledWith(CONTRACT, expect.any(Number), expect.any(Number), {});
+    expect(getTransactionHistory).toHaveBeenCalledWith(
+      CONTRACT,
+      expect.any(Number),
+      expect.any(Number),
+      {}
+    );
   });
 
   test("pagination meta is correct after applying filters that reduce results", async () => {
     getTransactionHistory.mockReturnValue(makeRows(2));
     getTransactionCount.mockReturnValue(2);
 
-    const res = await request(app)
-      .get(`/api/v1/history/${CONTRACT}?recipient=${WALLET_B}&limit=10&offset=0`);
+    const res = await request(app).get(
+      `/api/v1/history/${CONTRACT}?recipient=${WALLET_B}&limit=10&offset=0`
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.pagination.total).toBe(2);

@@ -137,6 +137,13 @@ describe("Public audit API surface (backend/src/routes/history.js)", () => {
       deliverDistributeWebhooks: jest.fn(),
     }));
 
+    await jest.unstable_mockModule("../src/cache.js", () => ({
+      cacheSet: jest.fn(),
+      cacheGet: jest.fn(),
+      cacheKey: jest.fn(),
+      TTL: { history: 60000 },
+    }));
+
     const { default: historyRouter } = await import("../src/routes/history.js");
     app = express();
     app.use(express.json());

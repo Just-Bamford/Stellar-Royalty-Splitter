@@ -31,6 +31,9 @@ class MockBatchTransactionBuilder {
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   BatchTransactionBuilder: MockBatchTransactionBuilder,
+  pollHorizonTransaction: jest.fn(),
+  buildTx: jest.fn(),
+  retryBuildTx: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));

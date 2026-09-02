@@ -37,6 +37,13 @@ export function configureCache(fn) {
 }
 
 /**
+ * Generate a deterministic cache key from arguments.
+ */
+export function cacheKey(...parts) {
+  return parts.map((p) => String(p)).join(":");
+}
+
+/**
  * Store a value in the cache with an optional TVL (defaults to CACHE_TTL_MS).
  * Records the fetch time and expiry time.
  */
@@ -128,7 +135,11 @@ export function refreshContract(key) {
  * @param {number} intervalMs - How often to run the scheduler.
  * @param {number} batchSize - Max number of contracts to refresh per tick.
  */
-export function startCacheWarmingScheduler(getActiveContracts, intervalMs = 60_000, batchSize = 10) {
+export function startCacheWarmingScheduler(
+  getActiveContracts,
+  intervalMs = 60_000,
+  batchSize = 10
+) {
   if (typeof getActiveContracts !== "function") {
     throw new TypeError("getActiveContracts must be a function");
   }
@@ -162,6 +173,10 @@ export function recordAccess(key) {
 
 export { metrics };
 
+export const TTL = {
+  history: TTL_MS,
+};
+
 export function getMetrics() {
   return { ...metrics };
 }
@@ -180,3 +195,6 @@ export function __test__clear() {
   accessCount.clear();
   resetMetrics();
 }
+
+// Alias for tests that import clearCache
+export const clearCache = __test__clear;

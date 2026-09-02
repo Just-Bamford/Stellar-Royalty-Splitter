@@ -9,10 +9,13 @@ import {
   MAX_NFT_ID_LENGTH,
   MAX_SALE_PRICE,
 } from "../src/validation.js";
-
-const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const WALLET = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-const TOKEN = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+import {
+  VALID_CONTRACT_ID as CONTRACT,
+  VALID_WALLET_A as WALLET,
+  VALID_WALLET_B,
+  VALID_WALLET_C,
+  VALID_TOKEN_ID as TOKEN,
+} from "./test-helpers.js";
 
 // ── initializeSchema ─────────────────────────────────────────────────────────
 
@@ -25,7 +28,10 @@ describe("initializeSchema — input size validation", () => {
   };
 
   test("accepts exactly MAX_COLLABORATORS collaborators", () => {
-    const collab = Array(MAX_COLLABORATORS).fill(WALLET);
+    const testWallets = [WALLET, VALID_WALLET_B, VALID_WALLET_C];
+    const collab = Array(MAX_COLLABORATORS)
+      .fill(null)
+      .map((_, i) => testWallets[i % testWallets.length]);
     const shares = Array(MAX_COLLABORATORS).fill(Math.floor(10000 / MAX_COLLABORATORS));
     // Adjust last share so they sum to 10000
     shares[MAX_COLLABORATORS - 1] += 10000 - shares.reduce((a, b) => a + b, 0);
@@ -39,7 +45,10 @@ describe("initializeSchema — input size validation", () => {
 
   test("rejects more than MAX_COLLABORATORS collaborators", () => {
     const n = MAX_COLLABORATORS + 1;
-    const collab = Array(n).fill(WALLET);
+    const testWallets = [WALLET, VALID_WALLET_B, VALID_WALLET_C];
+    const collab = Array(n)
+      .fill(null)
+      .map((_, i) => testWallets[i % testWallets.length]);
     const shareVal = Math.floor(10000 / n);
     const shares = Array(n).fill(shareVal);
     shares[n - 1] += 10000 - shares.reduce((a, b) => a + b, 0);
@@ -65,7 +74,7 @@ describe("initializeSchema — input size validation", () => {
   test("rejects mismatched collaborators and shares lengths", () => {
     const result = initializeSchema.safeParse({
       ...validBase,
-      collaborators: [WALLET, WALLET],
+      collaborators: [WALLET, VALID_WALLET_B],
       shares: [10000],
     });
     expect(result.success).toBe(false);

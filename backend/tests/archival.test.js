@@ -14,12 +14,8 @@ await jest.unstable_mockModule("../src/database/core.js", () => ({
   countWrite,
 }));
 
-const {
-  archiveContractEvents,
-  getArchiveCutoffDate,
-  getArchivedEvents,
-  updateArchivePolicy,
-} = await import("../src/database/archive.js");
+const { archiveContractEvents, getArchiveCutoffDate, getArchivedEvents, updateArchivePolicy } =
+  await import("../src/database/archive.js");
 
 describe("contract event archival database strategy", () => {
   beforeEach(() => {
@@ -74,7 +70,11 @@ describe("contract event archival database strategy", () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(all).toHaveBeenCalledWith("2026-04-01T00:00:00.000Z", 2);
     expect(run).toHaveBeenCalledTimes(2);
-    expect(prepare.mock.calls.some(([sql]) => sql.includes("INSERT OR IGNORE INTO contract_event_archive"))).toBe(true);
+    expect(
+      prepare.mock.calls.some(([sql]) =>
+        sql.includes("INSERT OR IGNORE INTO contract_event_archive")
+      )
+    ).toBe(true);
     expect(prepare.mock.calls.some(([sql]) => sql.includes("DELETE FROM transactions"))).toBe(true);
     expect(countWrite).toHaveBeenCalledTimes(1);
   });
@@ -97,7 +97,11 @@ describe("contract event archival database strategy", () => {
       ]),
     });
 
-    const rows = getArchivedEvents("CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 10, 0);
+    const rows = getArchivedEvents(
+      "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      10,
+      0
+    );
 
     expect(rows).toHaveLength(1);
     expect(rows[0].payouts).toEqual([
@@ -163,6 +167,13 @@ await jest.unstable_mockModule("../src/webhook-delivery.js", () => ({
   deliverDistributeWebhooks: jest.fn(),
 }));
 
+await jest.unstable_mockModule("../src/cache.js", () => ({
+  cacheSet: jest.fn(),
+  cacheGet: jest.fn(),
+  cacheKey: jest.fn(),
+  TTL: { history: 60000 },
+}));
+
 const { default: historyRouter } = await import("../src/routes/history.js");
 
 const app = express();
@@ -175,7 +186,9 @@ describe("contract event archival routes", () => {
   });
 
   test("returns archived events through the archive query endpoint", async () => {
-    routeGetArchivedEvents.mockReturnValue([{ id: 1, contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }]);
+    routeGetArchivedEvents.mockReturnValue([
+      { id: 1, contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+    ]);
     routeGetArchivedEventCount.mockReturnValue(1);
 
     const res = await request(app)
@@ -190,7 +203,7 @@ describe("contract event archival routes", () => {
     expect(routeGetArchivedEvents).toHaveBeenCalledWith(
       "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       10,
-      0,
+      0
     );
   });
 
@@ -203,9 +216,7 @@ describe("contract event archival routes", () => {
       durationMs: 18,
     });
 
-    const res = await request(app)
-      .post("/api/v1/archive/run")
-      .send({ batchSize: 500 });
+    const res = await request(app).post("/api/v1/archive/run").send({ batchSize: 500 });
 
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({
