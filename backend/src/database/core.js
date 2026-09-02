@@ -55,7 +55,7 @@ export function initializeDatabase() {
   const migrations = [
     {
       version: 1,
-      sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
+      sql: `/* initial schema  already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
       version: 3,
@@ -119,7 +119,7 @@ export function initializeDatabase() {
           totalRoyaltiesDistributed TEXT NOT NULL,
           numberOfSales INTEGER NOT NULL,
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(transactionId) REFERENCES transactions(id) On DELETE CASCADE                    );
+          FOREIGN KEY(transactionId) REFERENCES transactions(id) On DELETE CASCADE                    );
         INSERT OR IGNORE INTO secondary_royalty_distributions_new
           SELECT id, transactionId, contractId, totalRoyaltiesDistributed, numberOfSales, timestamp
           FROM secondary_royalty_distributions;
@@ -136,7 +136,7 @@ export function initializeDatabase() {
       sql: `
         CREATE TABLE IF NOT EXISTS payment_preferences (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-        walletAddress TEXT NOT NULL UNIQUE,
+        walletAddress TEXT NOT NULL UNIQUE,
           paymentMethod TEXT NOT NULL CHECK(paymentMethod IN ('direct_transfer', 'usdc', 'zlm')),
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -188,7 +188,7 @@ export function initializeDatabase() {
       `,
     },
     {
-      // #572: Role-Based Access Control — users and API key tables
+      // #572: Role-Based Access Control  users and API key tables
       version: 8,
       sql: `
           CREATE TABLE IF NOT EXISTS users (
@@ -203,7 +203,7 @@ export function initializeDatabase() {
 
           CREATE TABLE IF NOT EXISTS api_keys (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            keyHash TEXT NOT NULL UNIQUE,
+            keyHash TEXT NOT NULL UNIQUE,
             userId INTEGER NOT NULL,
             expiresAt DATETIME,
             createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -357,7 +357,7 @@ export function getMigrationVersion() {
 }
 
 /**
- * Quick database health check — returns connection status, response time,
+ * Quick database health check  returns connection status, response time,
  * migration version, WAL mode, and table count.
  */
 export function checkDatabase() {

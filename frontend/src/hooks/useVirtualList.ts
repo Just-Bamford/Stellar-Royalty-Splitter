@@ -42,76 +42,76 @@ export default function useVirtualList(
     onMeasure,
     enableKeyboardNavigation = false,
   } = options;
+
   const container = containerRef.current;
-
-  const [totalHeight] = useState(() =>
-    typeof itemHeight === "number"
-      ? itemCount * itemHeight
-      : itemCount * DEFAULT_ITEM_HEIGHT,
-  );
-
   const [scrollTop, setScrollTop] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
-  const [virtualItems, setVirtualItems] = useState<
-    UseVirtualListResult["virtualItems"]
-  >([]);
-  const [startIndex, setStartIndex] = useState(0);
-  const [endIndex, setEndIndex] = useState(Math.min(itemCount, 10));
+
+  const totalHeight =
+    typeof itemHeight === "number"
+      ? itemCount * itemHeight
+      : itemCount * DEFAULT_ITEM_HEIGHT;
+
+  const containerHeight = container?.clientHeight ?? 0;
+
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / DEFAULT_ITEM_HEIGHT) - overscan,
+  );
+  const endIndex = Math.min(
+    itemCount,
+    Math.ceil((scrollTop + containerHeight) / DEFAULT_ITEM_HEIGHT) + overscan,
+  );
+
+  const virtualItems = Array.from({
+    length: Math.max(0, endIndex - startIndex),
+  }).map((_, i) => {
+    const index = startIndex + i;
+    return {
+      index,
+      start: index * DEFAULT_ITEM_HEIGHT,
+      size: DEFAULT_ITEM_HEIGHT,
+      offsetTop: index * DEFAULT_ITEM_HEIGHT,
+    };
+  });
 
   const scrollToIndex = useCallback(
-    (index: number, _align: "auto" | "top" | "bottom" | "center" = "auto") => {
+    (index: number, align: "auto" | "top" | "bottom" | "center" = "auto") => {
       if (!container) return;
-      const itemH =
-        typeof itemHeight === "number" ? itemHeight : DEFAULT_ITEM_HEIGHT;
-      const offset = index * itemH;
+      const offset = index * DEFAULT_ITEM_HEIGHT;
       container.scrollTop = offset;
-      setScrollTop(offset);
     },
-    [container, itemHeight],
+    [container],
   );
 
   const scrollToOffset = useCallback(
     (offset: number) => {
       if (!container) return;
       container.scrollTop = offset;
-      setScrollTop(offset);
     },
     [container],
   );
 
   useEffect(() => {
     if (!container) return;
+
     const handleScroll = () => {
       setScrollTop(container.scrollTop);
       setIsScrolling(true);
     };
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
+
+    const handleScrollEnd = () => {
+      setIsScrolling(false);
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    const scrollEndTimer = setTimeout(handleScrollEnd, 150);
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      clearTimeout(scrollEndTimer);
+    };
   }, [container]);
-
-  useEffect(() => {
-    const itemH =
-      typeof itemHeight === "number" ? itemHeight : DEFAULT_ITEM_HEIGHT;
-    const start = Math.floor(scrollTop / itemH);
-    const end = Math.min(
-      itemCount,
-      start + (container?.clientHeight || 600) / itemH + overscan,
-    );
-
-    setStartIndex(start);
-    setEndIndex(end);
-
-    const items: UseVirtualListResult["virtualItems"] = [];
-    for (let i = start; i < end; i++) {
-      items.push({
-        index: i,
-        start: i * itemH,
-        size: itemH,
-        offsetTop: i * itemH,
-      });
-    }
-    setVirtualItems(items);
-  }, [scrollTop, itemCount, itemHeight, container, overscan]);
 
   return {
     totalHeight,
