@@ -2,7 +2,7 @@ name: Contract CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [dev]
     paths:
       - "src/**"
       - "tests/**"
@@ -12,7 +12,7 @@ on:
       - "test_snapshots/**"
       - ".github/workflows/contract-ci.yml"
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - "src/**"
       - "tests/**"
@@ -26,7 +26,7 @@ jobs:
   validate-version:
     name: Validate Release Version
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/dev'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
