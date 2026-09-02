@@ -15,11 +15,9 @@ permissions:
 
 jobs:
   # ── JavaScript ────────────────────────────────────────────────────────────
-  # One job per workspace. `critical` findings fail the build; `high` findings
-  # are reported and fail as well (see SECURITY.md § Severity policy), while
-  # moderate/low are informational so routine noise cannot block a release.
+  # One job per workspace that handles both JS audit and lockfile integrity.
   audit-js:
-    name: JS Audit (${{ matrix.workspace }})
+    name: JS Audit & Lockfile Integrity (${{ matrix.workspace }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -42,6 +40,13 @@ jobs:
       # `npm ci` installs strictly from the lockfile, so the audit below
       # reports the versions that are actually deployed rather than whatever
       # the range in package.json happens to resolve to today.
+      - name: Verify lockfile matches package.json
+        run: |
+          if ! npm ci --ignore-scripts --dry-run; then
+            echo "::error title=Lockfile out of sync::${{ matrix.workspace }}/package-lock.json does not match package.json. Run 'npm install' in ${{ matrix.workspace }}/ and commit the updated lockfile."
+            exit 1
+          fi
+
       - name: Install dependencies from lockfile
         run: npm ci --ignore-scripts
 
@@ -56,11 +61,11 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       # Blocking pass: a non-zero exit here fails the job and the build.
-      - name: Fail on critical advisories only
+      - name: Fail on high or critical advisories
         run: |
           set -o pipefail
-          if ! npm audit --audit-level=critical; then
-            echo "::error title=Vulnerable dependency::${{ matrix.workspace }} has critical advisories. Run 'npm audit' locally, then follow SECURITY.md § Dependency remediation workflow. Do not run 'npm audit fix --force'."
+          if ! npm audit --audit-level=high; then
+            echo "::error title=Vulnerable dependency::${{ matrix.workspace }} has high or critical advisories. Run 'npm audit' locally, then follow SECURITY.md § Dependency remediation workflow. Do not run 'npm audit fix --force'."
             exit 1
           fi
 
@@ -87,7 +92,7 @@ jobs:
             ${{ runner.os }}-cargo-audit-
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --force
+        run: cargo install cargo-audit --locked
 
       # Advisories that are known, reviewed, and cannot currently be fixed are
       # listed explicitly in .cargo/audit.toml with a rationale and a review
@@ -111,33 +116,3 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cargo audit 2>&1 | tail -n 40 >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-  # ── Lockfile integrity ────────────────────────────────────────────────────
-  # A lockfile that has drifted from package.json makes every audit above
-  # meaningless: `npm ci` fails outright, and the versions that get scanned
-  # are not the versions that ship.
-  lockfile-sync:
-    name: Lockfile Integrity
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        workspace: [backend, frontend, shared]
-    defaults:
-      run:
-        working-directory: ${{ matrix.workspace }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-
-      - name: Verify lockfile matches package.json
-        run: |
-          if ! npm ci --ignore-scripts --dry-run; then
-            echo "::error title=Lockfile out of sync::${{ matrix.workspace }}/package-lock.json does not match package.json. Run 'npm install' in ${{ matrix.workspace }}/ and commit the updated lockfile."
-            exit 1
-          fi

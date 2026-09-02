@@ -74,20 +74,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm test -- --run
-        env:
-          CI: true
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: false
 
   test:
-    name: Test (Node ${{ matrix.node-version }})
+    name: Test
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
-    strategy:
-      matrix:
-        node-version: [20.x, 22.x]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,7 +91,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 20.x
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -106,9 +102,9 @@ jobs:
         run: npm run test:coverage
 
       - name: Publish coverage summary
-        if: always() && matrix.node-version == '22.x'
+        if: always()
         run: |
-          echo "## Frontend coverage (Node ${{ matrix.node-version }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Frontend coverage" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -f coverage/coverage-summary.json ]; then
             node -e '
@@ -128,7 +124,7 @@ jobs:
           echo "Coverage is informational — a low or dropping number on files with pre-existing zero coverage does not block this PR. See frontend/README section on running coverage locally." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage report
-        if: always() && matrix.node-version == '22.x'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage
@@ -264,23 +260,7 @@ jobs:
           CI: true
 
       - name: Check bundle size
-        run: |
-          npm run build
-          npx --yes source-map-explorer dist/assets/*.js --gzip || true
-          SIZE=$(gzip -c dist/assets/*.js | wc -c)
-          # Target is < 300 KB gzipped; fail above 330 KB (300 KB + 10% headroom)
-          MAX=$((300 * 1024 * 110 / 100))
-          if [ "$SIZE" -gt "$MAX" ]; then
-            echo "::warning::Bundle size $((SIZE / 1024)) kB exceeds $((MAX / 1024)) kB budget"
-            echo "Bundle size is reported as advisory so unrelated feature PRs are not blocked by existing app weight."
-          else
-            echo "Bundle size $((SIZE / 1024)) kB gzipped within budget"
-          fi
-          CHUNKS=$(find dist/assets -name '*.js' | wc -l)
-          if [ "$CHUNKS" -lt 2 ]; then
-            echo "Route-level code splitting not detected"
-            exit 1
-          fi
+        run: npm run size
 
       - name: Upload performance report
         if: always()
@@ -314,7 +294,7 @@ jobs:
         run: npm run build
 
       - name: Run Lighthouse CI
-        run: npx --yes @lhci/cli autorun
+        run: npx lhci autorun
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
 

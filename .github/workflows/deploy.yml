@@ -15,7 +15,8 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       target:
@@ -82,7 +83,7 @@ jobs:
   deploy-staging:
     name: Deploy to staging
     needs: build
-    if: github.event_name == 'push' || github.event.inputs.target == 'staging'
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'staging' || github.event.inputs.target == '')
     runs-on: ubuntu-latest
     environment:
       name: staging
