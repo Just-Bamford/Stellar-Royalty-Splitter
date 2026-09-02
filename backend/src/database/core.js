@@ -13,7 +13,8 @@ db.pragma("cache_size = -64000"); // 64MB page cache
 db.pragma("foreign_keys = ON"); // enforce FK constraints
 db.pragma("temp_store = MEMORY"); // temp tables in memory
 
-// Checkpoint the WAL periodically to prevent unbounded growth.let _writeCount = 0;
+// Checkpoint the WAL periodically to prevent unbounded growth.
+let _writeCount = 0;
 export function countWrite() {
   if (++_writeCount % 100 === 0) {
     checkpointDatabase();
@@ -135,18 +136,17 @@ export function initializeDatabase() {
       sql: `
         CREATE TABLE IF NOT EXISTS payment_preferences (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          walletAddress TEXT NOT NULLR UNIQUE,
+        walletAddress TEXT NOT NULL UNIQUE,
           paymentMethod TEXT NOT NULL CHECK(paymentMethod IN ('direct_transfer', 'usdc', 'zlm')),
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE CONSTRAINT ID <//>
         CREATE INDEX IF NOT EXISTS idx_payment_preferences_walletAddress
           ON payment_preferences(walletAddress);
       `,
     },
     {
       version: 6,
-        sql: `
+      sql: `
           CREATE TABLE IF NOT EXISTS email_digest_subscribers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             walletAddress TEXT NOT NULL UNIQUE,
@@ -167,7 +167,7 @@ export function initializeDatabase() {
             weekEnd TEXT NOT NULL,
             sentAt DATETIME DEFAULT CURRENT_TIMESTAMP,
             earningsSummary TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'sent' CHECK(s4tatus IN ('sent', 'failed')),
+            status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent', 'failed')),
             FOREIGN KEY(subscriberId) REFERENCES email_digest_subscribers(id) ON DELETE CASCADE
           );
 
@@ -175,27 +175,22 @@ export function initializeDatabase() {
             ON email_digest_subscribers(walletAddress);
           CREATE INDEX IF NOT EXISTS idx_email_digest_subscribers_enabled
             ON email_digest_subscribers(enabled);
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
           
         `,
-      },
-      {
-        version: 7,
-        sql: `
+    },
+    {
+      version: 7,
+      sql: `
         ALTER TABLE transactions ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE transactions ADD COLUMN last_retry_time DATETIME;
         CREATE INDEX IF NOT EXISTS idx_transactions_retry_eligible
           ON transactions(status, type, retry_count, last_retry_time);
       `,
-      },
-      {
-        // #572: Role-Based Access Control — users and API key tables
-        version: 8,
-        sql: `
+    },
+    {
+      // #572: Role-Based Access Control — users and API key tables
+      version: 8,
+      sql: `
           CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             walletAddress TEXT UNIQUE,
@@ -218,29 +213,19 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_api_keys_keyHash ON api_keys(keyHash);
           CREATE INDEX IF NOT EXISTS idx_users_walletAddress ON users(walletAddress);
         `,
-      },
-      {
-        // #570: Add database index on transactions(status) column
-        // #597: CSV bulk import tracking, contributor tax, notifications
-        version: 9,
-        sql: `
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          
-        `,
-      },
-      {
-        // #596: Payment hold/release system
-        version: 10,
-        sql: `
+    },
+    {
+      // #570: Add database index on transactions(status) column
+      // #597: CSV bulk import tracking, contributor tax, notifications
+      version: 9,
+      sql: `
+          CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+      `,
+    },
+    {
+      // #596: Payment hold/release system
+      version: 10,
+      sql: `
           ALTER TABLE transactions ADD COLUMN hold_reason TEXT;
           ALTER TABLE transactions ADD COLUMN hold_until DATETIME;
           ALTER TABLE transactions ADD COLUMN hold_placed_at DATETIME;
@@ -251,19 +236,13 @@ export function initializeDatabase() {
           ALTER TABLE transactions ADD COLUMN hold_approved_at DATETIME;
           ALTER TABLE transactions ADD COLUMN hold_approval_note TEXT;
           ALTER TABLE transactions ADD COLUMN hold_status TEXT DEFAULT NULL CHECK(hold_status IN (NULL, 'active', 'released'));
-
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
           
         `,
-      },
-      {
-        // Cache warming: active contracts tracking
-        version: 11,
-        sql: `
+    },
+    {
+      // Cache warming: active contracts tracking
+      version: 11,
+      sql: `
           CREATE TABLE IF NOT EXISTS active_contracts (
             contractId TEXT PRIMARY KEY,
             accessCount INTEGER NOT NULL DEFAULT 0,
@@ -273,19 +252,16 @@ export function initializeDatabase() {
             PRIMARY KEY (contractId)
           );
           CREATE INDEX IF NOT EXISTS idx_active_contracts_accessCount ON active_contracts(accessCount DESC);
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
           
         `,
-      },
-      {
-        // Transaction finality tracking (#finality)
-        // Stores per-transaction Horizon polling state so contributors can
-        // query or subscribe via WebSocket to know when their transaction
-        // is confirmed, failed, or timed out.
-        version: 12,
-        sql: `
+    },
+    {
+      // Transaction finality tracking (#finality)
+      // Stores per-transaction Horizon polling state so contributors can
+      // query or subscribe via WebSocket to know when their transaction
+      // is confirmed, failed, or timed out.
+      version: 12,
+      sql: `
           CREATE TABLE IF NOT EXISTS transaction_finality (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             transaction_id INTEGER NOT NULL UNIQUE,
@@ -312,11 +288,11 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_transaction_finality_submission_at
             ON transaction_finality(submission_at);
         `,
-      },
-      {
-        // #818: Dead Letter Queue for failed webhooks
-        version: 13,
-        sql: `
+    },
+    {
+      // #818: Dead Letter Queue for failed webhooks
+      version: 13,
+      sql: `
           CREATE TABLE IF NOT EXISTS webhook_dlq (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             webhook_id INTEGER NOT NULL,
@@ -331,11 +307,11 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_webhook_dlq_contract_id ON webhook_dlq(contract_id);
           CREATE INDEX IF NOT EXISTS idx_webhook_dlq_created_at ON webhook_dlq(created_at);
         `,
-      },
-      {
-        // #874: centralized structured log aggregation and retention
-        version: 14,
-        sql: `
+    },
+    {
+      // #874: centralized structured log aggregation and retention
+      version: 14,
+      sql: `
           CREATE TABLE IF NOT EXISTS application_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -351,11 +327,13 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_application_logs_correlation_id ON application_logs(correlation_id);
           CREATE INDEX IF NOT EXISTS idx_application_logs_request_id ON application_logs(request_id);
         `,
-      },
+    },
   ];
 
   for (const migration of migrations) {
-    const current = db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get(migration.version);
+    const current = db
+      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+      .get(migration.version);
     if (!current) {
       const apply = db.transaction(() => {
         db.exec(migration.sql);
@@ -395,7 +373,8 @@ export function checkDatabase() {
     const responseTimeMs = Date.now() - start;
     const version = db.prepare("SELECT MAX(version) as v FROM schema_migrations").get()?.v ?? 0;
     const walMode = db.pragma("journal_mode", { simple: true }) === "wal";
-    const tableCount = db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table'").get()?.c ?? 0;
+    const tableCount =
+      db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table'").get()?.c ?? 0;
 
     return {
       connected: true,
@@ -418,27 +397,36 @@ export function checkDatabase() {
  */
 export function pruneHealthHistory() {
   if (!db.open) return;
-  db.prepare(
-    "DELETE FROM health_history WHERE timestamp < datetime('now', '-90 days')"
-  ).run();
+  db.prepare("DELETE FROM health_history WHERE timestamp < datetime('now', '-90 days')").run();
 }
 
 /**
  * Insert a health snapshot into health_history.
  */
-export function recordHealthSnapshot({ ok, horizonConnected, horizonLatencyMs, contractStatus, dbOk, details }) {
+export function recordHealthSnapshot({
+  ok,
+  horizonConnected,
+  horizonLatencyMs,
+  contractStatus,
+  dbOk,
+  details,
+}) {
   if (!db.open) return;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     INSERT INTO health_history (overall_ok, horizon_connected, horizon_latency_ms, contract_status, db_ok, details)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    ok ? 1 : 0,
-    horizonConnected ? 1 : 0,
-    horizonLatencyMs ?? null,
-    contractStatus ?? "unknown",
-    dbOk ? 1 : 0,
-    details ? JSON.stringify(details) : null
-  );
+  `
+    )
+    .run(
+      ok ? 1 : 0,
+      horizonConnected ? 1 : 0,
+      horizonLatencyMs ?? null,
+      contractStatus ?? "unknown",
+      dbOk ? 1 : 0,
+      details ? JSON.stringify(details) : null
+    );
 }
 
 /**
@@ -446,12 +434,16 @@ export function recordHealthSnapshot({ ok, horizonConnected, horizonLatencyMs, c
  */
 export function getHealthHistory(hours = 24) {
   if (!db.open) return [];
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT * FROM health_history
     WHERE timestamp > datetime('now', ? || ' hours')
     ORDER BY timestamp DESC
     LIMIT 500
-  `).all(`-${hours}`);
+  `
+    )
+    .all(`-${hours}`);
 }
 
 /**
@@ -469,7 +461,9 @@ export function getSLAStats(days = 30) {
       maxLatencyMs: null,
     };
   }
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       COUNT(*) as total,
       SUM(overall_ok) as healthy_count,
@@ -478,7 +472,9 @@ export function getSLAStats(days = 30) {
       MAX(horizon_latency_ms) as max_latency_ms
     FROM health_history
     WHERE timestamp > datetime('now', ? || ' days')
-  `).get(`-${days}`);
+  `
+    )
+    .get(`-${days}`);
 
   const total = rows?.total ?? 0;
   const healthyCount = rows?.healthy_count ?? 0;

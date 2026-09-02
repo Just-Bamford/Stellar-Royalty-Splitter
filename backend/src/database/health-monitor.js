@@ -18,20 +18,11 @@ import logger from "../logger.js";
 
 // ── Configuration ────────────────────────────────────────────────────────
 
-const HEALTH_CHECK_INTERVAL_MS = parseInt(
-  process.env.DB_HEALTH_CHECK_INTERVAL_MS ?? "30000",
-  10,
-);
-const RECONNECT_BACKOFF_BASE_MS = parseInt(
-  process.env.DB_RECONNECT_BACKOFF_BASE_MS ?? "1000",
-  10,
-);
-const RECONNECT_BACKOFF_MAX_MS = parseInt(
-  process.env.DB_RECONNECT_BACKOFF_MAX_MS ?? "30000",
-  10,
-);
+const HEALTH_CHECK_INTERVAL_MS = parseInt(process.env.DB_HEALTH_CHECK_INTERVAL_MS ?? "30000", 10);
+const RECONNECT_BACKOFF_BASE_MS = parseInt(process.env.DB_RECONNECT_BACKOFF_BASE_MS ?? "1000", 10);
+const RECONNECT_BACKOFF_MAX_MS = parseInt(process.env.DB_RECONNECT_BACKOFF_MAX_MS ?? "30000", 10);
 const POOL_UTILIZATION_WARN_THRESHOLD = parseFloat(
-  process.env.DB_POOL_UTILIZATION_WARN_THRESHOLD ?? "0.8",
+  process.env.DB_POOL_UTILIZATION_WARN_THRESHOLD ?? "0.8"
 );
 
 // ── Internal state ───────────────────────────────────────────────────────
@@ -73,9 +64,7 @@ export function checkConnectionHealth() {
 
   const poolMetrics = pool.getMetrics();
   const utilization =
-    poolMetrics.poolSize > 0
-      ? poolMetrics.activeConnections / poolMetrics.poolSize
-      : 0;
+    poolMetrics.poolSize > 0 ? poolMetrics.activeConnections / poolMetrics.poolSize : 0;
   _metrics.poolUtilization = utilization;
 
   // Check pool draining state
@@ -97,14 +86,8 @@ export function checkConnectionHealth() {
   if (connected) {
     try {
       const probeResult = pool.run(async (conn) => {
-        try {
-          const row = conn
-            .prepare("SELECT 1 AS health_check")
-            .get();
-          return row && row.health_check === 1;
-        } catch (err) {
-          throw err;
-        }
+        const row = conn.prepare("SELECT 1 AS health_check").get();
+        return row && row.health_check === 1;
       });
 
       // pool.run returns a Promise — handle it
@@ -176,9 +159,7 @@ export async function checkConnectionHealthAsync() {
 
   const poolMetrics = pool.getMetrics();
   const utilization =
-    poolMetrics.poolSize > 0
-      ? poolMetrics.activeConnections / poolMetrics.poolSize
-      : 0;
+    poolMetrics.poolSize > 0 ? poolMetrics.activeConnections / poolMetrics.poolSize : 0;
   _metrics.poolUtilization = utilization;
 
   if (poolMetrics.draining) {
@@ -267,7 +248,7 @@ export async function attemptReconnection() {
 
   const backoffMs = Math.min(
     RECONNECT_BACKOFF_BASE_MS * 2 ** (attempt - 1),
-    RECONNECT_BACKOFF_MAX_MS,
+    RECONNECT_BACKOFF_MAX_MS
   );
 
   logger.info("Attempting database reconnection", {

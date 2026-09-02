@@ -14,6 +14,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import logger, { asyncLocalStorage } from "./logger.js";
 import crypto from "crypto";
 import { resolveCorsOrigin } from "./cors-config.js";
+import { verifySignatureMiddleware } from "./verify-signature.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
 import { batchDistributeRouter } from "./routes/batch-distribute.js";
@@ -60,7 +61,6 @@ import { startSnapshotScheduler } from "./jobs/snapshot-job.js";
 import { startWebhookRetryScheduler } from "./jobs/retry-failed-webhooks.js";
 import { adminApiKeysRouter } from "./routes/admin-api-keys.js";
 import { recordApiKeyRequest } from "./database/rate-limit.js";
-import { recordHttpRequest } from "./metrics.js";
 import { createMetricsPusher } from "./metrics-pushgateway.js";
 import { transactionFinalityRouter } from "./routes/transaction-finality.js";
 import { startFinalityCleanupScheduler } from "./jobs/finality-cleanup-job.js";
@@ -74,9 +74,12 @@ initializeSigningKey();
 
 // Keep the searchable log store bounded without requiring a separate worker.
 // `unref` means this maintenance timer cannot keep tests or graceful shutdowns alive.
-const logRetentionInterval = setInterval(() => {
-  pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
-}, 6 * 60 * 60 * 1000);
+const logRetentionInterval = setInterval(
+  () => {
+    pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
+  },
+  6 * 60 * 60 * 1000
+);
 logRetentionInterval.unref?.();
 pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
 
@@ -101,7 +104,8 @@ app.use((req, res, next) => {
         status: res.statusCode,
         duration,
       };
-      const log = res.statusCode >= 500 ? logger.error : res.statusCode >= 400 ? logger.warn : logger.info;
+      const log =
+        res.statusCode >= 500 ? logger.error : res.statusCode >= 400 ? logger.warn : logger.info;
       log.call(logger, "request completed", metadata);
       if (res.statusCode >= 500) {
         const alert = evaluateLogAlerts({
@@ -283,7 +287,6 @@ app.use((req, res, next) => {
 
 // Enforce request complexity limits before expensive downstream processing (#892)
 app.use(requestComplexityMiddleware());
-
 
 // Per-request timeout middleware
 const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? "30000");

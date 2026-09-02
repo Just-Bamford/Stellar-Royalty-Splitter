@@ -21,7 +21,7 @@ export const contractRouter = Router();
 // This implements human friendly cache warming with stale data support.
 // Note: In a production system, this would query an "active-contracts" table
 // to determine which contracts to warm. Here we use access frequency as a proxy.
-const CACH_WARM_LEAD_TIME_MS = parseInt(process.env.CACHE_WARM_LEAD_TIME_MS || "30000", 10);
+const CACHE_WARM_LEAD_TIME_MS = parseInt(process.env.CACHE_WARM_LEAD_TIME_MS || "30000", 10);
 
 // Metadata for cache entries: tracks expiration, timers, stale value, etc.
 const cacheMetadata = new Map();
@@ -35,9 +35,13 @@ const metrics = {
 
 // Log metrics periodically.
 setInterval(() => {
-  console.log(`[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`);
+  console.log(
+    `[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`
+  );
   if (metrics.refreshLatencyMs.length > 0) {
-    console.log(`[cache-warm] avg refresh-latency: ${(metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length)} ms`);
+    console.log(
+      `[cache-warm] avg refresh-latency: ${metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length} ms`
+    );
   }
 }, 60 * 1000);
 if (setInterval.unref) setInterval.unref();
@@ -136,17 +140,14 @@ function warmCacheSet(key, value, contractId, tokenId) {
   meta.staleValue = value; // snapshot for potential stale serving
   meta.contractId = contractId;
   meta.tokenId = tokenId;
-  scheduleRefresh(key, contractId, tokenId, CACH_WARM_LEAD_TIME_MS);
+  scheduleRefresh(key, contractId, tokenId, CACHE_WARM_LEAD_TIME_MS);
 }
 
 // ---- End of cache warming code ----
 
 function getConfiguredTokenId() {
   return (
-    process.env.ROYALTY_TOKEN_ID??
-    process.env.TOKEN_CONTRACT_ID??
-    process.env.TOKEN_ID??
-    null
+    process.env.ROYALTY_TOKEN_ID ?? process.env.TOKEN_CONTRACT_ID ?? process.env.TOKEN_ID ?? null
   );
 }
 
@@ -170,10 +171,7 @@ function decodeShareMap(scVal) {
 
 async function simulateContractRead(contractId, method, args = []) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account(
-    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
-    "0",
-  );
+  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN", "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -221,7 +219,7 @@ function resolveStateRequest(req, res) {
       res,
       400,
       "bad_request",
-      "contractId query param required when no default contract is configured",
+      "contractId query param required when no default contract is configured"
     );
     return null;
   }
@@ -233,7 +231,7 @@ function resolveStateRequest(req, res) {
       res,
       400,
       "bad_request",
-      "tokenId query param required when no default token is configured",
+      "tokenId query param required when no default token is configured"
     );
     return null;
   }
@@ -362,10 +360,7 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
     if (!validateContractId(tokenId, res)) return;
 
     const contract = new Contract(contractId);
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
-    );
+    const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN", "0");
     const tx = new TransactionBuilder(dummyAccount, {
       fee: BASE_FEE,
       networkPassphrase,
@@ -396,33 +391,37 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
  * Returns the number of collaborators via simulation.
  * Response: { contractId, count: number }
  */
-contractRouter.get("/collaborator-count/:contractId", validateContractIdMiddleware, async (req, res, next) => {
-  try {
-    const { contractId } = req.params;
-    const contract = new Contract(contractId);
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
-    );
-    const tx = new TransactionBuilder(dummyAccount, {
-      fee: BASE_FEE,
-      networkPassphrase,
-    })
-      .addOperation(contract.call("collaborator_count"))
-      .setTimeout(30)
-      .build();
+contractRouter.get(
+  "/collaborator-count/:contractId",
+  validateContractIdMiddleware,
+  async (req, res, next) => {
+    try {
+      const { contractId } = req.params;
+      const contract = new Contract(contractId);
+      const dummyAccount = new Account(
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
+        "0"
+      );
+      const tx = new TransactionBuilder(dummyAccount, {
+        fee: BASE_FEE,
+        networkPassphrase,
+      })
+        .addOperation(contract.call("collaborator_count"))
+        .setTimeout(30)
+        .build();
 
-    const sim = await server.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationError(sim)) {
-      return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
+      const sim = await server.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
+      }
+
+      const count = sim.result?.retval?.u32?.() ?? 0;
+      res.json({ contractId, count });
+    } catch (err) {
+      next(err);
     }
-
-    const count = sim.result?.retval?.u32?.() ?? 0;
-    res.json({ contractId, count });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 /**
  * GET /api/contract/shares-total/:contractId
@@ -469,25 +468,21 @@ contractRouter.get(
  * Returns the on-chain contract version via simulation.
  * Response: { contractId, version: string }
  */
-contractRouter.get(
-  "/version/:contractId",
-  validateContractIdMiddleware,
-  async (req, res, next) => {
-    try {
-      const { contractId } = req.params;
-      const initialized = await isContractInitialized(contractId);
-      if (!initialized) {
-        return sendError(res, 404, "not_found", "contract not initialized");
-      }
-
-      const version = await getContractVersionFromContract(contractId);
-      if (!version) {
-        return sendError(res, 404, "not_found", "contract version unavailable");
-      }
-
-      res.json({ contractId, version });
-    } catch (err) {
-      next(err);
+contractRouter.get("/version/:contractId", validateContractIdMiddleware, async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    const initialized = await isContractInitialized(contractId);
+    if (!initialized) {
+      return sendError(res, 404, "not_found", "contract not initialized");
     }
-  },
-);
+
+    const version = await getContractVersionFromContract(contractId);
+    if (!version) {
+      return sendError(res, 404, "not_found", "contract version unavailable");
+    }
+
+    res.json({ contractId, version });
+  } catch (err) {
+    next(err);
+  }
+});

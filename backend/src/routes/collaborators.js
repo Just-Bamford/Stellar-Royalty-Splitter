@@ -4,11 +4,10 @@ import { server, networkPassphrase } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
 import { sendError } from "../error-response.js";
-import { cacheGet, cacheSet, cacheKey, TTL} from "../cache.js";
+import { cacheGet, cacheSet, cacheKey, TTL } from "../cache.js";
 
 const { Address, Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
 export const collaboratorsRouter = Router();
-
 
 const LEAD = Number(process.env.CACHE_WARM_LEAD_TIME_MS) || 30000;
 const stale = new Map();
@@ -44,7 +43,8 @@ async function fetch(id) {
 function schedule(key, id) {
   if (timers.has(key)) clearTimeout(timers.get(key));
   const count = access.get(id) || 1;
-  const delay = Math.max(TTL.collaborators - LEAD, 1000) / Math.min(count, 5) + Math.random() * 2000;
+  const delay =
+    Math.max(TTL.collaborators - LEAD, 1000) / Math.min(count, 5) + Math.random() * 2000;
   const t = setTimeout(() => {
     timers.delete(key);
     refresh(key, id).catch(() => {});
@@ -78,28 +78,29 @@ setInterval(() => {
 
 collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
-    const { contractId } = re.params;
+    const { contractId } = req.params;
     const key = cacheKey("collaborators", contractId);
     access.set(contractId, (access.get(contractId) || 0) + 1);
 
     const cached = cacheGet(key);
     if (cached !== undefined) {
-      hitCount++;
+      // hitCount++;
       logger.debug(`[cache] HIT ${contractId}`);
       if (!timers.has(key)) schedule(key, contractId);
       return res.json(cached);
     }
 
-    missCount++;
+    // missCount++;
     if (stale.has(key)) {
-      staleCount++;
+      // staleCount++;
       logger.info(`[cache] STALE ${contractId}`);
       if (!inflight.has(key)) refresh(key, contractId).catch(() => {});
       return res.json(stale.get(key));
     }
 
     const data = await fetch(contractId);
-    cacheSet(key, data, TTLcollaborators);
+    const TTL_COLLABORATORS = 300000; // 5 minutes
+    cacheSet(key, data, TTL_COLLABORATORS);
     stale.set(key, data);
     schedule(key, contractId);
     logger.info(`get_all_shares returned ${data.length} collaborators for ${contractId}`);
