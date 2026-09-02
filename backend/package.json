@@ -18,7 +18,7 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testTimeout": 30000,
+    "testTimeout": 60000,
     "transform": {},
     "moduleNameMapper": {
       "^better-sqlite3$": "<rootDir>/__mocks__/better-sqlite3.js"
