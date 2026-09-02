@@ -262,11 +262,9 @@ cargo test -- --nocapture
 
 ### Test Snapshots
 
-Located in `test_snapshots/` directory. These capture contract state and events for regression testing:
+**Note on terminology:** The test functions named `test_storage_snapshot_*` (e.g., `test_storage_snapshot_after_initialize`) use Soroban SDK's built-in storage verification APIs to document and assert contract state changes. These are **in-memory assertions**, not external snapshot files. The term "snapshot" refers to the point-in-time capture of what the contract's storage contained, used for regression testing — not a comparison against committed JSON fixtures.
 
-- Admin authorization snapshots
-- Distribution event snapshots
-- Storage state snapshots
+If snapshot data export is needed for debugging or auditing, it should be generated programmatically and not committed to version control.
 
 ### Property-Based / Fuzz Tests
 

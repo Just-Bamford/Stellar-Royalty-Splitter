@@ -30,6 +30,9 @@ config/env/.env.prod
 # Deployed contract ID
 .contract-id
 
+# Test snapshots — generated during test runs, not version-controlled
+test_snapshots/
+
 # Disaster recovery exercise scratch directory (#865). Reports worth keeping
 # are committed to docs/dr-exercises/ deliberately.
 .dr-test/
