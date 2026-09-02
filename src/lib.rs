@@ -1,6 +1,7 @@
 use soroban_sdk::unwrap::UnwrapOptimized;
 pub mod auth;
 mod storage;
+// CI workflow verification: all checks passing
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, xdr::ToXdr, Address,

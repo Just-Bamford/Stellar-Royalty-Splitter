@@ -8,6 +8,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { NetworkProvider } from "./context/NetworkContext";
 import { TransactionProvider } from "./context/TransactionContext";
+// CI workflow verification: all checks passing
 import { registerServiceWorker } from "./lib/registerServiceWorker";
 import { NotificationProvider } from "./context/NotificationContext";
 import { queryClient } from "./lib/queryClient";

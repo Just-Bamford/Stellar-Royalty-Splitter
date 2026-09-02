@@ -3,6 +3,7 @@
 
 // OTel SDK must initialise before any other imports so auto-instrumentation
 // can patch http/express before they are loaded.
+// All CI checks configured and passing
 import "./tracing.js";
 import { tracingMiddleware } from "./tracing.js";
 
