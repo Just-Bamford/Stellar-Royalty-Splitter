@@ -10,9 +10,9 @@
 import { Router } from "express";
 import { z } from "zod";
 import StellarSdk from "@stellar/stellar-sdk";
-import { server, networkPassphrase, retryBuildTx } from "../stellar.js";
+import { server, networkPassphrase } from "../stellar.js";
 import { sendError, sendValidationError } from "../error-response.js";
-import { contractAddress, stellarAddress, validateContractIdMiddleware } from "../validation.js";
+import { contractAddress, stellarAddress } from "../validation.js";
 import { addAuditLog } from "../database/index.js";
 
 const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account, xdr } = StellarSdk;
@@ -21,7 +21,9 @@ export const contractUpgradeSimulationRouter = Router();
 
 const simulationSchema = z.object({
   contractId: contractAddress,
-  newWasmHash: z.string().regex(/^[0-9a-fA-F]{64}$/, "newWasmHash must be a 64-character hex string"),
+  newWasmHash: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, "newWasmHash must be a 64-character hex string"),
   walletAddress: stellarAddress,
   testScenarios: z
     .array(
@@ -67,7 +69,6 @@ contractUpgradeSimulationRouter.post("/contract-upgrade-simulation", async (req,
 
     const simulationResults = [];
     let totalGasBefore = 0;
-    let totalGasAfter = 0;
 
     for (const scenario of testScenarios) {
       try {
@@ -146,24 +147,27 @@ function buildTestOperation(contract, operation, params) {
   switch (operation) {
     case "initialize":
       return contract.call("initialize", []);
-    case "distribute":
+    case "distribute": {
       const amount = params.amount || "1000000";
       return contract.call("distribute", [
-        xdr.ScVal.scvVec([xdr.ScVal.scvAddress(xdr.ScAddress.scAddressTypeAccount(new Uint8Array(32)))]),
+        xdr.ScVal.scvVec([
+          xdr.ScVal.scvAddress(xdr.ScAddress.scAddressTypeAccount(new Uint8Array(32))),
+        ]),
         xdr.ScVal.scvVec([xdr.ScVal.scvI128(xdr.Int64OP.fromString(amount))]),
         xdr.ScVal.scvSymbol("native"),
       ]);
-    case "set_recipients":
+    }
+    case "set_recipients": {
       const count = params.count || 1;
-      const recipients = Array.from({ length: count }, (_, i) =>
+      const recipients = Array.from({ length: count }, (_, _i) =>
         xdr.ScVal.scvAddress(xdr.ScAddress.scAddressTypeAccount(new Uint8Array(32)))
       );
       return contract.call("set_recipients", [xdr.ScVal.scvVec(recipients)]);
-    case "update_wasm":
+    }
+    case "update_wasm": {
       const hash = params.hash || "0".repeat(64);
-      return contract.call("update_wasm", [
-        xdr.ScVal.scvBytes(Buffer.from(hash, "hex")),
-      ]);
+      return contract.call("update_wasm", [xdr.ScVal.scvBytes(Buffer.from(hash, "hex"))]);
+    }
     default:
       throw new Error(`Unknown operation: ${operation}`);
   }

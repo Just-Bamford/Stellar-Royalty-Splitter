@@ -87,10 +87,10 @@ async function refreshContractState(key, contractId, tokenId) {
     const now = Date.now();
     const expiresAt = now + TTL.contractState * 1000;
     meta.expiresAt = expiresAt;
-    meta.refreshAt = expiresAt - CACH_WARM_LEAD_TIME_MS;
+    meta.refreshAt = expiresAt - CACHE_WARM_LEAD_TIME_MS;
     meta.staleValue = null; // clear stale since fresh data is available
     // Schedule next refresh.
-    scheduleRefresh(key, contractId, tokenId, CACH_WARM_LEAD_TIME_MS);
+    scheduleRefresh(key, contractId, tokenId, CACHE_WARM_LEAD_TIME_MS);
     metrics.refreshLatencyMs.push(Date.now() - start);
   } catch (err) {
     // Graceful degradation: keep stale data if refresh fails.
