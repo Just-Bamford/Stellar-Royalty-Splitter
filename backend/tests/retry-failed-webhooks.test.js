@@ -5,6 +5,7 @@ const mockUpdateWebhookRetryStateWithPayload = jest.fn();
 const mockResetWebhookRetryCount = jest.fn();
 
 await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
+  listWebhooks: jest.fn(),
   getWebhooksDueForRetry: mockGetWebhooksDueForRetry,
   updateWebhookRetryStateWithPayload: mockUpdateWebhookRetryStateWithPayload,
   resetWebhookRetryCount: mockResetWebhookRetryCount,
@@ -16,6 +17,14 @@ await jest.unstable_mockModule("../src/logger.js", () => ({
     warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn(),
+  },
+}));
+
+await jest.unstable_mockModule("../src/webhook-delivery.js", () => ({
+  postWebhook: jest.fn(),
+  _config: {
+    BACKOFF_MS: [60000, 300000],
+    MAX_WEBHOOK_RETRIES: 3,
   },
 }));
 
@@ -124,7 +133,8 @@ describe("executeWebhookRetryRun (#743)", () => {
     const result = await executeWebhookRetryRun(now);
 
     expect(mockUpdateWebhookRetryStateWithPayload).toHaveBeenCalledTimes(1);
-    const [webhookId, retryCount, nextRetryTime] = mockUpdateWebhookRetryStateWithPayload.mock.calls[0];
+    const [webhookId, retryCount, nextRetryTime] =
+      mockUpdateWebhookRetryStateWithPayload.mock.calls[0];
     expect(webhookId).toBe(9);
     expect(retryCount).toBe(_config.MAX_WEBHOOK_RETRIES);
     // No further retry is scheduled once the max is reached.
@@ -188,7 +198,7 @@ describe("executeWebhookRetryRun (#743)", () => {
       2,
       2,
       expect.any(String),
-      expect.any(String),
+      expect.any(String)
     );
     expect(result).toEqual({ attempted: 2, succeeded: 1, failed: 1, exhausted: 0 });
   });
