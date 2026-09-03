@@ -31,6 +31,19 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 7),
   checkDatabase,
   getHealthHistory: jest.fn(() => []),
+  getSLAStats: jest.fn(() => ({
+    periodDays: 30,
+    totalSnapshots: 0,
+    healthySnapshots: 0,
+    uptimePercent: 100.0,
+    avgLatencyMs: null,
+    minLatencyMs: null,
+    maxLatencyMs: null,
+  })),
+  recordHealthSnapshot: jest.fn(),
+  pruneHealthHistory: jest.fn(),
+  startHealthMonitor: jest.fn(),
+  stopHealthMonitor: jest.fn(),
 }));
 
 await jest.unstable_mockModule("../src/metrics.js", () => ({

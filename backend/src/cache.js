@@ -198,3 +198,12 @@ export function __test__clear() {
 
 // Alias for tests that import clearCache
 export const clearCache = __test__clear;
+
+/**
+ * Invalidate a specific cache entry for a contract.
+ */
+export function invalidateContract(key) {
+  cacheStore.delete(key);
+  refreshInFlight.delete(key);
+  accessCount.delete(key);
+}

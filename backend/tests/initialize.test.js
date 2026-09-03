@@ -26,6 +26,11 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   vecToScVal: jest.fn((v) => v),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
+  pollHorizonTransaction: jest.fn(),
+  buildTx: jest.fn(),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
 }));
 
 const recordTransaction = jest.fn(() => "tx-123");
@@ -46,7 +51,10 @@ app.use("/api/v1/initialize", initializeRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const validBody = buildInitializePayload({ walletAddress: WALLET, collaborators: [COLLAB1, COLLAB2] });
+const validBody = buildInitializePayload({
+  walletAddress: WALLET,
+  collaborators: [COLLAB1, COLLAB2],
+});
 
 describe("POST /api/v1/initialize", () => {
   beforeEach(() => jest.clearAllMocks());
@@ -157,7 +165,6 @@ describe("POST /api/v1/initialize", () => {
     expect(retryBuildTx).not.toHaveBeenCalled();
     expect(recordTransaction).not.toHaveBeenCalled();
   });
-
 
   test("503 when Stellar RPC is unavailable", async () => {
     isContractInitialized.mockResolvedValue(false);

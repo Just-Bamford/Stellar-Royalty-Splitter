@@ -2,8 +2,8 @@ import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const COLLAB1  = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
-const COLLAB2  = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
+const COLLAB1 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
+const COLLAB2 = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
 
 const mockSimulate = jest.fn();
 const mockIsSimError = jest.fn(() => false);
@@ -48,9 +48,14 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   networkPassphrase: "Test SDF Network ; September 2015",
   addressToScVal: jest.fn((a) => a),
   retryBuildTx: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
   isContractInitialized: jest.fn(),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  buildTx: jest.fn(),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({

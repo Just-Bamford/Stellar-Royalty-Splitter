@@ -65,7 +65,7 @@ describe("deliverDistributeWebhooks (#295)", () => {
 
     const { deliverDistributeWebhooks } = await import("../src/webhook-delivery.js");
 
-    deliverDistributeWebhooks({
+    await deliverDistributeWebhooks({
       txHash: "d".repeat(64),
       contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -106,7 +106,7 @@ describe("deliverDistributeWebhooks (#295)", () => {
 
     const { deliverDistributeWebhooks } = await import("../src/webhook-delivery.js");
 
-    deliverDistributeWebhooks({
+    await deliverDistributeWebhooks({
       txHash: "d".repeat(64),
       contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -116,8 +116,6 @@ describe("deliverDistributeWebhooks (#295)", () => {
       timestamp: "2026-05-31T12:00:00.000Z",
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(updateWebhookRetryStateWithPayload).toHaveBeenCalledTimes(1);
@@ -149,7 +147,7 @@ describe("deliverDistributeWebhooks (#295)", () => {
 
     const { deliverDistributeWebhooks } = await import("../src/webhook-delivery.js");
 
-    deliverDistributeWebhooks({
+    await deliverDistributeWebhooks({
       txHash: "d".repeat(64),
       contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",

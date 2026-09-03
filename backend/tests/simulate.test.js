@@ -88,6 +88,9 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   },
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({

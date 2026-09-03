@@ -36,7 +36,11 @@ await jest.unstable_mockModule("../src/database.js", () => ({
             : 0
           : existing.paymentPreferencesSet || 0,
       taxInfoSubmitted:
-        data.taxInfoSubmitted !== undefined ? (data.taxInfoSubmitted ? 1 : 0) : existing.taxInfoSubmitted || 0,
+        data.taxInfoSubmitted !== undefined
+          ? data.taxInfoSubmitted
+            ? 1
+            : 0
+          : existing.taxInfoSubmitted || 0,
       firstDistributionReceived:
         data.firstDistributionReceived !== undefined
           ? data.firstDistributionReceived
@@ -47,6 +51,33 @@ await jest.unstable_mockModule("../src/database.js", () => ({
     return dbStore[walletAddress];
   }),
   countWrite: jest.fn(),
+}));
+
+await jest.unstable_mockModule("../src/email-template.js", () => ({
+  renderOnboardingReminderEmail: jest.fn((payload) => ({
+    subject: "Action Required: Onboarding Checklist Progress",
+    text: `CHECKLIST SUMMARY: ${payload.completionPercentage}%`,
+    incompleteCount: payload.items.filter((i) => !i.completed).length,
+  })),
+}));
+
+await jest.unstable_mockModule("../src/logger.js", () => ({
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
+
+await jest.unstable_mockModule("../src/error-response.js", () => ({
+  sendError: jest.fn((res, status, code, msg) => {
+    return res.status(status).json({ error: msg, code });
+  }),
+  sendValidationError: jest.fn((res, issues) => {
+    const firstIssue = issues[0];
+    return res.status(400).json({ error: firstIssue.message || "Validation failed" });
+  }),
 }));
 
 const onboardingRouter = (await import("../src/routes/onboarding.js")).default;
@@ -85,13 +116,11 @@ describe("Contributor Onboarding Router (#567)", () => {
   });
 
   test("PATCH /api/v1/onboarding/:walletAddress updates status to 60% complete", async () => {
-    const res = await request(app)
-      .patch(`/api/v1/onboarding/${TEST_WALLET}`)
-      .send({
-        email: "contributor@example.com",
-        paymentPreferencesSet: true,
-        payoutToken: "USDC",
-      });
+    const res = await request(app).patch(`/api/v1/onboarding/${TEST_WALLET}`).send({
+      email: "contributor@example.com",
+      paymentPreferencesSet: true,
+      payoutToken: "USDC",
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.message).toBe("Contributor onboarding checklist updated successfully");
@@ -103,14 +132,12 @@ describe("Contributor Onboarding Router (#567)", () => {
   });
 
   test("PATCH /api/v1/onboarding/:walletAddress completes required items (100% complete state)", async () => {
-    const res = await request(app)
-      .patch(`/api/v1/onboarding/${TEST_WALLET}`)
-      .send({
-        email: "contributor@example.com",
-        kycStatus: "verified",
-        paymentPreferencesSet: true,
-        taxInfoSubmitted: true,
-      });
+    const res = await request(app).patch(`/api/v1/onboarding/${TEST_WALLET}`).send({
+      email: "contributor@example.com",
+      kycStatus: "verified",
+      paymentPreferencesSet: true,
+      taxInfoSubmitted: true,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.summary.requiredComplete).toBe(true);
@@ -125,22 +152,18 @@ describe("Contributor Onboarding Router (#567)", () => {
   });
 
   test("PATCH /api/v1/onboarding/:walletAddress returns 400 for invalid email", async () => {
-    const res = await request(app)
-      .patch(`/api/v1/onboarding/${TEST_WALLET}`)
-      .send({
-        email: "invalid-email",
-      });
+    const res = await request(app).patch(`/api/v1/onboarding/${TEST_WALLET}`).send({
+      email: "invalid-email",
+    });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Invalid email address format");
   });
 
   test("POST /api/v1/onboarding/:walletAddress/remind sends email reminder", async () => {
-    const res = await request(app)
-      .post(`/api/v1/onboarding/${TEST_WALLET}/remind`)
-      .send({
-        email: "contributor@example.com",
-      });
+    const res = await request(app).post(`/api/v1/onboarding/${TEST_WALLET}/remind`).send({
+      email: "contributor@example.com",
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -150,9 +173,7 @@ describe("Contributor Onboarding Router (#567)", () => {
   });
 
   test("POST /api/v1/onboarding/:walletAddress/remind returns 400 for missing email", async () => {
-    const res = await request(app)
-      .post(`/api/v1/onboarding/${TEST_WALLET}/remind`)
-      .send({});
+    const res = await request(app).post(`/api/v1/onboarding/${TEST_WALLET}/remind`).send({});
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Valid email is required for reminder");
