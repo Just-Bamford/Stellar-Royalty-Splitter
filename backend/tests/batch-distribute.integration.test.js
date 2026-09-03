@@ -85,8 +85,16 @@ const { default: app } = await import("./app.js");
 
 describe("POST /api/v1/batch-distribute — integration", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     transactionCounter = 0;
+  });
+
+  afterEach(() => {
+    // Clear all timers and intervals from setInterval in routes
+    jest.clearAllTimers();
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
   });
 
   test("happy path — builds an XDR per operation and reports success", async () => {

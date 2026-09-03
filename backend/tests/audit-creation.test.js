@@ -80,6 +80,8 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
   validateStellarAddress: jest.fn(() => true),
   validateInitializePayloadSize: jest.fn((req, res, next) => next()),
   validateContractIdMiddleware: jest.fn((req, res, next) => next()),
+  parsePagination: jest.fn((query) => ({ limit: 50, offset: 0 })),
+  parseCursorPagination: jest.fn((query) => ({ limit: 50, cursor: null })),
   MAX_BATCH_OPERATIONS: 50,
 }));
 
