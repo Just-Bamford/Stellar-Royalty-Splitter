@@ -68,6 +68,8 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
   distributeSchema: { parse: jest.fn((x) => x) },
   validate: jest.fn((schema) => (data) => ({ success: true, data })),
   validateStellarAddress: jest.fn(() => true),
+  validateInitializePayloadSize: jest.fn((req, res, next) => next()),
+  validateContractIdMiddleware: jest.fn((req, res, next) => next()),
 }));
 
 // Mock rate limiters to pass through in tests
