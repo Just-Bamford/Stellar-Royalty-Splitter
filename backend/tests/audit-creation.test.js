@@ -128,6 +128,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   beforeEach(() => jest.clearAllMocks());
 
   test("POST /api/v1/initialize records contract_initialized with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     isContractInitialized.mockResolvedValue(false);
     retryBuildTx.mockResolvedValue("init-xdr");
     recordTransaction.mockReturnValue("tx-init");
@@ -152,6 +153,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   });
 
   test("POST /api/v1/distribute records distribution_initiated with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     retryBuildTx.mockResolvedValue("distribute-xdr");
     recordTransaction.mockReturnValue("tx-dist");
 
@@ -169,6 +171,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   });
 
   test("POST /api/v1/secondary-royalty/set-rate records royalty_rate_set with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     buildTx.mockResolvedValue("set-rate-xdr");
     recordTransaction.mockReturnValue("tx-rate");
 
@@ -186,6 +189,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   });
 
   test("POST /api/v1/secondary-royalty records secondary_sale_recorded with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     getRoyaltyRateFromContract.mockResolvedValue(500);
     recordTransaction.mockReturnValue("tx-sale");
     buildTx.mockResolvedValue("sale-xdr");

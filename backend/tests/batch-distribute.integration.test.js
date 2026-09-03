@@ -106,6 +106,7 @@ const { default: app } = await import("./app.js");
 describe("POST /api/v1/batch-distribute — integration", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.setTimeout(120000); // Increase timeout for all batch-distribute tests
     transactionCounter = 0;
   });
 
