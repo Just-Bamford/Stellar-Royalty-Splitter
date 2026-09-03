@@ -88,7 +88,7 @@ describe("POST /api/v1/initialize – integration", () => {
       .post("/api/v1/initialize")
       .send({ ...validBody, collaborators: [], shares: [] });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/collaborators array must be non-empty/i);
+    expect(res.body.error).toMatch(/at least one collaborator required/i);
   });
 
   test("413 when initialize payload is too large", async () => {

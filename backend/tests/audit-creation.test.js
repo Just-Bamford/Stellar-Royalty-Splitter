@@ -65,6 +65,14 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
+// Mock validation to accept test wallets but reject invalid ones
+await jest.unstable_mockModule("../src/validation.js", () => ({
+  isValidStellarAddress: jest.fn((addr) => {
+    // Accept valid G-addresses (56 chars starting with G)
+    return addr && /^G[A-Z0-9]{55}$/.test(addr);
+  }),
+}));
+
 const express = (await import("express")).default;
 const { initializeRouter } = await import("../src/routes/initialize.js");
 const { distributeRouter } = await import("../src/routes/distribute.js");

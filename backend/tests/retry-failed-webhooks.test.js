@@ -39,6 +39,8 @@ describe("executeWebhookRetryRun (#743)", () => {
     mockUpdateWebhookRetryStateWithPayload.mockReset();
     mockResetWebhookRetryCount.mockReset();
     mockPostWebhook.mockReset();
+    // Mock global.fetch as a jest function
+    global.fetch = jest.fn();
   });
 
   test("returns zero counts when no webhooks are due for retry", async () => {

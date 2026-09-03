@@ -80,6 +80,14 @@ await jest.unstable_mockModule("../src/error-response.js", () => ({
   }),
 }));
 
+// Mock validation to accept test wallets but reject invalid ones
+await jest.unstable_mockModule("../src/validation.js", () => ({
+  isValidStellarAddress: jest.fn((addr) => {
+    // Accept valid G-addresses (56 chars starting with G)
+    return addr && /^G[A-Z0-9]{55}$/.test(addr);
+  }),
+}));
+
 const onboardingRouter = (await import("../src/routes/onboarding.js")).default;
 
 const app = express();

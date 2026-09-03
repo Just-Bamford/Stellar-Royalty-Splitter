@@ -57,6 +57,14 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
+// Mock validation to accept test wallets but reject invalid ones
+await jest.unstable_mockModule("../src/validation.js", () => ({
+  isValidStellarAddress: jest.fn((addr) => {
+    // Accept valid G-addresses (56 chars starting with G)
+    return addr && /^G[A-Z0-9]{55}$/.test(addr);
+  }),
+}));
+
 // Mock rate limiters to pass through in tests
 await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
   tieredLimiters: [(_req, _res, next) => next(), (_req, _res, next) => next()],
