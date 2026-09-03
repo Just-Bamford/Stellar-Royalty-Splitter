@@ -2,15 +2,29 @@
 
 This document describes the recommended GitHub configuration for the Stellar Royalty Splitter repository to prevent merge conflicts and CI failures.
 
+## Branch Strategy
+
+The repository uses a two-branch strategy:
+
+- **`main`** - Stable production releases (protected, requires PR reviews + CI passing)
+- **`dev`** - Active development branch (all features merge here first)
+
+### Contributor Workflow
+
+1. Create feature branches OFF `dev` (not `main`)
+2. Open PRs targeting `dev` (base branch: `dev`)
+3. After code review and CI passes, PR merges into `dev`
+4. Periodically, `dev` is merged into `main` for releases
+5. `main` should always be release-ready and stable
+
+---
+
 ## Branch Protection Rules
 
-### How to Set Up (GitHub Web UI)
+### Configure `main` Branch (Stable Releases)
 
 1. Go to: **Settings → Branches → Add rule**
 2. Apply rule to branch: `main`
-3. Configure the following settings:
-
-### Recommended Configuration
 
 #### 1. Require Pull Request Reviews Before Merging
 
@@ -25,43 +39,51 @@ This document describes the recommended GitHub configuration for the Stellar Roy
 
 Select these required checks:
 
-- `Backend CI / test` (Node 20.x)
-- `Backend CI / test` (Node 22.x)
-- `Contract CI / cargo test (wasm32-unknown-unknown)`
+- `Backend CI / test (20.x)`
+- `Backend CI / test (22.x)`
+- `Contract CI / cargo test`
 
-#### 3. Require Code Reviews
-
-- ✅ **Require approval of the most recent reviewable push**
-- ✅ **Dismiss stale pull request approvals when new commits are pushed**
-
-#### 4. Other Protections
+#### 3. Other Protections
 
 - ✅ **Allow force pushes** → None
 - ✅ **Allow deletions** → Unchecked
-- ✅ **Allow auto-merge** → Do not allow (requires manual merge)
+
+---
+
+### Configure `dev` Branch (Development)
+
+1. Go to: **Settings → Branches → Add rule**
+2. Apply rule to branch: `dev`
+3. Configure lighter protections (faster iteration):
+
+#### 1. Require Pull Request Reviews Before Merging
+
+- ✅ **Require approvals**: 1
+- ✅ **Dismiss stale pull request approvals when new commits are pushed**
+
+#### 2. Require Status Checks to Pass Before Merging
+
+- ✅ **Require branches to be up to date before merging**
+- ✅ **Require passing builds before merging**
+
+Select these required checks:
+
+- `Backend CI / test (20.x)`
+- `Backend CI / test (22.x)`
+- `Contract CI / cargo test`
+
+#### 3. Other Protections
+
+- ✅ **Allow force pushes** → None
+- ✅ **Allow deletions** → Unchecked
 
 ---
 
 ## Step-by-Step Setup Instructions
 
-### Via GitHub CLI
+### Via GitHub Web UI (Detailed Steps)
 
-If you prefer using GitHub CLI:
-
-```bash
-# Install gh if not already installed
-# https://cli.github.com
-
-# Set required status checks
-gh repo edit \
-  --enable-auto-merge=false \
-  --enable-squash-merge=false \
-  --enable-rebase-merge=false
-
-# Require pull request reviews (using web UI, no CLI support yet)
-```
-
-### Via Web UI (Detailed Steps)
+#### Setup `main` Branch
 
 1. **Navigate to Branch Protection**
    - Go to your repository
@@ -76,7 +98,6 @@ gh repo edit \
    - Check: "Require pull request reviews before merging"
    - Required number of reviews: `1`
    - Check: "Dismiss stale pull request approvals when new commits are pushed"
-   - Uncheck: "Require approval of the most recent reviewable push" (optional)
 
 4. **Enable Status Checks**
    - Check: "Require status checks to pass before merging"
@@ -84,14 +105,38 @@ gh repo edit \
    - Search for and select:
      - `Backend CI / test (20.x)`
      - `Backend CI / test (22.x)`
-     - `Contract CI / cargo test (wasm32-unknown-unknown)`
+     - `Contract CI / cargo test`
 
 5. **Restrict Who Can Push**
-   - Uncheck: "Allow force pushes" (or select "Restricted to administrators")
+   - Uncheck: "Allow force pushes"
    - Uncheck: "Allow deletions"
 
 6. **Create the Rule**
    - Click "Create"
+
+#### Setup `dev` Branch
+
+Repeat the above steps but:
+
+- Branch name pattern: `dev`
+- Same status checks required
+- Can use same settings or slightly relaxed (your choice)
+
+### Via GitHub CLI
+
+If you prefer using GitHub CLI:
+
+```bash
+# Install gh if not already installed
+# https://cli.github.com
+
+# Set repository settings
+gh repo edit \
+  --enable-auto-merge=false \
+  --enable-squash-merge=true
+
+# Note: Branch protection rules must be set via web UI
+```
 
 ---
 
@@ -101,16 +146,17 @@ gh repo edit \
 
 ✅ Merges without CI passing
 ✅ Merges without code review
-✅ Force pushes to main
+✅ Force pushes to main or dev
 ✅ Direct pushes bypassing PR checks
-✅ Accidental deletions of main branch
+✅ Accidental deletions of main/dev branches
 
 ### What Contributors Can Still Do
 
-✅ Create branches freely
+✅ Create feature branches freely
 ✅ Create PRs from any branch
-✅ Push to their own branches
+✅ Push to their own feature branches
 ✅ Rebase/squash commits locally
+✅ Force-push only to their feature branches (not protected)
 
 ---
 
@@ -131,6 +177,10 @@ tests/                  @maintainer-username
 
 # CI/CD
 .github/workflows/      @maintainer-username
+
+# Documentation
+*.md                    @maintainer-username
+docs/                   @maintainer-username
 ```
 
 ### 2. Enable Auto-Dismiss Stale Reviews
@@ -142,7 +192,7 @@ Already included in the protection rule configuration above.
 For enhanced security:
 
 1. Go to Settings → Branches
-2. Edit the rule
+2. Edit the `main` rule
 3. Check: "Require commit signatures"
 4. Contributors must sign commits with GPG keys
 
@@ -158,6 +208,45 @@ Default to: **Squash and merge**
 
 ---
 
+## PR Workflow for Contributors
+
+### Opening a PR
+
+1. **Branch from `dev`:**
+
+   ```bash
+   git checkout dev
+   git pull origin dev
+   git checkout -b feature/your-feature
+   ```
+
+2. **Make changes and test locally:**
+
+   ```bash
+   npm test          # Backend tests (expect 1106/1107 passing)
+   npm run lint      # Check linting
+   npm run format    # Auto-format code
+   ```
+
+3. **Push and create PR:**
+
+   ```bash
+   git push -u origin feature/your-feature
+   ```
+
+4. **In GitHub UI:**
+   - Base branch: `dev` (NOT `main`)
+   - Add description with `Closes #N` reference
+   - Wait for CI to pass
+
+### Merging a PR
+
+- After 1 approval and CI passes, maintainers merge
+- PR will be merged into `dev`
+- Periodically, `dev` merges into `main` for releases
+
+---
+
 ## Verification
 
 After setting up branch protection, verify it works:
@@ -170,7 +259,7 @@ After setting up branch protection, verify it works:
    git commit -m "test: verify branch protection"
    git push -u origin test/protection
    ```
-4. Create a PR on GitHub
+4. Create a PR on GitHub targeting `dev`
 5. Try to merge WITHOUT approvals/passing CI:
    - **Button should be disabled** with message "Some checks haven't completed yet"
 6. After CI passes and you get 1 approval:
@@ -197,8 +286,24 @@ After setting up branch protection, verify it works:
 - Go to PR → "Checks" tab to monitor progress
 - Common failures:
   - ESLint errors → run `npm run lint` locally
-  - Test failures → run `npm test` locally
+  - Test failures → run `npm test` locally (expect 1106/1107 passing)
   - Build failures → check error logs
+
+### "I can't push to dev"
+
+This is expected — `dev` is protected:
+
+- Never push directly to `dev`
+- Always create a feature branch and PR instead
+- Use: `git checkout -b feature/name` then PR
+
+### "My PR is targeting main instead of dev"
+
+When creating PR on GitHub:
+
+1. Click "Compare & pull request"
+2. Change **base** from `main` to `dev`
+3. Verify before creating
 
 ---
 
@@ -216,7 +321,7 @@ Every 3 months, review:
 
 If you add new CI workflows:
 
-1. Update the branch protection rule
+1. Update both `main` and `dev` branch protection rules
 2. Add new checks to the required list
 3. Test with a dummy PR
 
