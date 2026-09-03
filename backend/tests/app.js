@@ -8,7 +8,6 @@ import { collaboratorsRouter } from "../src/routes/collaborators.js";
 import { simulateRouter } from "../src/routes/simulate.js";
 import { metricsRouter } from "../src/routes/metrics.js";
 import { notFoundHandler, errorHandler } from "../src/error-response.js";
-import { metricsInterval } from "../src/routes/contract.js";
 
 const app = express();
 
@@ -26,10 +25,5 @@ app.use("/metrics", metricsRouter);
 // this harness exercise the real response format instead of a stand-in.
 app.use(notFoundHandler);
 app.use(errorHandler);
-
-// Cleanup: clear metrics interval after each test suite
-app.teardown = () => {
-  if (metricsInterval) clearInterval(metricsInterval);
-};
 
 export default app;

@@ -1,7 +1,7 @@
 /**
  * Integration tests for POST /api/v1/batch-distribute (#759).
  */
-import { jest, describe, test, expect, beforeEach, afterAll } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 import {
   VALID_CONTRACT_ID as CONTRACT_A,
@@ -108,10 +108,6 @@ describe("POST /api/v1/batch-distribute — integration", () => {
     jest.clearAllMocks();
     jest.setTimeout(120000); // Increase timeout for all batch-distribute tests
     transactionCounter = 0;
-  });
-
-  afterAll(() => {
-    app.teardown();
   });
 
   test("happy path — builds an XDR per operation and reports success", async () => {

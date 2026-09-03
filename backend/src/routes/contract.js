@@ -33,21 +33,30 @@ const metrics = {
   refreshLatencyMs: [],
 };
 
-// Log metrics periodically.
-const metricsInterval = setInterval(() => {
-  console.log(
-    `[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`
-  );
-  if (metrics.refreshLatencyMs.length > 0) {
+// Log metrics periodically (only outside Jest test environment)
+let metricsInterval = null;
+const isTestEnvironment = typeof global.jest !== "undefined";
+if (!isTestEnvironment) {
+  metricsInterval = setInterval(() => {
     console.log(
-      `[cache-warm] avg refresh-latency: ${metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length} ms`
+      `[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`
     );
-  }
-}, 60 * 1000);
+    if (metrics.refreshLatencyMs.length > 0) {
+      console.log(
+        `[cache-warm] avg refresh-latency: ${metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length} ms`
+      );
+    }
+  }, 60 * 1000);
 
-// Allow this interval to not block process exit during tests
-if (metricsInterval.unref) {
-  metricsInterval.unref();
+  // Allow this interval to not block process exit
+  if (metricsInterval.unref) {
+    metricsInterval.unref();
+  }
+}
+
+// Export cleanup function for tests
+export function cleanupMetricsInterval() {
+  if (metricsInterval) clearInterval(metricsInterval);
 }
 
 // Export for test cleanup
