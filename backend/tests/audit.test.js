@@ -114,6 +114,7 @@ describe("Public audit API surface (backend/src/routes/history.js)", () => {
     await jest.unstable_mockModule("../src/database/index.js", () => ({
       getTransactionHistory: jest.fn(),
       getTransactionCount: jest.fn(),
+      getTransactionHistoryCursor: jest.fn(),
       getTransactionDetails: jest.fn(),
       getTransactionById: jest.fn(),
       getAuditLog,

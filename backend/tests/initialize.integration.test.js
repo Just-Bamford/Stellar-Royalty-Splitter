@@ -14,6 +14,8 @@ const isContractInitialized = jest.fn();
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
   isContractInitialized,
+  buildTx: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),

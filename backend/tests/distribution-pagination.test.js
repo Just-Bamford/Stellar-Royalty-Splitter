@@ -11,6 +11,7 @@ const getTransactionCount = jest.fn();
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   getTransactionHistory,
   getTransactionCount,
+  getTransactionHistoryCursor: jest.fn(),
   getTransactionDetails: jest.fn(),
   getTransactionById: jest.fn(),
   getAuditLog: jest.fn(),

@@ -11,7 +11,14 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   checkContractDeploymentStatus,
   getConfiguredContractId,
   getNetworkLabel,
-  checkSorobanConnectivity: jest.fn().mockResolvedValue({ connected: true, responseTimeMs: 10, status: "healthy", url: "https://soroban-testnet.stellar.org" }),
+  checkSorobanConnectivity: jest
+    .fn()
+    .mockResolvedValue({
+      connected: true,
+      responseTimeMs: 10,
+      status: "healthy",
+      url: "https://soroban-testnet.stellar.org",
+    }),
   getCacheStatus: jest.fn().mockReturnValue({ cached: true, ageMs: 1000, ttlMs: 30000 }),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
@@ -38,7 +45,13 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getHealthHistory,
   getSLAStats,
   getMigrationVersion: jest.fn(() => 2),
-  checkDatabase: jest.fn(() => ({ connected: true, responseTimeMs: 1, version: 2, walMode: true, tableCount: 10 })),
+  checkDatabase: jest.fn(() => ({
+    connected: true,
+    responseTimeMs: 1,
+    version: 2,
+    walMode: true,
+    tableCount: 10,
+  })),
 }));
 
 await jest.unstable_mockModule("../src/metrics.js", () => ({
@@ -54,7 +67,20 @@ await jest.unstable_mockModule("../src/database/health-monitor.js", () => ({
     durationMs: 1,
     lastCheckAt: new Date().toISOString(),
     consecutiveFailures: 0,
-    pool: { poolSize: 5, activeConnections: 0, available: 5, utilization: 0, queueLength: 0, timeouts: 0, acquires: 0 },
+    pool: {
+      poolSize: 5,
+      activeConnections: 0,
+      available: 5,
+      utilization: 0,
+      queueLength: 0,
+      timeouts: 0,
+      acquires: 0,
+    },
+  }),
+  getHealthStatus: jest.fn().mockReturnValue({
+    connected: true,
+    lastCheckAt: new Date().toISOString(),
+    consecutiveFailures: 0,
   }),
   getHealthMetrics: jest.fn().mockReturnValue({ totalChecks: 1, totalFailures: 0 }),
 }));
@@ -165,10 +191,17 @@ describe("GET /api/v1/health", () => {
   test("components.horizon.color is yellow when latency > 3000ms", async () => {
     // Make the Horizon check slow enough to push latencyMs > 3000
     checkHorizonConnectivity.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({
-        connected: true,
-        url: "https://horizon-testnet.stellar.org",
-      }), 3100))
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                connected: true,
+                url: "https://horizon-testnet.stellar.org",
+              }),
+            3100
+          )
+        )
     );
 
     clearHealthCache();

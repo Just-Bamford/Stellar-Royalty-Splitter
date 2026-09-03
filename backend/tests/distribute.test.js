@@ -33,6 +33,8 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
 
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
+  buildTx: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
   isContractInitialized: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
@@ -60,7 +62,11 @@ app.use("/api/v1/distribute", distributeRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const validBody = buildDistributePayload({ contractId: CONTRACT, walletAddress: WALLET, tokenId: TOKEN });
+const validBody = buildDistributePayload({
+  contractId: CONTRACT,
+  walletAddress: WALLET,
+  tokenId: TOKEN,
+});
 
 describe("POST /api/v1/distribute", () => {
   beforeEach(() => {
@@ -104,7 +110,10 @@ describe("POST /api/v1/distribute", () => {
 
   test("503 when Stellar RPC is unavailable", async () => {
     recordTransaction.mockReturnValue("tx-456");
-    retryBuildTx.mockRejectedValue({ status: 503, message: "Stellar RPC is currently unavailable. Please try again later." });
+    retryBuildTx.mockRejectedValue({
+      status: 503,
+      message: "Stellar RPC is currently unavailable. Please try again later.",
+    });
 
     const res = await request(app).post("/api/v1/distribute").send(validBody);
 

@@ -81,6 +81,8 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   isContractInitialized: jest.fn(),
   networkPassphrase: "Test SDF Network ; September 2015",
   retryBuildTx: jest.fn(),
+  buildTx: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
   server: {
     simulateTransaction,
   },
@@ -97,7 +99,11 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 
 const { default: app } = await import("./app.js");
 
-const validBody = buildDistributePayload({ contractId: CONTRACT, walletAddress: WALLET, tokenId: TOKEN });
+const validBody = buildDistributePayload({
+  contractId: CONTRACT,
+  walletAddress: WALLET,
+  tokenId: TOKEN,
+});
 
 describe("POST /api/v1/simulate", () => {
   beforeEach(() => {

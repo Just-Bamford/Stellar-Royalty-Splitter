@@ -30,6 +30,7 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 7),
   checkDatabase,
+  getHealthHistory: jest.fn(() => []),
 }));
 
 await jest.unstable_mockModule("../src/metrics.js", () => ({
@@ -41,6 +42,11 @@ await jest.unstable_mockModule("../src/metrics.js", () => ({
 
 await jest.unstable_mockModule("../src/database/health-monitor.js", () => ({
   checkConnectionHealthAsync,
+  getHealthStatus: jest.fn().mockReturnValue({
+    connected: true,
+    lastCheckAt: new Date().toISOString(),
+    consecutiveFailures: 0,
+  }),
   getHealthMetrics,
 }));
 
@@ -356,7 +362,12 @@ describe("GET /api/v1/health/detailed", () => {
       () =>
         new Promise((resolve) =>
           setTimeout(
-            () => resolve({ connected: true, responseTimeMs: 60, url: "https://soroban-testnet.stellar.org" }),
+            () =>
+              resolve({
+                connected: true,
+                responseTimeMs: 60,
+                url: "https://soroban-testnet.stellar.org",
+              }),
             60
           )
         )
