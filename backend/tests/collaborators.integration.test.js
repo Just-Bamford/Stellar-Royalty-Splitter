@@ -1,5 +1,5 @@
 // Integration tests for GET /api/v1/collaborators/:contractId route, focusing on caching behavior
-import { jest, describe, test, expect, beforeEach } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach, afterAll } from "@jest/globals";
 import request from "supertest";
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -76,6 +76,10 @@ describe("GET /api/v1/collaborators/:contractId – integration (caching)", () =
     mockSimulate.mockReset();
     mockIsSimError.mockReset();
     mockIsSimError.mockReturnValue(false);
+  });
+
+  afterAll(() => {
+    app.teardown();
   });
 
   test("first request fetches from RPC and caches result", async () => {

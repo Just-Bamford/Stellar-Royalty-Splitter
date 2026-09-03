@@ -1,4 +1,4 @@
-import { jest, describe, test, expect, beforeEach } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach, afterAll } from "@jest/globals";
 import request from "supertest";
 
 // Verifies audit entries are only ever created as a side effect of real
@@ -65,6 +65,12 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
+// Mock rate limiters BEFORE importing routes
+await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
+  tieredLimiters: [(_req, _res, next) => next(), (_req, _res, next) => next()],
+  rateLimitMetrics: { contractHits: 0, walletHits: 0, ipHits: 0 },
+}));
+
 // Mock validation with ALL schema exports
 await jest.unstable_mockModule("../src/validation.js", () => ({
   isValidStellarAddress: jest.fn((addr) => addr && /^G[A-Z0-9]{55}$/.test(addr)),
@@ -126,6 +132,10 @@ const OTHER = "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 describe("Audit entries created as a side effect of real actions", () => {
   beforeEach(() => jest.clearAllMocks());
+
+  afterAll(() => {
+    app.teardown();
+  });
 
   test("POST /api/v1/initialize records contract_initialized with actor and reference data", async () => {
     jest.setTimeout(120000); // Increase from default 5000ms
