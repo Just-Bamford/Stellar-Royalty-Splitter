@@ -65,24 +65,42 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
-// Mock validation to accept test wallets but reject invalid ones
+// Mock validation with ALL schema exports
 await jest.unstable_mockModule("../src/validation.js", () => ({
-  isValidStellarAddress: jest.fn((addr) => {
-    // Accept valid G-addresses (56 chars starting with G)
-    return addr && /^G[A-Z0-9]{55}$/.test(addr);
-  }),
+  isValidStellarAddress: jest.fn((addr) => addr && /^G[A-Z0-9]{55}$/.test(addr)),
+  // All schemas
   initializeSchema: { parse: jest.fn((x) => x) },
-  batchDistributeSchema: { parse: jest.fn((x) => x) },
+  amountSchema: { parse: jest.fn((x) => x) },
   distributeSchema: { parse: jest.fn((x) => x) },
-  distributeSecondarySchema: { parse: jest.fn((x) => x) },
+  batchDistributeSchema: { parse: jest.fn((x) => x) },
+  setRoyaltyRateSchema: { parse: jest.fn((x) => x) },
+  setSecondaryPoolLimitSchema: { parse: jest.fn((x) => x) },
   recordSecondarySaleSchema: { parse: jest.fn((x) => x) },
+  distributeSecondarySchema: { parse: jest.fn((x) => x) },
+  emailDigestSubscribeSchema: { parse: jest.fn((x) => x) },
+  emailDigestPreferencesSchema: { parse: jest.fn((x) => x) },
+  webhookRegisterSchema: { parse: jest.fn((x) => x) },
+  transactionConfirmSchema: { parse: jest.fn((x) => x) },
+  disputeSubmitSchema: { parse: jest.fn((x) => x) },
+  disputeContributorCommentSchema: { parse: jest.fn((x) => x) },
+  disputeAdminReviewSchema: { parse: jest.fn((x) => x) },
+  disputeAdminCommentSchema: { parse: jest.fn((x) => x) },
+  referralGenerateLinkSchema: { parse: jest.fn((x) => x) },
+  referralRegisterSchema: { parse: jest.fn((x) => x) },
+  referralActivateSchema: { parse: jest.fn((x) => x) },
+  referralAwardBonusSchema: { parse: jest.fn((x) => x) },
+  paginationSchema: { parse: jest.fn((x) => x) },
+  analyticsQuerySchema: { parse: jest.fn((x) => x) },
+  // Functions
   validate: jest.fn((schema) => (data) => ({ success: true, data })),
   validateStellarAddress: jest.fn(() => true),
   validateInitializePayloadSize: jest.fn((req, res, next) => next()),
   validateContractIdMiddleware: jest.fn((req, res, next) => next()),
   parsePagination: jest.fn((query) => ({ limit: 50, offset: 0 })),
   parseCursorPagination: jest.fn((query) => ({ limit: 50, cursor: null })),
+  // Constants
   MAX_BATCH_OPERATIONS: 50,
+  MAX_COLLABORATORS: 10,
 }));
 
 const express = (await import("express")).default;
