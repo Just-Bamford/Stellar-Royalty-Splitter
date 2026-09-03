@@ -19,6 +19,9 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));

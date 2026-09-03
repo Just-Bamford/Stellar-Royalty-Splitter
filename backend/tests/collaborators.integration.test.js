@@ -50,9 +50,14 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   networkPassphrase: "Test SDF Network ; September 2015",
   addressToScVal: jest.fn((a) => a),
   retryBuildTx: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
   isContractInitialized: jest.fn(),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  buildTx: jest.fn(),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
@@ -79,7 +84,9 @@ describe("GET /api/v1/collaborators/:contractId – integration (caching)", () =
       val: () => ({ u32: () => share }),
     });
     mockSimulate.mockResolvedValueOnce({
-      result: { retval: { map: () => ({ entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)] }) } },
+      result: {
+        retval: { map: () => ({ entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)] }) },
+      },
     });
 
     const res = await request(app).get(`/api/v1/collaborators/${CONTRACT}`);
@@ -98,7 +105,9 @@ describe("GET /api/v1/collaborators/:contractId – integration (caching)", () =
       val: () => ({ u32: () => share }),
     });
     mockSimulate.mockResolvedValueOnce({
-      result: { retval: { map: () => ({ entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)] }) } },
+      result: {
+        retval: { map: () => ({ entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)] }) },
+      },
     });
     await request(app).get(`/api/v1/collaborators/${CONTRACT}`);
     expect(mockSimulate).toHaveBeenCalledTimes(1);

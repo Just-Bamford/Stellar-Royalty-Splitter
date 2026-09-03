@@ -144,6 +144,7 @@ const routeArchiveContractEvents = jest.fn();
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   getTransactionHistory: jest.fn(),
+  getTransactionHistoryCursor: jest.fn(),
   getTransactionCount: jest.fn(),
   getTransactionDetails: jest.fn(),
   getTransactionById: jest.fn(),

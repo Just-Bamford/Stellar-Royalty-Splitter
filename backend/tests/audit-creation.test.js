@@ -36,10 +36,13 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   buildTx,
   isContractInitialized,
   getRoyaltyRateFromContract,
+  pollHorizonTransaction: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   i128ToScVal: jest.fn((n) => n),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytes32ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
   server: { simulateTransaction: mockSimulate },
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -91,12 +94,14 @@ describe("Audit entries created as a side effect of real actions", () => {
     retryBuildTx.mockResolvedValue("init-xdr");
     recordTransaction.mockReturnValue("tx-init");
 
-    const res = await request(app).post("/api/v1/initialize").send({
-      contractId: CONTRACT,
-      walletAddress: WALLET,
-      collaborators: [COLLAB1, COLLAB2],
-      shares: [5000, 5000],
-    });
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({
+        contractId: CONTRACT,
+        walletAddress: WALLET,
+        collaborators: [COLLAB1, COLLAB2],
+        shares: [5000, 5000],
+      });
 
     expect(res.status).toBe(200);
     expect(addAuditLog).toHaveBeenCalledTimes(1);

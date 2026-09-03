@@ -6,9 +6,14 @@ const retryBuildTx = jest.fn();
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
   isContractInitialized: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
+  buildTx: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -200,8 +205,14 @@ describe("POST /api/v1/distribute with idempotency", () => {
 
     // Send two requests concurrently
     const [res1, res2] = await Promise.all([
-      request(app).post("/api/v1/distribute").set("Idempotency-Key", idempotencyKey).send(validBody),
-      request(app).post("/api/v1/distribute").set("Idempotency-Key", idempotencyKey).send(validBody),
+      request(app)
+        .post("/api/v1/distribute")
+        .set("Idempotency-Key", idempotencyKey)
+        .send(validBody),
+      request(app)
+        .post("/api/v1/distribute")
+        .set("Idempotency-Key", idempotencyKey)
+        .send(validBody),
     ]);
 
     // Both should succeed
@@ -271,4 +282,3 @@ describe("POST /api/v1/distribute with idempotency", () => {
     expect(retryBuildTx).toHaveBeenCalled();
   });
 });
-
