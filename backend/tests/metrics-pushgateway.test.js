@@ -1,3 +1,4 @@
+import { jest, describe, test, expect } from "@jest/globals";
 import {
   buildPushgatewayUrl,
   createMetricsPusher,
@@ -18,7 +19,7 @@ describe("Prometheus Pushgateway metrics export", () => {
       intervalMs: 30000,
     };
     expect(buildPushgatewayUrl(config)).toBe(
-      "http://pushgateway:9091/metrics/job/royalty%20api/instance/pod%2F1",
+      "http://pushgateway:9091/metrics/job/royalty%20api/instance/pod%2F1"
     );
   });
 
@@ -42,7 +43,7 @@ describe("Prometheus Pushgateway metrics export", () => {
       expect.objectContaining({
         method: "PUT",
         body: "metric 1\n",
-      }),
+      })
     );
   });
 

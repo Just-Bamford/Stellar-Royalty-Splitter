@@ -15,15 +15,19 @@ import {
 } from "../src/validation.js";
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const WALLET   = "GAPTAQKSMN2ILFVHXDE5V274BUPC6QCRMJZYJFNGW7ENT2X3BQOS4M3C";
-const COLLAB1  = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
-const COLLAB2  = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
+const WALLET = "GAPTAQKSMN2ILFVHXDE5V274BUPC6QCRMJZYJFNGW7ENT2X3BQOS4M3C";
+const COLLAB1 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
+const COLLAB2 = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
 
 function parseShares(shares) {
+  // Generate unique addresses for each collaborator
+  const wallets = [COLLAB1, COLLAB2];
+  const collaborators = shares.map((_, i) => (i < wallets.length ? wallets[i] : COLLAB2));
+
   return initializeSchema.safeParse({
     contractId: CONTRACT,
     walletAddress: WALLET,
-    collaborators: shares.map((_, i) => (i === 0 ? COLLAB1 : COLLAB2)),
+    collaborators,
     shares,
   });
 }
@@ -105,7 +109,7 @@ describe("initializeSchema — shares sum validation (issue #356)", () => {
     const result = initializeSchema.safeParse({
       contractId: CONTRACT,
       walletAddress: WALLET,
-      collaborators: [COLLAB1, COLLAB2, "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"],
+      collaborators: [COLLAB1, COLLAB2, "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI"],
       shares: [3333, 3333, 3334],
     });
     expect(result.success).toBe(true);
@@ -113,7 +117,6 @@ describe("initializeSchema — shares sum validation (issue #356)", () => {
 });
 
 describe("distributeSchema & amount validation (issue #650)", () => {
-
   test("rejects invalid Stellar address format", () => {
     const result = distributeSchema.safeParse({
       contractId: CONTRACT,

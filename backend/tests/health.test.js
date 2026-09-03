@@ -11,14 +11,12 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   checkContractDeploymentStatus,
   getConfiguredContractId,
   getNetworkLabel,
-  checkSorobanConnectivity: jest
-    .fn()
-    .mockResolvedValue({
-      connected: true,
-      responseTimeMs: 10,
-      status: "healthy",
-      url: "https://soroban-testnet.stellar.org",
-    }),
+  checkSorobanConnectivity: jest.fn().mockResolvedValue({
+    connected: true,
+    responseTimeMs: 10,
+    status: "healthy",
+    url: "https://soroban-testnet.stellar.org",
+  }),
   getCacheStatus: jest.fn().mockReturnValue({ cached: true, ageMs: 1000, ttlMs: 30000 }),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
@@ -44,7 +42,6 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   pruneHealthHistory,
   getHealthHistory,
   getSLAStats,
-  getMigrationVersion: jest.fn(() => 2),
   checkDatabase: jest.fn(() => ({
     connected: true,
     responseTimeMs: 1,
@@ -52,6 +49,8 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
     walMode: true,
     tableCount: 10,
   })),
+  startHealthMonitor: jest.fn(),
+  stopHealthMonitor: jest.fn(),
 }));
 
 await jest.unstable_mockModule("../src/metrics.js", () => ({
@@ -83,6 +82,9 @@ await jest.unstable_mockModule("../src/database/health-monitor.js", () => ({
     consecutiveFailures: 0,
   }),
   getHealthMetrics: jest.fn().mockReturnValue({ totalChecks: 1, totalFailures: 0 }),
+  startHealthMonitor: jest.fn(),
+  stopHealthMonitor: jest.fn(),
+  resetHealthMonitorState: jest.fn(),
 }));
 
 const { clearHealthCache } = await import("../src/routes/health.js");
