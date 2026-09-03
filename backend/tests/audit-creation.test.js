@@ -74,10 +74,13 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
   initializeSchema: { parse: jest.fn((x) => x) },
   batchDistributeSchema: { parse: jest.fn((x) => x) },
   distributeSchema: { parse: jest.fn((x) => x) },
+  distributeSecondarySchema: { parse: jest.fn((x) => x) },
+  recordSecondarySaleSchema: { parse: jest.fn((x) => x) },
   validate: jest.fn((schema) => (data) => ({ success: true, data })),
   validateStellarAddress: jest.fn(() => true),
   validateInitializePayloadSize: jest.fn((req, res, next) => next()),
   validateContractIdMiddleware: jest.fn((req, res, next) => next()),
+  MAX_BATCH_OPERATIONS: 50,
 }));
 
 const express = (await import("express")).default;
