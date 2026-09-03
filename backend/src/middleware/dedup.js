@@ -59,11 +59,14 @@ export function dedupMiddleware() {
       dedupMetrics.hits++;
       logger.debug({ key }, "Dedup: in-flight duplicate detected — waiting for first response");
 
-      inFlight.get(key).then(({ status, body: cachedBody }) => {
-        res.status(status).json(cachedBody);
-      }).catch((err) => {
-        res.status(500).json({ error: err.message ?? "Upstream request failed" });
-      });
+      inFlight
+        .get(key)
+        .then(({ status, body: cachedBody }) => {
+          res.status(status).json(cachedBody);
+        })
+        .catch((err) => {
+          res.status(500).json({ error: err.message ?? "Upstream request failed" });
+        });
 
       return; // do NOT call next()
     }
@@ -86,6 +89,11 @@ export function dedupMiddleware() {
         rejectShared(new Error("Dedup entry timed out"));
       }
     }, DEDUP_WINDOW_MS);
+
+    // Allow this timeout to not block process exit during tests
+    if (cleanup.unref) {
+      cleanup.unref();
+    }
 
     // Intercept res.json to capture the real response
     const originalJson = res.json.bind(res);

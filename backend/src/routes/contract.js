@@ -34,7 +34,7 @@ const metrics = {
 };
 
 // Log metrics periodically.
-setInterval(() => {
+const metricsInterval = setInterval(() => {
   console.log(
     `[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`
   );
@@ -44,7 +44,14 @@ setInterval(() => {
     );
   }
 }, 60 * 1000);
-if (setInterval.unref) setInterval.unref();
+
+// Allow this interval to not block process exit during tests
+if (metricsInterval.unref) {
+  metricsInterval.unref();
+}
+
+// Export for test cleanup
+export { metricsInterval };
 
 function getMetadata(key) {
   let meta = cacheMetadata.get(key);
