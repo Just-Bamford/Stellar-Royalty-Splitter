@@ -63,6 +63,11 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
     // Accept valid G-addresses (56 chars starting with G)
     return addr && /^G[A-Z0-9]{55}$/.test(addr);
   }),
+  initializeSchema: { parse: jest.fn((x) => x) },
+  batchDistributeSchema: { parse: jest.fn((x) => x) },
+  distributeSchema: { parse: jest.fn((x) => x) },
+  validate: jest.fn((schema) => (data) => ({ success: true, data })),
+  validateStellarAddress: jest.fn(() => true),
 }));
 
 // Mock rate limiters to pass through in tests
