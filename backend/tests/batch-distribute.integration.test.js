@@ -34,6 +34,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   pollHorizonTransaction: jest.fn(),
   buildTx: jest.fn(),
   retryBuildTx: jest.fn(),
+  isContractInitialized: jest.fn(),
   bytes32ToScVal: jest.fn((v) => v),
   i128ToScVal: jest.fn((v) => v),
   u32ToScVal: jest.fn((n) => n),
@@ -54,6 +55,12 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog,
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
+}));
+
+// Mock rate limiters to pass through in tests
+await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
+  tieredLimiters: [(_req, _res, next) => next(), (_req, _res, next) => next()],
+  rateLimitMetrics: { contractHits: 0, walletHits: 0, ipHits: 0 },
 }));
 
 const { default: app } = await import("./app.js");

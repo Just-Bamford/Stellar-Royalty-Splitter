@@ -65,17 +65,23 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
-const { default: app } = await import("./app.js");
+const { default: initialApp } = await import("./app.js");
 const { SorobanRpc } = await import("@stellar/stellar-sdk");
 const { clearCache } = await import("../src/cache.js");
 
 describe("GET /api/v1/collaborators/:contractId", () => {
-  beforeEach(() => {
+  let app;
+
+  beforeEach(async () => {
     // Clear the in-memory cache so each test starts cold (#683)
     clearCache();
     mockSimulate.mockReset();
     mockIsSimError.mockReset();
     mockIsSimError.mockReturnValue(false);
+    // Reload the app module to clear the route's internal caches
+    jest.resetModules();
+    const appModule = await import("./app.js");
+    app = appModule.default;
   });
 
   test("happy path — returns collaborators with basisPoints", async () => {

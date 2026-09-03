@@ -11,6 +11,16 @@ await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
   resetWebhookRetryCount: mockResetWebhookRetryCount,
 }));
 
+const mockPostWebhook = jest.fn();
+
+await jest.unstable_mockModule("../src/webhook-delivery.js", () => ({
+  postWebhook: mockPostWebhook,
+  _config: {
+    BACKOFF_MS: [60000, 300000],
+    MAX_WEBHOOK_RETRIES: 3,
+  },
+}));
+
 await jest.unstable_mockModule("../src/logger.js", () => ({
   default: {
     info: jest.fn(),
@@ -20,29 +30,15 @@ await jest.unstable_mockModule("../src/logger.js", () => ({
   },
 }));
 
-await jest.unstable_mockModule("../src/webhook-delivery.js", () => ({
-  postWebhook: jest.fn(),
-  _config: {
-    BACKOFF_MS: [60000, 300000],
-    MAX_WEBHOOK_RETRIES: 3,
-  },
-}));
-
 const { executeWebhookRetryRun } = await import("../src/jobs/retry-failed-webhooks.js");
 const { _config } = await import("../src/webhook-delivery.js");
 
 describe("executeWebhookRetryRun (#743)", () => {
-  let originalFetch;
-
   beforeEach(() => {
-    originalFetch = global.fetch;
     mockGetWebhooksDueForRetry.mockReset();
     mockUpdateWebhookRetryStateWithPayload.mockReset();
     mockResetWebhookRetryCount.mockReset();
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
+    mockPostWebhook.mockReset();
   });
 
   test("returns zero counts when no webhooks are due for retry", async () => {
@@ -51,7 +47,8 @@ describe("executeWebhookRetryRun (#743)", () => {
     const result = await executeWebhookRetryRun();
 
     expect(result).toEqual({ attempted: 0, succeeded: 0, failed: 0, exhausted: 0 });
-    expect(global.fetch).toBeUndefined();
+    // No fetch should be called when there are no webhooks
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test("retries a due webhook and resets state on success", async () => {
@@ -67,14 +64,12 @@ describe("executeWebhookRetryRun (#743)", () => {
       },
     ]);
 
-    global.fetch = jest.fn(async () => ({ ok: true, status: 200 }));
+    mockPostWebhook.mockResolvedValue(undefined);
 
     const result = await executeWebhookRetryRun(new Date("2026-01-01T00:05:00.000Z"));
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    const [url, init] = global.fetch.mock.calls[0];
-    expect(url).toBe("https://example.com/hook");
-    expect(JSON.parse(init.body)).toEqual(payload);
+    expect(mockPostWebhook).toHaveBeenCalledTimes(1);
+    expect(mockPostWebhook).toHaveBeenCalledWith("https://example.com/hook", payload);
 
     expect(mockResetWebhookRetryCount).toHaveBeenCalledWith(5);
     expect(mockUpdateWebhookRetryStateWithPayload).not.toHaveBeenCalled();
@@ -94,7 +89,7 @@ describe("executeWebhookRetryRun (#743)", () => {
       },
     ]);
 
-    global.fetch = jest.fn(async () => ({ ok: false, status: 503 }));
+    mockPostWebhook.mockRejectedValue(new Error("HTTP 503"));
 
     const now = new Date("2026-01-01T00:05:00.000Z");
     const result = await executeWebhookRetryRun(now);
@@ -127,7 +122,7 @@ describe("executeWebhookRetryRun (#743)", () => {
       },
     ]);
 
-    global.fetch = jest.fn(async () => ({ ok: false, status: 500 }));
+    mockPostWebhook.mockRejectedValue(new Error("HTTP 500"));
 
     const now = new Date("2026-01-01T00:05:00.000Z");
     const result = await executeWebhookRetryRun(now);
@@ -185,14 +180,11 @@ describe("executeWebhookRetryRun (#743)", () => {
       },
     ]);
 
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: true, status: 200 })
-      .mockResolvedValueOnce({ ok: false, status: 500 });
+    mockPostWebhook.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("HTTP 500"));
 
     const result = await executeWebhookRetryRun(new Date("2026-01-01T00:05:00.000Z"));
 
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(mockPostWebhook).toHaveBeenCalledTimes(2);
     expect(mockResetWebhookRetryCount).toHaveBeenCalledWith(1);
     expect(mockUpdateWebhookRetryStateWithPayload).toHaveBeenCalledWith(
       2,

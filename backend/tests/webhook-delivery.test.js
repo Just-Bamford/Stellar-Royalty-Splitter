@@ -65,7 +65,7 @@ describe("deliverDistributeWebhooks (#295)", () => {
 
     const { deliverDistributeWebhooks } = await import("../src/webhook-delivery.js");
 
-    await deliverDistributeWebhooks({
+    deliverDistributeWebhooks({
       txHash: "d".repeat(64),
       contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -75,6 +75,9 @@ describe("deliverDistributeWebhooks (#295)", () => {
       timestamp: "2026-05-31T12:00:00.000Z",
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
+
+    // Give async operations time to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [, init] = global.fetch.mock.calls[0];
@@ -106,7 +109,7 @@ describe("deliverDistributeWebhooks (#295)", () => {
 
     const { deliverDistributeWebhooks } = await import("../src/webhook-delivery.js");
 
-    await deliverDistributeWebhooks({
+    deliverDistributeWebhooks({
       txHash: "d".repeat(64),
       contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -116,6 +119,9 @@ describe("deliverDistributeWebhooks (#295)", () => {
       timestamp: "2026-05-31T12:00:00.000Z",
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
+
+    // Give async operations time to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(updateWebhookRetryStateWithPayload).toHaveBeenCalledTimes(1);
@@ -147,7 +153,7 @@ describe("deliverDistributeWebhooks (#295)", () => {
 
     const { deliverDistributeWebhooks } = await import("../src/webhook-delivery.js");
 
-    await deliverDistributeWebhooks({
+    deliverDistributeWebhooks({
       txHash: "d".repeat(64),
       contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       tokenId: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -157,6 +163,9 @@ describe("deliverDistributeWebhooks (#295)", () => {
       timestamp: "2026-05-31T12:00:00.000Z",
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
+
+    // Give async operations time to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(resetWebhookRetryCount).toHaveBeenCalledTimes(1);

@@ -27,6 +27,12 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
+// Mock rate limiters to pass through in tests
+await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
+  tieredLimiters: [(_req, _res, next) => next(), (_req, _res, next) => next()],
+  rateLimitMetrics: { contractHits: 0, walletHits: 0, ipHits: 0 },
+}));
+
 // Import clearCache to reset between tests
 const { clearCache } = await import("../src/idempotency.js");
 const { default: app } = await import("./app.js");
