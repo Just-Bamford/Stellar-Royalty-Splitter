@@ -14,14 +14,22 @@
 
 import crypto from "crypto";
 import logger from "../logger.js";
+import { dedupMetrics } from "../idempotency.js";
 
-const DEDUP_WINDOW_MS = parseInt(process.env.DEDUP_WINDOW_MS ?? "5000", 10);
+export { dedupMetrics };
+
+const DEDUP_WINDOW_MS = parseInt(
+  process.env.IDEMPOTENCY_DEDUP_WINDOW_MS ?? process.env.DEDUP_WINDOW_MS ?? "5000",
+  10
+);
 
 /** Tracks in-flight requests: hash → Promise<{status, body}> */
 const inFlight = new Map();
 
-/** Simple counters for observability. */
-export const dedupMetrics = { hits: 0, misses: 0 };
+// Keep the legacy middleware's exported counters aligned with the idempotency
+// middleware. New idempotent routes use the operation + Idempotency-Key map in
+// ../idempotency.js, while existing consumers of this middleware retain their
+// previous body-based behaviour.
 
 /**
  * Build a stable deduplication key from the request body fields that

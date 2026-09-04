@@ -229,10 +229,9 @@ describe("POST /api/v1/distribute with idempotency", () => {
     // Both should have the same response
     expect(res1.body).toEqual(res2.body);
 
-    // retryBuildTx might be called 1 or 2 times depending on timing
-    // but should not be called more than 2 times
-    expect(retryBuildTx.mock.calls.length).toBeGreaterThanOrEqual(1);
-    expect(retryBuildTx.mock.calls.length).toBeLessThanOrEqual(2);
+    // In-flight deduplication must ensure that only the first request performs
+    // the expensive transaction build.
+    expect(retryBuildTx).toHaveBeenCalledTimes(1);
   });
 
   test("idempotency key is case-sensitive", async () => {
