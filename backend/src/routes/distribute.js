@@ -2,7 +2,7 @@ import { Router } from "express";
 import { addressToScVal } from "../stellar.js";
 import { validate, distributeSchema } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
-import { idempotencyMiddleware } from "../idempotency.js";
+import { deduplicationMiddleware, idempotencyMiddleware } from "../idempotency.js";
 import {
   recordDistributeCall,
   recordTransactionFailure,
@@ -11,7 +11,6 @@ import {
 import { sendError } from "../error-response.js";
 import { invalidateContract } from "../cache.js";
 import logger from "../logger.js";
-import { dedupMiddleware } from "../middleware/dedup.js";
 import { tieredLimiters } from "../middleware/tieredRateLimit.js";
 import { broadcastToContract } from "../websocket.js";
 
@@ -30,7 +29,7 @@ distributeRouter.post(
     next();
   },
   ...tieredLimiters,
-  dedupMiddleware(),
+  deduplicationMiddleware("distribute"),
   idempotencyMiddleware,
   validate(distributeSchema),
   async (req, res, next) => {
