@@ -81,6 +81,22 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog: jest.fn(),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
+  // Mock transaction-finality functions
+  createFinalityRecord: jest.fn(() => 1),
+  setFinalityTxHash: jest.fn(),
+  incrementPollAttempt: jest.fn(),
+  markFinalityConfirmed: jest.fn(),
+  markFinalityFailed: jest.fn(),
+  markFinalityTimeout: jest.fn(),
+  getFinalityByTransactionId: jest.fn(),
+}));
+
+// Mock transaction-finality module
+await jest.unstable_mockModule("../src/transaction-finality.js", () => ({
+  startTracking: jest.fn(),
+  updateTxHash: jest.fn(),
+  MAX_POLL_DURATION_MS: 600000,
+  JITTER_FACTOR: 0.25,
 }));
 
 const { default: app } = await import("./app.js");
