@@ -1,4 +1,4 @@
-import { jest, describe, test, expect, beforeEach, afterAll } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 
 // Verifies audit entries are only ever created as a side effect of real
@@ -31,6 +31,12 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
   },
 }));
 
+// Mock rpc-retry BEFORE stellar.js imports it
+await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
+  withRetry: jest.fn((fn) => fn()),
+  withTimeout: jest.fn((promise) => promise),
+}));
+
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
   buildTx,
@@ -43,7 +49,18 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   vecToScVal: jest.fn((v) => v),
   bytes32ToScVal: jest.fn((v) => v),
   BatchTransactionBuilder: jest.fn(),
-  server: { simulateTransaction: mockSimulate },
+  // Complete server mock with all necessary methods
+  server: {
+    simulateTransaction: mockSimulate,
+    getAccount: jest.fn().mockResolvedValue({
+      sequenceNumber: "0",
+      incrementSequenceNumber: jest.fn().mockReturnThis(),
+      getSequenceNumber: jest.fn(() => "0"),
+    }),
+    prepareTransaction: jest.fn().mockResolvedValue("signed-tx"),
+    getHealth: jest.fn().mockResolvedValue({ status: "healthy" }),
+    submitTransaction: jest.fn().mockResolvedValue({ id: "tx-123" }),
+  },
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
 
@@ -132,10 +149,6 @@ const OTHER = "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 describe("Audit entries created as a side effect of real actions", () => {
   beforeEach(() => jest.clearAllMocks());
-
-  afterAll(() => {
-    app.teardown();
-  });
 
   test("POST /api/v1/initialize records contract_initialized with actor and reference data", async () => {
     jest.setTimeout(120000); // Increase from default 5000ms

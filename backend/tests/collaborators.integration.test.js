@@ -45,8 +45,24 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
   Account: jest.fn(),
 }));
 
+// Mock rpc-retry BEFORE stellar.js imports it
+await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
+  withRetry: jest.fn((fn) => fn()),
+  withTimeout: jest.fn((promise) => promise),
+}));
+
 await jest.unstable_mockModule("../src/stellar.js", () => ({
-  server: { simulateTransaction: mockSimulate },
+  server: {
+    simulateTransaction: mockSimulate,
+    getAccount: jest.fn().mockResolvedValue({
+      sequenceNumber: "0",
+      incrementSequenceNumber: jest.fn().mockReturnThis(),
+      getSequenceNumber: jest.fn(() => "0"),
+    }),
+    prepareTransaction: jest.fn().mockResolvedValue("signed-tx"),
+    getHealth: jest.fn().mockResolvedValue({ status: "healthy" }),
+    submitTransaction: jest.fn().mockResolvedValue({ id: "tx-123" }),
+  },
   networkPassphrase: "Test SDF Network ; September 2015",
   addressToScVal: jest.fn((a) => a),
   retryBuildTx: jest.fn(),

@@ -28,6 +28,12 @@ class MockBatchTransactionBuilder {
   }
 }
 
+// Mock rpc-retry BEFORE stellar.js imports it
+await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
+  withRetry: jest.fn((fn) => fn()),
+  withTimeout: jest.fn((promise) => promise),
+}));
+
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   BatchTransactionBuilder: MockBatchTransactionBuilder,
@@ -39,7 +45,18 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   i128ToScVal: jest.fn((v) => v),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
-  server: {},
+  // Complete server mock with all necessary methods
+  server: {
+    simulateTransaction: jest.fn().mockResolvedValue({ result: "simulation-result" }),
+    getAccount: jest.fn().mockResolvedValue({
+      sequenceNumber: "0",
+      incrementSequenceNumber: jest.fn().mockReturnThis(),
+      getSequenceNumber: jest.fn(() => "0"),
+    }),
+    prepareTransaction: jest.fn().mockResolvedValue("signed-tx"),
+    getHealth: jest.fn().mockResolvedValue({ status: "healthy" }),
+    submitTransaction: jest.fn().mockResolvedValue({ id: "tx-123" }),
+  },
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
 
