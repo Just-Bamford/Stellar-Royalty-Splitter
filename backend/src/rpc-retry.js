@@ -197,12 +197,14 @@ export function getBackoffDelay(attemptNumber, config = retryConfig) {
   // Cap at maxBackoffMs
   const cappedDelay = Math.min(exponentialDelay, config.maxBackoffMs);
 
-  // Add jitter: ±10% randomness, but cap result at maxBackoffMs
+  // Add jitter: ±10% randomness, but ensure we don't go below the base delay
   const jitterFactor = 0.9 + Math.random() * 0.2;
-  const delayWithJitter = Math.round(cappedDelay * jitterFactor);
+  const delayWithJitter = cappedDelay * jitterFactor;
 
-  // Ensure we never exceed max backoff even with jitter
-  return Math.min(delayWithJitter, config.maxBackoffMs);
+  // Round to nearest ms, but ensure we at least meet the minimum (capped base)
+  const roundedDelay = Math.round(delayWithJitter);
+  const minDelay = Math.round(config.baseBackoffMs * 0.9);
+  return Math.max(minDelay, Math.min(roundedDelay, config.maxBackoffMs));
 }
 
 /**
@@ -282,9 +284,8 @@ export async function withRetry(operation, options = {}) {
 
   // Per-call backoff base (falls back to the global config). Previously this
   // option was destructured as `_baseBackoffMs` and silently ignored.
-  const effectiveBackoff = Number.isFinite(baseBackoffMs) && baseBackoffMs > 0
-    ? baseBackoffMs
-    : retryConfig.baseBackoffMs;
+  const effectiveBackoff =
+    Number.isFinite(baseBackoffMs) && baseBackoffMs > 0 ? baseBackoffMs : retryConfig.baseBackoffMs;
   const backoffConfig = {
     baseBackoffMs: effectiveBackoff,
     maxBackoffMs: retryConfig.maxBackoffMs,

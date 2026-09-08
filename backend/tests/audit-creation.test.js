@@ -107,33 +107,54 @@ await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
 // Mock validation with ALL schema exports
 await jest.unstable_mockModule("../src/validation.js", () => ({
   isValidStellarAddress: jest.fn((addr) => addr && /^G[A-Z0-9]{55}$/.test(addr)),
-  // All schemas
-  initializeSchema: { parse: jest.fn((x) => x) },
-  amountSchema: { parse: jest.fn((x) => x) },
-  distributeSchema: { parse: jest.fn((x) => x) },
-  batchDistributeSchema: { parse: jest.fn((x) => x) },
-  setRoyaltyRateSchema: { parse: jest.fn((x) => x) },
-  setSecondaryPoolLimitSchema: { parse: jest.fn((x) => x) },
-  recordSecondarySaleSchema: { parse: jest.fn((x) => x) },
-  distributeSecondarySchema: { parse: jest.fn((x) => x) },
-  emailDigestSubscribeSchema: { parse: jest.fn((x) => x) },
-  emailDigestPreferencesSchema: { parse: jest.fn((x) => x) },
-  webhookRegisterSchema: { parse: jest.fn((x) => x) },
-  transactionConfirmSchema: { parse: jest.fn((x) => x) },
-  disputeSubmitSchema: { parse: jest.fn((x) => x) },
-  disputeContributorCommentSchema: { parse: jest.fn((x) => x) },
-  disputeAdminReviewSchema: { parse: jest.fn((x) => x) },
-  disputeAdminCommentSchema: { parse: jest.fn((x) => x) },
-  referralGenerateLinkSchema: { parse: jest.fn((x) => x) },
-  referralRegisterSchema: { parse: jest.fn((x) => x) },
-  referralActivateSchema: { parse: jest.fn((x) => x) },
-  referralAwardBonusSchema: { parse: jest.fn((x) => x) },
-  paginationSchema: { parse: jest.fn((x) => x) },
-  analyticsQuerySchema: { parse: jest.fn((x) => x) },
+  // All schemas with proper safeParse method that validates
+  initializeSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  amountSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  distributeSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  batchDistributeSchema: {
+    safeParse: jest.fn((x) => {
+      // Validate empty operations array
+      if (Array.isArray(x?.operations) && x.operations.length === 0) {
+        return {
+          success: false,
+          error: {
+            issues: [{ path: ["operations"], message: "operations array must be non-empty" }],
+          },
+        };
+      }
+      return { success: true, data: x };
+    }),
+  },
+  setRoyaltyRateSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  setSecondaryPoolLimitSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  recordSecondarySaleSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  distributeSecondarySchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  emailDigestSubscribeSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  emailDigestPreferencesSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  webhookRegisterSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  transactionConfirmSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeSubmitSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeContributorCommentSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeAdminReviewSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeAdminCommentSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralGenerateLinkSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralRegisterSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralActivateSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralAwardBonusSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  paginationSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  analyticsQuerySchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
   // Functions
   validate: jest.fn((schema) => (req, res, next) => {
-    // Mock validation always passes and calls next
-    req.body = req.body || {};
+    // Use the schema's safeParse method for proper validation
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      // Return validation error in same format as production
+      return res.status(400).json({
+        error: "Validation failed",
+        issues: result.error.issues || [],
+      });
+    }
+    req.body = result.data;
     next();
   }),
   validateStellarAddress: jest.fn(() => true),
