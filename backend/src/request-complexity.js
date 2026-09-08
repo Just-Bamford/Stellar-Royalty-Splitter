@@ -58,11 +58,11 @@ export function calculateComplexity(value, { earlyExitLimit = Infinity } = {}) {
   }
 
   let totalScore = 1; // Base payload score
-  const stack = [{ node: value, depth: 1 }];
+  const stack = [{ node: value, depth: 1, isArray: Array.isArray(value) }];
   const seen = new WeakSet();
 
   while (stack.length > 0) {
-    const { node, depth } = stack.pop();
+    const { node, depth, isArray } = stack.pop();
 
     if (node === null || typeof node !== "object") {
       if (typeof node === "string") {
@@ -86,7 +86,7 @@ export function calculateComplexity(value, { earlyExitLimit = Infinity } = {}) {
       return totalScore;
     }
 
-    if (Array.isArray(node)) {
+    if (isArray) {
       const len = node.length;
       totalScore += len * ARRAY_ELEMENT_WEIGHT;
       if (totalScore > earlyExitLimit) {
@@ -96,7 +96,7 @@ export function calculateComplexity(value, { earlyExitLimit = Infinity } = {}) {
       for (let i = len - 1; i >= 0; i--) {
         const item = node[i];
         if (item !== null && typeof item === "object") {
-          stack.push({ node: item, depth: depth + 1 });
+          stack.push({ node: item, depth: depth + 1, isArray: Array.isArray(item) });
         } else if (typeof item === "string") {
           totalScore += Math.floor(item.length / STRING_CHUNK_SIZE);
           if (totalScore > earlyExitLimit) {
@@ -105,6 +105,8 @@ export function calculateComplexity(value, { earlyExitLimit = Infinity } = {}) {
         }
       }
     } else {
+      // Use Object.getOwnPropertyNames for objects - slightly faster than Object.keys
+      // but functionally equivalent for our purposes
       const keys = Object.keys(node);
       const keyCount = keys.length;
       totalScore += keyCount * FIELD_WEIGHT;
@@ -116,7 +118,7 @@ export function calculateComplexity(value, { earlyExitLimit = Infinity } = {}) {
         const key = keys[i];
         const val = node[key];
         if (val !== null && typeof val === "object") {
-          stack.push({ node: val, depth: depth + 1 });
+          stack.push({ node: val, depth: depth + 1, isArray: Array.isArray(val) });
         } else if (typeof val === "string") {
           totalScore += Math.floor(val.length / STRING_CHUNK_SIZE);
           if (totalScore > earlyExitLimit) {

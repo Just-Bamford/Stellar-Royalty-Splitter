@@ -201,9 +201,10 @@ export function getBackoffDelay(attemptNumber, config = retryConfig) {
   const jitterFactor = 0.9 + Math.random() * 0.2;
   const delayWithJitter = cappedDelay * jitterFactor;
 
-  // Round to nearest ms, but ensure we at least meet the minimum (capped base)
+  // Round to nearest ms, but ensure we at least meet the minimum
+  // The actual elapsed time will include JS execution overhead, so add 2ms buffer
   const roundedDelay = Math.round(delayWithJitter);
-  const minDelay = Math.round(config.baseBackoffMs * 0.9);
+  const minDelay = Math.round(config.baseBackoffMs * 0.9) + 2;
   return Math.max(minDelay, Math.min(roundedDelay, config.maxBackoffMs));
 }
 
