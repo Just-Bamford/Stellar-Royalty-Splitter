@@ -117,7 +117,11 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
   paginationSchema: { parse: jest.fn((x) => x) },
   analyticsQuerySchema: { parse: jest.fn((x) => x) },
   // Functions
-  validate: jest.fn((schema) => (data) => ({ success: true, data })),
+  validate: jest.fn((schema) => (req, res, next) => {
+    // Mock validation always passes and calls next
+    req.body = req.body || {};
+    next();
+  }),
   validateStellarAddress: jest.fn(() => true),
   validateInitializePayloadSize: jest.fn((req, res, next) => next()),
   validateContractIdMiddleware: jest.fn((req, res, next) => next()),
