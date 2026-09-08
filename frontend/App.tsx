@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
+// Trigger frontend CI workflow
 const HomePage = lazy(() => import("./HomePage"));
 const DashboardPage = lazy(() => import("./DashboardPage"));
 
