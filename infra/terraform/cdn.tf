@@ -89,11 +89,11 @@ resource "aws_s3_bucket_policy" "frontend_assets_policy" {
 
 # CloudFront cache policy for static assets (js/css)
 resource "aws_cloudfront_cache_policy" "static_assets" {
-  name            = "${var.project_name}-static-assets-${var.environment}"
-  comment         = "Cache policy for JS/CSS assets (1 year TTL)"
-  default_ttl     = 31536000  # 1 year in seconds
-  max_ttl         = 31536000
-  min_ttl         = 0
+  name        = "${var.project_name}-static-assets-${var.environment}"
+  comment     = "Cache policy for JS/CSS assets (1 year TTL)"
+  default_ttl = 31536000 # 1 year in seconds
+  max_ttl     = 31536000
+  min_ttl     = 0
 
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_gzip   = true
@@ -115,11 +115,11 @@ resource "aws_cloudfront_cache_policy" "static_assets" {
 
 # CloudFront cache policy for HTML (short TTL)
 resource "aws_cloudfront_cache_policy" "html_policy" {
-  name            = "${var.project_name}-html-${var.environment}"
-  comment         = "Cache policy for HTML files (5 minute TTL)"
-  default_ttl     = 300      # 5 minutes
-  max_ttl         = 300
-  min_ttl         = 0
+  name        = "${var.project_name}-html-${var.environment}"
+  comment     = "Cache policy for HTML files (5 minute TTL)"
+  default_ttl = 300 # 5 minutes
+  max_ttl     = 300
+  min_ttl     = 0
 
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_gzip   = true
@@ -141,8 +141,8 @@ resource "aws_cloudfront_cache_policy" "html_policy" {
 
 # Origin request policy (minimal headers)
 resource "aws_cloudfront_origin_request_policy" "frontend_policy" {
-  name            = "${var.project_name}-frontend-origin-request-${var.environment}"
-  comment         = "Forward minimal headers to origin"
+  name    = "${var.project_name}-frontend-origin-request-${var.environment}"
+  comment = "Forward minimal headers to origin"
 
   query_strings_config {
     query_string_behavior = "none"
@@ -175,8 +175,8 @@ resource "aws_cloudfront_response_headers_policy" "frontend_headers" {
   security_headers_config {
     strict_transport_security {
       access_control_max_age_override = 31536000
-      include_subdomains             = true
-      override                       = true
+      include_subdomains              = true
+      override                        = true
     }
 
     content_type_options {
