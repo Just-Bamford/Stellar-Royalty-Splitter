@@ -81,3 +81,45 @@ variable "enable_dns_failover" {
   type        = bool
   default     = true
 }
+
+# CDN Configuration (#944)
+variable "cdn_price_class" {
+  description = "CloudFront price class for edge location coverage (PriceClass_100 | PriceClass_200 | PriceClass_All)"
+  type        = string
+  default     = "PriceClass_All"
+}
+
+variable "cdn_certificate_arn" {
+  description = "ACM certificate ARN for custom domain on CDN (optional - uses CloudFront default certificate if null)"
+  type        = string
+  default     = null
+}
+
+variable "cdn_origin_verification_token" {
+  description = "Custom header token for origin verification (prevent direct S3 access)"
+  type        = string
+  default     = "stellar-royalty-splitter-origin"
+  sensitive   = true
+}
+
+variable "cdn_enabled" {
+  description = "Whether to deploy the CDN infrastructure"
+  type        = bool
+  default     = true
+}
+
+variable "project_name" {
+  description = "Project name for resource naming"
+  type        = string
+  default     = "stellar-royalty-splitter"
+}
+
+variable "common_tags" {
+  description = "Common tags to apply to all resources"
+  type        = map(string)
+  default = {
+    Project     = "stellar-royalty-splitter"
+    ManagedBy   = "Terraform"
+    Environment = "production"
+  }
+}

@@ -27,8 +27,19 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 300,
+    // Asset hashing for cache busting (#944)
     rollupOptions: {
       output: {
+        // Hash all asset filenames for CDN cache invalidation
+        assetFileNames: (assetInfo) => {
+          // Use content hash for all assets
+          if (assetInfo.name.endsWith(".css")) {
+            return `assets/[name].[hash][extname]`;
+          }
+          return `assets/[name].[hash][extname]`;
+        },
+        chunkFileNames: `assets/[name].[hash].js`,
+        entryFileNames: `assets/[name].[hash].js`,
         manualChunks(id) {
           if (id.includes("node_modules")) return id.includes("recharts") ? "recharts" : "vendor";
         },
