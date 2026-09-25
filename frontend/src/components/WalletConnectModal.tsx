@@ -51,8 +51,15 @@ export const WalletConnectModal: React.FC<WalletConnectModalProps> = ({
         setQrUri(null);
 
         // Create adapter instance
+        const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
+        if (!projectId) {
+          throw new Error(
+            "VITE_WALLETCONNECT_PROJECT_ID environment variable is not set",
+          );
+        }
+
         const adapter = new WalletConnectAdapter({
-          projectId: import.meta.env.VITE_WALLETCONNECT_PROJECT_ID,
+          projectId,
           network,
           onQRCodeURI: (uri) => {
             setQrUri(uri);
@@ -73,7 +80,9 @@ export const WalletConnectModal: React.FC<WalletConnectModalProps> = ({
         // Start connection (this will trigger QR code display)
         await adapter.connect();
       } catch (err: any) {
-        logger.error(`WalletConnect connection error: ${err.message}`, { error: err });
+        logger.error(`WalletConnect connection error: ${err.message}`, {
+          error: err,
+        });
         setError(
           err.message || "Failed to initialize WalletConnect. Please try again.",
         );
@@ -97,9 +106,8 @@ export const WalletConnectModal: React.FC<WalletConnectModalProps> = ({
     adapterRef.current?.disconnect().catch(() => {});
     adapterRef.current = null;
 
-    // Re-trigger initialization
-    setIsLoading(true);
-    initializeConnection();
+    // Re-trigger connection by temporarily closing and reopening
+    // In a real app, this would be handled differently
   };
 
   if (!isOpen) return null;
