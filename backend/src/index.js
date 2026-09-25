@@ -56,6 +56,7 @@ import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { salesforceRouter } from "./routes/crm/salesforce.js";
+import { hubspotRouter } from "./routes/crm/hubspot.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
 import { earningsHistoryRouter } from "./routes/earnings-history.js";
 import { versionRouter } from "./routes/version.js";
@@ -427,6 +428,12 @@ app.use("/api/v1/transactions", transactionFinalityRouter);
 // OpenSea marketplace webhook integration (#928)
 app.use("/api/v1/marketplaces/opensea", writeLimiter);
 app.use("/api/v1/marketplaces/opensea", openseaRouter);
+
+// Salesforce CRM integration (#939)
+app.use("/api/v1/crm/salesforce", salesforceRouter);
+
+// HubSpot CRM integration (#946)
+app.use("/api/v1/crm/hubspot", hubspotRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;
