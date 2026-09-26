@@ -77,18 +77,6 @@ export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldM
     }
   };
 
-  const handlePlaceHold = async (transactionId: number, reason: string) => {
-    setActionLoading(transactionId);
-    try {
-      await api.placePaymentHold(transactionId, reason, undefined, "admin");
-      loadHeldTransactions();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to place hold");
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const formatAddress = (addr: string) =>
     `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 

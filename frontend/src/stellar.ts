@@ -11,6 +11,7 @@ import {
   isTransientSubmissionError,
   submitTransactionWithRetry,
   type SubmissionRetryInfo,
+  type SendTransactionLike,
 } from "./lib/submission-retry";
 
 const RPC_URLS: Record<Network, string> = {
@@ -62,7 +63,7 @@ export async function signAndSubmitTransaction(
   });
 
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
-  const hash = await submitTransactionWithRetry(server, tx, {
+  const hash = await submitTransactionWithRetry(server as unknown as SendTransactionLike, tx as unknown, {
     onRetry: options.onRetry,
   });
 

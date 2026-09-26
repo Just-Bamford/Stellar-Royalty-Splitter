@@ -167,7 +167,7 @@ export function MultiContractEarnings({ walletAddress }: MultiContractEarningsPr
                   </tr>
                 </thead>
                 <tbody>
-                  {data.data.contracts.map((c) => (
+                  {data.data.contracts.map((c: { contractId: string; totalEarned: number; payoutCount: number; avgPayout: number; share: number; lastActivity: string | null }) => (
                     <tr key={c.contractId}>
                       <td className="mce-contract-cell" title={c.contractId}>
                         <code>{formatContractId(c.contractId)}</code>

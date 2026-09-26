@@ -3,7 +3,7 @@ import { api } from "../api";
 import { getContractAddressError, isValidContractAddress } from "../lib/stellar-address";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
-import { useTransactionStore } from "../store/transactionsStore";
+import { useTransaction, useIsTransactionInFlight } from "../context/TransactionContext";
 import FormStatus from "./FormStatus";
 import TransactionStatusBadge from "./TransactionStatusBadge";
 import { useFormStatus } from "../hooks/useFormStatus";
@@ -84,7 +84,6 @@ export default function DistributeForm({
 
   // Use TransactionContext's in-flight flag as the primary loading gate (#391)
   const [loading, setLoading] = useState(false);
-  const [successTxHash, setSuccessTxHash] = useState<string | null>(null);
   const [touched, setTouched] = useState<{ tokenId?: boolean; amount?: boolean }>({});
   // #653 — full transaction lifecycle state for granular wallet feedback
   const txLifecycle = useTransactionLifecycle();
@@ -274,7 +273,6 @@ export default function DistributeForm({
       // #391: Phase 4 — confirmed
       updatePhase("confirmed");
 
-      setSuccessTxHash(hash);
       txLifecycle.setConfirmed(hash);
       setStatus("ok", "Distributed successfully.");
       localStorage.removeItem(draftKey);

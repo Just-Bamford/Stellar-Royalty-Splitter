@@ -1,4 +1,4 @@
-import React, { ReactNode, FC, ErrorInfo, useState } from "react";
+import { ReactNode, FC, ErrorInfo, useState } from "react";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 interface FeatureErrorBoundaryProps {
