@@ -31,6 +31,7 @@ import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
 import { useNotifications } from "./context/NotificationContext";
 import { ToastContainer } from "react-toastify";
+import { CollaborationConsole } from "./components/CollaborationConsole";
 
 import "./App.css";
 
@@ -435,6 +436,11 @@ export default function App() {
         );
       case "health":
         return withErrorBoundary(<HealthDashboard />, "System Health");
+      case "collaboration":
+        return withErrorBoundary(
+          contractId ? <CollaborationConsole contractId={contractId} /> : <div className="page-empty"><p>Please select a contract first</p></div>,
+          "Collaborative Operations",
+        );
       case "earnings":
         return withErrorBoundary(
           walletAddress ? (
@@ -705,6 +711,14 @@ export default function App() {
                     onClick={() => handlePageChange("transactions")}
                   >
                     History
+                  </button>
+                  <button
+                    className={`quick-action-btn ${
+                      currentPage === "collaboration" ? "active" : ""
+                    }`}
+                    onClick={() => handlePageChange("collaboration")}
+                  >
+                    Collaborative Ops
                   </button>
                   {walletAddress && (
                     <>

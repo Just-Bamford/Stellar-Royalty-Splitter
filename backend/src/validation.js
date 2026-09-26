@@ -271,6 +271,10 @@ export const AUDIT_ACTIONS = [
   "secondary_sale_recorded",
   "royalty_rate_set",
   "secondary_distribution_initiated",
+  "collaboration_change_applied",
+  "oracle_market_data_collected",
+  "oracle_recommendation_approved",
+  "oracle_recommendation_rejected",
 ];
 
 export function validate(schema) {

@@ -1,6 +1,7 @@
 use soroban_sdk::unwrap::UnwrapOptimized;
 pub mod auth;
 mod storage;
+pub mod vesting;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, xdr::ToXdr, Address,
@@ -2193,6 +2194,13 @@ impl RoyaltySplitter {
         token: Address,
         recipients: Vec<Recipient>,
     ) -> Result<(), ContractError> {
+        // When an oracle is configured, distributions use a fresh quote rather
+        // than silently relying on a stale manually configured rate. A failed
+        // oracle read fails closed before any token transfer occurs.
+        if storage::instance_get::<RoyaltyOracleConfig>(&env, &StorageKey::OracleConfig).is_some() {
+            let rate = Self::fetch_royalty_rate_from_oracle(env.clone())?;
+            Self::set_royalty_rate_value(&env, rate)?;
+        }
         if Self::is_blocked(&env, OperationType::PrimaryDistribution) {
             return Err(ContractError::ContractPaused);
         }
