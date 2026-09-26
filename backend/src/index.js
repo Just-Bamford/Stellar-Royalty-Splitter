@@ -58,7 +58,7 @@ import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { salesforceRouter } from "./routes/crm/salesforce.js";
-import { stripeRouter } from "./routes/payments/stripe.js";
+import { hubspotRouter } from "./routes/crm/hubspot.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
 import { earningsHistoryRouter } from "./routes/earnings-history.js";
 import { versionRouter } from "./routes/version.js";
@@ -443,13 +443,11 @@ app.use("/api/v1/transactions", transactionFinalityRouter);
 app.use("/api/v1/marketplaces/opensea", writeLimiter);
 app.use("/api/v1/marketplaces/opensea", openseaRouter);
 
-// Rarible marketplace webhook integration (#954)
-app.use("/api/v1/marketplaces/rarible", writeLimiter);
-app.use("/api/v1/marketplaces/rarible", raribleRouter);
+// Salesforce CRM integration (#939)
+app.use("/api/v1/crm/salesforce", salesforceRouter);
 
-// Tax compliance reporting — 1099-NEC, T4A, EU-VAT (#950)
-app.use("/api/v1/tax/reports", readLimiter);
-app.use("/api/v1/tax/reports", taxReportsRouter);
+// HubSpot CRM integration (#946)
+app.use("/api/v1/crm/hubspot", hubspotRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;

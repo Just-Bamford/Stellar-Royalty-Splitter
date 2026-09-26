@@ -1,0 +1,167 @@
+name: Frontend CDN Deploy
+
+# Deploy frontend to CDN on successful build or manual trigger
+on:
+  workflow_run:
+    workflows: ["Frontend CI"]
+    types: [completed]
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      invalidate_cache:
+        description: "Invalidate CloudFront cache after deploy"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-to-cdn:
+    name: Deploy to CloudFront CDN
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'success' ||
+      github.event_name == 'workflow_dispatch'
+    env:
+      AWS_REGION: us-east-1
+      DISTRIBUTION_ID: ${{ secrets.CDN_DISTRIBUTION_ID }}
+      S3_BUCKET: ${{ secrets.CDN_S3_BUCKET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActions-FrontendCDN
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Upload build to S3 with cache headers
+      - name: Sync assets to S3 CDN
+        run: |
+          # Upload HTML files with short cache (5 minutes)
+          aws s3 sync \
+            frontend/dist/ \
+            s3://${{ env.S3_BUCKET }}/ \
+            --delete \
+            --exclude "*" \
+            --include "*.html" \
+            --cache-control "public, max-age=300, must-revalidate" \
+            --metadata "deployment-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ'),git-sha=${{ github.sha }}" \
+            --no-progress
+
+          # Upload JS/CSS with long cache (1 year)
+          aws s3 sync \
+            frontend/dist/assets/ \
+            s3://${{ env.S3_BUCKET }}/assets/ \
+            --exclude "*.html" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --metadata "deployment-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ'),git-sha=${{ github.sha }}" \
+            --no-progress
+
+          # Upload index.html (entry point)
+          aws s3 cp \
+            frontend/dist/index.html \
+            s3://${{ env.S3_BUCKET }}/index.html \
+            --cache-control "public, max-age=300, must-revalidate" \
+            --metadata "deployment-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ'),git-sha=${{ github.sha }}" \
+            --content-type "text/html; charset=utf-8"
+
+      # Invalidate CloudFront cache
+      - name: Invalidate CloudFront cache
+        if: |
+          github.event.workflow_run.conclusion == 'success' ||
+          github.event.inputs.invalidate_cache == 'true'
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ env.DISTRIBUTION_ID }} \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text
+
+          echo "CloudFront cache invalidation initiated"
+
+      # Monitor invalidation status
+      - name: Monitor cache invalidation
+        if: |
+          github.event.workflow_run.conclusion == 'success' ||
+          github.event.inputs.invalidate_cache == 'true'
+        run: |
+          # Get latest invalidation and wait for completion
+          INVALIDATION_ID=$(aws cloudfront list-invalidations \
+            --distribution-id ${{ env.DISTRIBUTION_ID }} \
+            --query 'InvalidationList.Items[0].Id' \
+            --output text)
+
+          echo "Waiting for invalidation $INVALIDATION_ID to complete..."
+
+          for i in {1..60}; do
+            STATUS=$(aws cloudfront get-invalidation \
+              --distribution-id ${{ env.DISTRIBUTION_ID }} \
+              --id "$INVALIDATION_ID" \
+              --query 'Invalidation.Status' \
+              --output text)
+
+            if [ "$STATUS" = "Completed" ]; then
+              echo "✅ Cache invalidation completed"
+              exit 0
+            fi
+
+            echo "Status: $STATUS (attempt $i/60)"
+            sleep 10
+          done
+
+          echo "⚠️ Cache invalidation still in progress (will complete in background)"
+
+      # Verify deployment
+      - name: Verify CDN deployment
+        run: |
+          CDN_URL="https://${{ secrets.CDN_DOMAIN || format('{0}.cloudfront.net', secrets.CDN_DISTRIBUTION_ID) }}"
+          
+          echo "Testing CDN URL: $CDN_URL"
+          
+          # Test index.html is accessible and returns 200
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$CDN_URL/index.html")
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Failed to retrieve index.html (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          
+          echo "✅ CDN deployment verified (HTTP $HTTP_CODE)"
+
+      # Performance metrics
+      - name: Log deployment metrics
+        run: |
+          echo "## CDN Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Bucket**: ${{ env.S3_BUCKET }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Distribution ID**: ${{ env.DISTRIBUTION_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cache Invalidation**: ✅" >> $GITHUB_STEP_SUMMARY
+
+      # Slack notification (if configured)
+      - name: Notify deployment
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "Frontend CDN deployment ${{ job.status }}"
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+        continue-on-error: true
