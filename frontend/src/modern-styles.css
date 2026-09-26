@@ -1,5 +1,50 @@
 /* ===== DESIGN TOKENS ===== */
 :root {
+  color-scheme: light;
+  --surface-canvas: #f8fafc;
+  --surface-raised: #ffffff;
+  --surface-sunken: #eef2f7;
+  --surface-input: #ffffff;
+  --text-on-accent: #ffffff;
+  --border-default: #d8dee9;
+  --border-strong: #aab6c8;
+  --focus-ring: #2563eb;
+  --accent-primary: #3157d5;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.08);
+  --shadow-md: 0 8px 24px rgb(15 23 42 / 0.12);
+  --motion-fast: 150ms ease;
+  --status-success-solid: #047857;
+  --status-success-surface: #d1fae5;
+  --status-success-border: #6ee7b7;
+  --status-success-text: #065f46;
+  --status-warning-surface: #fef3c7;
+  --status-warning-border: #f59e0b;
+  --status-warning-text: #92400e;
+  --status-danger-solid: #b91c1c;
+  --status-danger-surface: #fee2e2;
+  --status-danger-border: #f87171;
+  --status-danger-text: #991b1b;
+  --status-info-surface: #dbeafe;
+  --status-info-border: #60a5fa;
+  --status-info-text: #1e40af;
   /* Light Mode Colors */
   --bg-primary: #ffffff;
   --bg-secondary: #f8f9fa;
@@ -73,6 +118,30 @@
 
 /* Dark Mode */
 [data-theme="dark"] {
+  color-scheme: dark;
+  --surface-canvas: #0b1120;
+  --surface-raised: #111827;
+  --surface-sunken: #1f2937;
+  --surface-input: #172033;
+  --text-on-accent: #ffffff;
+  --border-default: #334155;
+  --border-strong: #64748b;
+  --focus-ring: #93c5fd;
+  --accent-primary: #8da8ff;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.4);
+  --status-success-surface: #123b2c;
+  --status-success-border: #34d399;
+  --status-success-text: #a7f3d0;
+  --status-warning-surface: #422006;
+  --status-warning-border: #fbbf24;
+  --status-warning-text: #fde68a;
+  --status-danger-surface: #450a0a;
+  --status-danger-border: #f87171;
+  --status-danger-text: #fecaca;
+  --status-info-surface: #172554;
+  --status-info-border: #60a5fa;
+  --status-info-text: #bfdbfe;
   --bg-primary: #0f172a;
   --bg-secondary: #1e293b;
   --bg-tertiary: #334155;
@@ -91,6 +160,14 @@
   --error-light: #450a0a;
   --error-color: #f87171;
   --error-dark: #fca5a5;
+}
+
+html, body, #root { min-height: 100%; }
+body { background: var(--surface-canvas); }
+a { color: var(--accent-primary); }
+::selection { background: var(--accent-primary); color: var(--text-on-accent); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
 
 /* ===== GLOBAL STYLES ===== */
