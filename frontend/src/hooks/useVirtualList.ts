@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, RefObject } from "react";
+import { useState, useCallback, useEffect, type RefObject } from "react";
 
 export type UseVirtualListOptions = {
   itemCount: number;
@@ -39,8 +39,6 @@ export default function useVirtualList(
     overscan = 5,
     containerRef,
     scrollTop: _externalScrollTop,
-    onMeasure,
-    enableKeyboardNavigation = false,
   } = options;
 
   const container = containerRef.current;
@@ -76,7 +74,7 @@ export default function useVirtualList(
   });
 
   const scrollToIndex = useCallback(
-    (index: number, align: "auto" | "top" | "bottom" | "center" = "auto") => {
+    (index: number, _align: "auto" | "top" | "bottom" | "center" = "auto") => {
       if (!container) return;
       const offset = index * DEFAULT_ITEM_HEIGHT;
       container.scrollTop = offset;

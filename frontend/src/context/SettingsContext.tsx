@@ -23,7 +23,7 @@ interface SettingsContextType {
   removeTrackedContract: (contractId: string) => void;
 }
 
-const DEFAULTS: SettingsType = {
+export const DEFAULTS: SettingsType = {
   autoSaveAuditLog: true,
   notifyOnDistribution: true,
   displayCurrency: "XLM",
@@ -46,6 +46,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const addTrackedContract = useContractsStore((s) => s.addTrackedContract);
   const removeTrackedContract = useContractsStore((s) => s.removeTrackedContract);
   const settings: SettingsType = {
+    ...DEFAULTS,
     ...baseSettings,
     trackedContracts,
     language: "en",
@@ -72,7 +73,7 @@ export const useSettings = (): SettingsContextType => {
     return context;
   }
   return {
-    settings: { ...baseSettings, trackedContracts },
+    settings: { ...DEFAULTS, ...baseSettings, trackedContracts, language: "en" },
     updateSettings,
     addTrackedContract,
     removeTrackedContract,

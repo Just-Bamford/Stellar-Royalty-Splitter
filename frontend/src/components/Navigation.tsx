@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "../context/ThemeContext";
 import { useNetwork } from "../context/NetworkContext";
 import { useUIStore } from "../store/uiStore";
 import { NotificationBell } from "./NotificationBell";
@@ -24,6 +23,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   const { t } = useTranslation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const connectionLabel = wsConnected ? "WebSocket connected" : "WebSocket disconnected";
   const isDark = useUIStore((s) => s.isDark);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
   const { network, setNetwork } = useNetwork();
@@ -59,6 +59,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "distribute", labelKey: "distribute", icon: "💰" },
     { id: "secondary", labelKey: "secondary", icon: "🔄" },
     { id: "health", labelKey: "health", icon: "🏥" },
+    { id: "disputes", labelKey: "disputes", icon: "⚖️" },
     { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
     { id: "tax-info", labelKey: "taxInfo", icon: "📋" },
     { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },
@@ -136,7 +137,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           ))}
         </ul>
 
-        <div className="nav-wallet">
+        <div className="nav-wallet" title={connectionLabel}>
           {/* Network toggle — issue #231 */}
           <button
             className={`network-toggle network-toggle--${network}`}

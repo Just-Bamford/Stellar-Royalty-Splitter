@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 import {
-  LineChart,
   Line,
   BarChart,
   Bar,
@@ -10,7 +9,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine,
   ComposedChart,
 } from "recharts";
 import { formatCurrency } from "../../utils/format";

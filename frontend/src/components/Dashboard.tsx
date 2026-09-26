@@ -10,29 +10,11 @@ import {
   CollaboratorList,
 } from "./dashboard/index";
 import type { DateRange } from "./dashboard/index";
-import {
-  buildContractPerformanceSummary,
-  type ContractPerformanceSummary,
-} from "../utils/contractPerformance";
+import { buildContractPerformanceSummary } from "../utils/contractPerformance";
 import { formatCurrency, formatNumber } from "../utils/format";
 import { useAnalytics } from "../hooks/queries/useAnalytics";
 import { useContractPerformance } from "../hooks/queries/useContractPerformance";
 import { BulkOperationsPanel } from "./BulkOperationsPanel";
-
-interface DashboardStats {
-  totalDistributed: number;
-  totalTransactions: number;
-  averagePayout: number;
-  primaryRoyaltiesTotal: number;
-  secondaryRoyaltiesTotal: number;
-  topEarners: Array<{ address: string; totalEarned: number; payouts: number }>;
-  distributionTrends: Array<{ date: string; amount: number; count: number }>;
-  collaboratorStats: Array<{
-    address: string;
-    totalEarned: number;
-    payoutCount: number;
-  }>;
-}
 
 interface DashboardProps {
   contractId: string;
@@ -89,11 +71,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
   const performanceData =
     performanceResponse?.success && performanceResponse.data?.contracts
-      ? buildContractPerformanceSummary(performanceResponse.data.contracts, {
-          sortBy,
-          direction: sortDirection,
-          limit: 100,
-        })
+      ? buildContractPerformanceSummary(
+          performanceResponse.data.contracts.map((row) => ({
+            ...row,
+            status: row.status as "active" | "inactive" | "pending" | undefined,
+          })),
+          {
+            sortBy,
+            direction: sortDirection,
+            limit: 100,
+          },
+        )
       : null;
 
   const handleSelectContract = (contractId: string, event?: React.MouseEvent) => {

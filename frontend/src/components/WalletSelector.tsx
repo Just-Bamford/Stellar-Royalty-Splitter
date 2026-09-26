@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useWallet } from '../context/WalletContext';
 
 interface WalletOption {
@@ -40,14 +40,19 @@ const WALLET_OPTIONS: WalletOption[] = [
   },
 ];
 
-export const WalletSelector: React.FC = () => {
+interface WalletSelectorProps {
+  onSelect?: (walletId: string) => void;
+  onClose?: () => void;
+}
+
+export const WalletSelector: React.FC<WalletSelectorProps> = ({ onSelect, onClose }) => {
   const { connect, error, clearError } = useWallet();
-  const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
 
   const handleConnect = async (walletId: string) => {
     try {
       await connect(walletId);
-      setSelectedWallet(null);
+      onSelect?.(walletId);
+      onClose?.();
     } catch (err) {
       // Error is handled by context
     }

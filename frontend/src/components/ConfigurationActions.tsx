@@ -1,4 +1,4 @@
-import React, { FC, useCallback } from "react";
+import { FC, useCallback } from "react";
 import { duplicateConfiguration } from "../utils/configDuplication";
 import "./ConfigurationActions.css";
 
