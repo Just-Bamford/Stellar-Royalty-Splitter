@@ -316,6 +316,10 @@ pub enum ExtKey {
     MetadataRateCache(Address, u64),
     /// #932 — `Vec<LinkedPool>` (persistent storage).
     LinkedContracts,
+    /// #955 — Governance token balance per account
+    GovBalance(Address),
+    /// #955 — Staked governance tokens per account
+    StakedGov(Address),
     /// #929 — per-token protocol fee override, basis points (instance storage).
     /// Present only for tokens an admin has explicitly overridden; absent
     /// means "use the default `RoyaltyRate`".
@@ -755,7 +759,13 @@ impl RoyaltySplitter {
                 return Err(ContractError::DuplicateRecipient);
             }
 
-            share_map.set(addr, share);
+            share_map.set(addr.clone(), share);
+            // #955 — Issue governance tokens 1:1 to basis points on setup
+            storage::persistent_set(
+                env,
+                &StorageKey::Ext(ExtKey::GovBalance(addr)),
+                &(share as i128),
+            );
         }
 
         let now = env.ledger().timestamp();
@@ -2447,7 +2457,8 @@ impl RoyaltySplitter {
             if tier.rate_bps > 10_000 {
                 return Err(ContractError::TIER_RATE_TOO_HIGH);
             }
-            for j in (i + 1)..tiers.len() {
+            let start_j = i.saturating_add(1);
+            for j in start_j..tiers.len() {
                 if tiers.get(j).unwrap().rarity == tier.rarity {
                     return Err(ContractError::DuplicateRecipient);
                 }
@@ -2501,9 +2512,15 @@ impl RoyaltySplitter {
     /// `resale_count`.
     fn resale_degraded_rate(tier_rate_bps: u32, resale_count: u32) -> u32 {
         if resale_count >= TIER_DEGRADE_RESALE_COUNT_4TH {
-            ((tier_rate_bps as u64) * (TIER_DEGRADE_BPS_4TH as u64) / 10_000) as u32
+            (tier_rate_bps as u64)
+                .checked_mul(TIER_DEGRADE_BPS_4TH as u64)
+                .and_then(|v| v.checked_div(10_000))
+                .unwrap_or(0) as u32
         } else if resale_count >= TIER_DEGRADE_RESALE_COUNT_2ND {
-            ((tier_rate_bps as u64) * (TIER_DEGRADE_BPS_2ND as u64) / 10_000) as u32
+            (tier_rate_bps as u64)
+                .checked_mul(TIER_DEGRADE_BPS_2ND as u64)
+                .and_then(|v| v.checked_div(10_000))
+                .unwrap_or(0) as u32
         } else {
             tier_rate_bps
         }
@@ -2514,7 +2531,10 @@ impl RoyaltySplitter {
     /// threshold.
     fn time_degraded_rate(resale_degraded_bps: u32, nft_age_secs: u64) -> u32 {
         if nft_age_secs > TIER_TIME_DEGRADE_AGE_SECS {
-            ((resale_degraded_bps as u64) * (TIER_TIME_DEGRADE_BPS as u64) / 10_000) as u32
+            (resale_degraded_bps as u64)
+                .checked_mul(TIER_TIME_DEGRADE_BPS as u64)
+                .and_then(|v| v.checked_div(10_000))
+                .unwrap_or(0) as u32
         } else {
             resale_degraded_bps
         }
@@ -2984,8 +3004,13 @@ impl RoyaltySplitter {
         // by `set_vesting_schedule`, so vesting_secs > cliff_secs.
         let elapsed_since_cliff = current_time.saturating_sub(cliff_time);
         let linear_window = deadline.saturating_sub(cliff_time);
-        ((schedule.total_shares as u128) * (elapsed_since_cliff as u128) / (linear_window as u128))
-            as u32
+        if linear_window == 0 {
+            return schedule.total_shares;
+        }
+        (schedule.total_shares as u128)
+            .checked_mul(elapsed_since_cliff as u128)
+            .and_then(|v| v.checked_div(linear_window as u128))
+            .unwrap_or(0) as u32
     }
 
     /// Read-only: shares of `address`'s vesting schedule vested as of
@@ -3021,7 +3046,13 @@ impl RoyaltySplitter {
         // always > 0 (`set_vesting_schedule` rejects 0), and both operands
         // are non-negative, so this mirrors `checked_bps_amount`'s
         // decomposition without needing basis-point-specific bounds.
-        ((nominal_payout as u128) * (vested as u128) / (schedule.total_shares as u128)) as i128
+        if schedule.total_shares == 0 {
+            return 0;
+        }
+        (nominal_payout as u128)
+            .checked_mul(vested as u128)
+            .and_then(|v| v.checked_div(schedule.total_shares as u128))
+            .unwrap_or(0) as i128
     }
 
     /// Beneficiary: claim shares that have vested since the last claim.
@@ -4067,12 +4098,10 @@ impl RoyaltySplitter {
         storage::extend_instance_ttl(&env);
         voter.require_auth();
 
-        let share_map: Map<Address, u32> =
-            storage::persistent_get::<Map<Address, u32>>(&env, &StorageKey::ShareMap)
-                .ok_or(ContractError::NoShareMap)?;
-        let weight = share_map
-            .get(voter.clone())
-            .ok_or(ContractError::CollaboratorNotFound)?;
+        let weight = Self::get_voting_weight(env.clone(), voter.clone());
+        if weight == 0 {
+            return Err(ContractError::CollaboratorNotFound);
+        }
 
         let mut proposals: Map<u64, Proposal> =
             storage::persistent_get::<Map<u64, Proposal>>(&env, &StorageKey::Proposals)
@@ -4173,6 +4202,145 @@ impl RoyaltySplitter {
             .ok_or(ContractError::ProposalNotFound)?
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // #955 — Governance token & staking methods
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    pub fn get_gov_balance(env: Env, account: Address) -> i128 {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get::<i128>(&env, &StorageKey::Ext(ExtKey::GovBalance(account)))
+            .unwrap_or(0)
+    }
+
+    pub fn get_staked_gov(env: Env, account: Address) -> storage::StakeInfo {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get::<storage::StakeInfo>(
+            &env,
+            &StorageKey::Ext(ExtKey::StakedGov(account)),
+        )
+        .unwrap_or(storage::StakeInfo {
+            staked_amount: 0,
+            pending_unstake_amount: 0,
+            cooldown_until: 0,
+        })
+    }
+
+    pub fn stake_gov_tokens(env: Env, from: Address, amount: i128) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        from.require_auth();
+
+        if amount <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+
+        let balance = Self::get_gov_balance(env.clone(), from.clone());
+        if balance < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let mut stake_info = Self::get_staked_gov(env.clone(), from.clone());
+
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovBalance(from.clone())),
+            &(balance.saturating_sub(amount)),
+        );
+
+        stake_info.staked_amount = stake_info.staked_amount.saturating_add(amount);
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::StakedGov(from.clone())),
+            &stake_info,
+        );
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("staked")),
+            (from, amount),
+        );
+        Ok(())
+    }
+
+    pub fn unstake_gov_tokens(env: Env, from: Address, amount: i128) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        from.require_auth();
+
+        if amount <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+
+        let mut stake_info = Self::get_staked_gov(env.clone(), from.clone());
+        if stake_info.staked_amount < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        stake_info.staked_amount = stake_info.staked_amount.saturating_sub(amount);
+        stake_info.pending_unstake_amount =
+            stake_info.pending_unstake_amount.saturating_add(amount);
+        // 7 days cooldown = 7 * 86,400 = 604,800 seconds
+        stake_info.cooldown_until = env.ledger().timestamp().saturating_add(604_800);
+
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::StakedGov(from.clone())),
+            &stake_info,
+        );
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("unstk_req")),
+            (from, amount, stake_info.cooldown_until),
+        );
+        Ok(())
+    }
+
+    pub fn withdraw_unstaked_gov_tokens(env: Env, from: Address) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        from.require_auth();
+
+        let mut stake_info = Self::get_staked_gov(env.clone(), from.clone());
+        if stake_info.pending_unstake_amount <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+
+        if env.ledger().timestamp() < stake_info.cooldown_until {
+            return Err(ContractError::InitRevealTooEarly);
+        }
+
+        let amount = stake_info.pending_unstake_amount;
+        stake_info.pending_unstake_amount = 0;
+        stake_info.cooldown_until = 0;
+
+        let balance = Self::get_gov_balance(env.clone(), from.clone());
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovBalance(from.clone())),
+            &(balance.saturating_add(amount)),
+        );
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::StakedGov(from.clone())),
+            &stake_info,
+        );
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("unstk_dn")),
+            (from, amount),
+        );
+        Ok(())
+    }
+
+    pub fn get_voting_weight(env: Env, voter: Address) -> u32 {
+        storage::extend_instance_ttl(&env);
+        let share_map: Map<Address, u32> =
+            storage::persistent_get::<Map<Address, u32>>(&env, &StorageKey::ShareMap)
+                .unwrap_or(Map::new(&env));
+        let base_shares = share_map.get(voter.clone()).unwrap_or(0);
+
+        let stake_info = Self::get_staked_gov(env.clone(), voter);
+        let staked_weight = (stake_info.staked_amount.saturating_mul(2)) as u32;
+
+        base_shares.saturating_add(staked_weight)
     }
 
     // ─────────────────────────────────────────────────────────────────────

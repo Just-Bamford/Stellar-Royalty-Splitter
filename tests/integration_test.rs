@@ -7185,6 +7185,58 @@ mod linked_pools {
         assert_eq!(shares.len(), 1);
         assert_eq!(shares.get(shared), Some(10_000));
     }
+
+    #[test]
+    fn test_governance_tokens_and_staking() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client) = setup(&env);
+        let collab_a = Address::generate(&env);
+        let collab_b = Address::generate(&env);
+
+        client.initialize(
+            &vec![&env, collab_a.clone(), collab_b.clone()],
+            &vec![&env, 6_000_u32, 4_000_u32],
+        );
+
+        // Governance tokens issued 1:1 on setup
+        assert_eq!(client.get_gov_balance(&collab_a), 6_000);
+        assert_eq!(client.get_gov_balance(&collab_b), 4_000);
+
+        // Voting weight before staking: base shares
+        assert_eq!(client.get_voting_weight(&collab_a), 6_000);
+        assert_eq!(client.get_voting_weight(&collab_b), 4_000);
+
+        // Stake 1,000 governance tokens for collab_a
+        client.stake_gov_tokens(&collab_a, &1_000);
+        assert_eq!(client.get_gov_balance(&collab_a), 5_000);
+
+        let stake_info = client.get_staked_gov(&collab_a);
+        assert_eq!(stake_info.staked_amount, 1_000);
+
+        // Staked tokens earn 2x voting weight: 6,000 + (1,000 * 2) = 8,000
+        assert_eq!(client.get_voting_weight(&collab_a), 8_000);
+
+        // Unstake 500 tokens -> starts 7 days cooldown
+        client.unstake_gov_tokens(&collab_a, &500);
+        let stake_info2 = client.get_staked_gov(&collab_a);
+        assert_eq!(stake_info2.staked_amount, 500);
+        assert_eq!(stake_info2.pending_unstake_amount, 500);
+        assert!(stake_info2.cooldown_until > env.ledger().timestamp());
+
+        // Trying to withdraw before cooldown fails
+        let res = client.try_withdraw_unstaked_gov_tokens(&collab_a);
+        assert!(res.is_err());
+
+        // Fast forward past 7 days cooldown (7 * 86,400 = 604,800s)
+        env.ledger().with_mut(|l| l.timestamp += 604_801);
+
+        // Withdraw succeeds
+        client.withdraw_unstaked_gov_tokens(&collab_a);
+        assert_eq!(client.get_gov_balance(&collab_a), 5_500);
+        let stake_info3 = client.get_staked_gov(&collab_a);
+        assert_eq!(stake_info3.pending_unstake_amount, 0);
+    }
 }
 
 /// Issue #929 — dynamic per-token fee overrides and fee pool withdrawal.

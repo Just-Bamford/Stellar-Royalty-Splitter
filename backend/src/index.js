@@ -25,6 +25,7 @@ import { simulateRouter } from "./routes/simulate.js";
 import historyRouter from "./routes/history.js";
 import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
+import { forecastRouter } from "./routes/analytics/forecast.js";
 import { benchmarkingRouter } from "./routes/analytics/benchmarking.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
@@ -371,6 +372,8 @@ app.use("/api/v1/simulate", simulateRouter);
 app.use("/api/v1/onboarding", onboardingRouter);
 app.use("/api/v1", historyRouter);
 app.use("/api/v1", webhooksRouter);
+app.use("/api/v1/analytics/forecast", readLimiter);
+app.use("/api/v1/analytics/forecast", forecastRouter);
 app.use("/api/v1", analyticsRouter);
 // Collaborator performance benchmarking (#952)
 app.use("/api/v1/analytics/benchmarking", benchmarkingRouter);

@@ -1,3 +1,4 @@
+import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import { BatchProcessor } from "../src/services/batch-processor.js";
 import { batchDeduplicationMiddleware } from "../src/middleware/batch-dedup.js";
 
