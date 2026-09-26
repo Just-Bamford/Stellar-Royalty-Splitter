@@ -1,5 +1,6 @@
 import { WebSocketServer } from "ws";
 import logger from "./logger.js";
+import { handleSubscriptionMessage, unsubscribeAll } from "./graphql.js";
 
 const clients = new Map();
 
@@ -25,6 +26,10 @@ export function initializeWebSocket(server) {
     ws.on("message", (data) => {
       try {
         const msg = JSON.parse(data.toString());
+
+        // Delegate GraphQL subscription commands (#969)
+        if (handleSubscriptionMessage(ws, msg)) return;
+
         if (msg.type === "subscribe" && msg.walletAddress) {
           ws.walletAddress = msg.walletAddress;
           if (!clients.has(msg.walletAddress)) {
@@ -77,6 +82,9 @@ export function initializeWebSocket(server) {
     });
 
     ws.on("close", () => {
+      // Clean up all GraphQL subscriptions for this socket (#969)
+      unsubscribeAll(ws);
+
       // Clear timeout
       if (ws._timeout) {
         clearTimeout(ws._timeout);
