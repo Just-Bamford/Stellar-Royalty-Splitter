@@ -46,7 +46,7 @@ h2 {
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--accent-primary-light);
-  color: #1d4ed8;
+  color: var(--status-info-text);
   margin-bottom: 1rem;
 }
 
@@ -96,8 +96,8 @@ button:disabled {
 }
 
 .btn-primary {
-  background: #1d4ed8;
-  color: #ffffff;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
 }
 .btn-primary:hover:not(:disabled) {
   opacity: 0.85;
@@ -132,8 +132,8 @@ button:disabled {
   margin-top: 0.75rem;
 }
 .status.ok {
-  background: #14532d;
-  color: #86efac;
+  background: var(--status-success-surface);
+  color: var(--status-success-text);
 }
 .status.error {
   background: var(--error-light);
@@ -157,7 +157,7 @@ button:disabled {
 .status.error .retry-btn {
   flex-shrink: 0;
   background: var(--error-dark);
-  color: #ffffff;
+  color: var(--text-on-accent);
   border: none;
   padding: 0.35rem 0.85rem;
   border-radius: 6px;
