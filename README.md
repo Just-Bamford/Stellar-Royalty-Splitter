@@ -42,6 +42,7 @@ The contract supports both primary sales and secondary market royalties, with ro
 - [Usage Examples](#usage-examples)
 - [Rounding](#rounding)
 - [Frontend & Backend](#frontend--backend)
+- [Platform API Workflows](#platform-api-workflows)
 - [Environment Variables](#environment-variables)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
@@ -299,6 +300,17 @@ The frontend proxies `/api/*` to the backend automatically via the Vite config.
 The backend builds unsigned transaction XDR and returns it to the frontend. **Freighter signs and submits client-side — your private key never leaves the browser.**
 
 OpenAPI documentation is served by the backend at `GET /api/v1/docs` for Swagger UI and `GET /api/v1/docs/json` for the machine-readable OpenAPI 3.0 spec. Legacy aliases remain available at `/api/docs` and `/api/docs/json`.
+
+### Platform API Workflows
+
+The backend also exposes these versioned workflow APIs:
+
+| Workflow | Endpoints | Purpose |
+| --- | --- | --- |
+| Reputation | `/api/v1/reputation` | Record collaborator activity and retrieve reliability/trust scores. |
+| Dispute intelligence | `/api/v1/disputes/:ticketId/evidence`, `/api/v1/disputes/:ticketId/analyze` | Collect hashed evidence and generate a mediation recommendation. |
+| Search | `/api/v1/search`, `/api/v1/search/documents` | Index platform documents and query full-text/semantic-ranked results. |
+| Private proofs | `/api/v1/private-proofs`, `/api/v1/private-proofs/verify` | Create and verify commitment-based proofs without returning witnesses. |
 
 ---
 
