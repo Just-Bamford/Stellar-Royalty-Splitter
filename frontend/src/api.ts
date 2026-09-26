@@ -2,7 +2,7 @@
 
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractContractError } from "./lib/contract-errors";
-import { signRequest, type SignatureHeaders } from "./utils/sign-request";
+import { signRequest } from "./utils/sign-request";
 
 const BASE = "/api";
 export const SESSION_EXPIRED_EVENT = "srs:session-expired";
@@ -114,6 +114,21 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function signedPost<T>(path: string, body: unknown, keypair?: Keypair): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (keypair) {
+    const signedHeaders = await signRequest(keypair, "POST", path, body);
+    Object.assign(headers, signedHeaders);
+  }
+
+  return request<T>(path, {
+    method: "POST",
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -249,6 +264,15 @@ export interface HealthResponse {
     horizon: HealthComponent;
     contract: HealthComponent;
   };
+  dbMetrics?: {
+    transactions: {
+      total: number;
+      failed: number;
+      pending: number;
+      lastActivity: string | null;
+    };
+  };
+  generatedAt?: string;
   timestamp: string;
 }
 
@@ -395,7 +419,7 @@ export const api = {
       saleToken: string;
       royaltyRate: number;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{ xdr: string; transactionId: number; royaltyAmount: number }>(
       "/secondary-royalty",
@@ -409,7 +433,7 @@ export const api = {
       walletAddress: string;
       royaltyRate: number;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{ xdr: string; transactionId: number }>(
       "/secondary-royalty/set-rate",
@@ -423,7 +447,7 @@ export const api = {
       walletAddress: string;
       maxPoolSize: number;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{ xdr: string; transactionId: number }>(
       "/secondary-royalty/set-pool-limit",
@@ -437,14 +461,14 @@ export const api = {
       walletAddress: string;
       tokenId: string;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{
       xdr: string;
       transactionId: number;
       numberOfSales: number;
       totalRoyalties: string;
-    }>("/secondary-royalty/distribute", body, keypair),
+    }> ("/secondary-royalty/distribute", body, keypair),
   getSecondarySales: (
     contractId: string,
     limit = 50,
@@ -479,6 +503,9 @@ export const api = {
   // NEW: Fetch secondary royalty pool balance
   getSecondaryRoyaltyPool: (contractId: string) =>
     get<{ poolBalance: string }>(`/secondary-royalty/pool/${contractId}`),
+
+  getRoyaltyStats: (contractId: string) =>
+    get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
 
   // NEW: Fetch contract status
   getContractStatus: (contractId: string) =>
@@ -643,11 +670,46 @@ export const api = {
 
   getVerification: (walletAddress: string) => get<any>(`/verification/${walletAddress}`),
   startVerification: (walletAddress: string, data?: any) => post<any>(`/verification/start`, { walletAddress, ...data }),
-  advanceVerification: (walletAddress: string, step?: any) => post<any>(`/verification/advance`, { walletAddress, step }),
+  advanceVerification: (
+    payload: { walletAddress: string; step?: any; status?: any; adminNote?: string | null } | string,
+    step?: any,
+  ) => {
+    if (typeof payload === "string") {
+      return post<any>(`/verification/advance`, { walletAddress: payload, step });
+    }
+    return post<any>(`/verification/advance`, payload);
+  },
 
   getContractFees: (contractId: string) => get<any>(`/fees/${contractId}`),
 
   getTaxComplianceReport: () => get<any>("/v1/contributor-tax/report"),
+
+  previewCsv: (file: File, contractId: string) =>
+    post<{ success: boolean; data: { validRows: any[]; errorRows: any[]; summary: { total: number; valid: number; errors: number } } }>(`/v1/contributors/preview-csv?contractId=${encodeURIComponent(contractId)}`, { fileName: file.name, size: file.size }),
+
+  importCsv: (file: File, contractId: string) =>
+    post<{ success: boolean; data: { importId: number; summary: { total: number; successCount: number; errorCount: number } } }>(`/v1/contributors/import-csv?contractId=${encodeURIComponent(contractId)}`, { fileName: file.name, size: file.size }),
+
+  downloadCsvTemplate: () => {
+    const url = `${BASE}/v1/contributors/csv-template`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    return Promise.resolve({ success: true });
+  },
+
+  upgradeContract: (body: { contractId: string; walletAddress: string; wasmHash: string }) =>
+    post<{ success: boolean; version: string; xdr: string }>("/contract/upgrade", body),
+
+  getContributorTax: (walletAddress: string) =>
+    get<{ success: boolean; data?: { tax_status?: string; tax_id?: string; w9_file_name?: string } }>(`/v1/contributor-tax/${walletAddress}`),
+
+  saveContributorTax: (walletAddress: string, taxStatus: string, taxId?: string) =>
+    post<{ success: boolean }>(`/v1/contributor-tax/${walletAddress}`, { taxStatus, taxId }),
+
+  uploadTaxDocument: (walletAddress: string, file: File) =>
+    post<{ success: boolean }>(`/v1/contributor-tax/${walletAddress}/document`, { walletAddress, fileName: file.name, size: file.size }),
+
+  getTaxDocument: (walletAddress: string) =>
+    get<{ success: boolean; url?: string }>(`/v1/contributor-tax/${walletAddress}/document`),
 
   getContributorsMissingTaxInfo: () => get<any>("/v1/contributor-tax/missing"),
 

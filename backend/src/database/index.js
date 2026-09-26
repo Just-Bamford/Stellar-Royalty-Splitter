@@ -322,6 +322,22 @@ export {
   listKnownCollaborators,
 } from "./crm-sync-status.js";
 
+// Tax compliance forms (#950)
+export {
+  TAX_FORM_TYPES,
+  TAX_FORM_STATUSES,
+  SUPPORTED_COUNTRIES,
+  IRS_1099_THRESHOLD_USD,
+  CRA_T4A_THRESHOLD_USD,
+  createTaxForm,
+  getTaxForm,
+  getLatestTaxForm,
+  listTaxForms,
+  countTaxForms,
+  voidTaxForm,
+  getTaxYearSummary,
+} from "./tax-forms.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;

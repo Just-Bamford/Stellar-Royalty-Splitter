@@ -29,6 +29,17 @@ import { CopyButton } from "./components/CopyButton";
 import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
+import { DisputeDashboard } from "./components/DisputeDashboard";
+import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
+import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
+import { ContractTimeline } from "./components/ContractTimeline";
+import { ContributorSuspension } from "./components/ContributorSuspension";
+import { BulkContributorUpload } from "./components/BulkContributorUpload";
+import { ContributorTaxInfo } from "./components/ContributorTaxInfo";
+import { TaxComplianceReport } from "./components/TaxComplianceReport";
+import { PaymentHoldManager } from "./components/PaymentHoldManager";
+import { ContributorOnboardingChecklist } from "./components/ContributorOnboardingChecklist";
+import { MultiContractEarnings } from "./components/MultiContractEarnings";
 import { useNotifications } from "./context/NotificationContext";
 import { ToastContainer } from "react-toastify";
 
@@ -451,6 +462,11 @@ export default function App() {
         );
       case "health":
         return withErrorBoundary(<HealthDashboard />, "System Health");
+      case "disputes":
+        return withErrorBoundary(
+          <DisputeDashboard walletAddress={walletAddress} />,
+          "Dispute Dashboard",
+        );
       case "earnings":
         return withErrorBoundary(
           walletAddress ? (

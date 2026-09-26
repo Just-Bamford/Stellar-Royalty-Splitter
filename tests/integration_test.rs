@@ -7185,4 +7185,871 @@ mod linked_pools {
         assert_eq!(shares.len(), 1);
         assert_eq!(shares.get(shared), Some(10_000));
     }
+
+    #[test]
+    fn test_governance_tokens_and_staking() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_contract_id, client) = setup(&env);
+        let collab_a = Address::generate(&env);
+        let collab_b = Address::generate(&env);
+
+        client.initialize(
+            &vec![&env, collab_a.clone(), collab_b.clone()],
+            &vec![&env, 6_000_u32, 4_000_u32],
+        );
+
+        // Governance tokens issued 1:1 on setup
+        assert_eq!(client.get_gov_balance(&collab_a), 6_000);
+        assert_eq!(client.get_gov_balance(&collab_b), 4_000);
+
+        // Voting weight before staking: base shares
+        assert_eq!(client.get_voting_weight(&collab_a), 6_000);
+        assert_eq!(client.get_voting_weight(&collab_b), 4_000);
+
+        // Stake 1,000 governance tokens for collab_a
+        client.stake_gov_tokens(&collab_a, &1_000);
+        assert_eq!(client.get_gov_balance(&collab_a), 5_000);
+
+        let stake_info = client.get_staked_gov(&collab_a);
+        assert_eq!(stake_info.staked_amount, 1_000);
+
+        // Staked tokens earn 2x voting weight: 6,000 + (1,000 * 2) = 8,000
+        assert_eq!(client.get_voting_weight(&collab_a), 8_000);
+
+        // Unstake 500 tokens -> starts 7 days cooldown
+        client.unstake_gov_tokens(&collab_a, &500);
+        let stake_info2 = client.get_staked_gov(&collab_a);
+        assert_eq!(stake_info2.staked_amount, 500);
+        assert_eq!(stake_info2.pending_unstake_amount, 500);
+        assert!(stake_info2.cooldown_until > env.ledger().timestamp());
+
+        // Trying to withdraw before cooldown fails
+        let res = client.try_withdraw_unstaked_gov_tokens(&collab_a);
+        assert!(res.is_err());
+
+        // Fast forward past 7 days cooldown (7 * 86,400 = 604,800s)
+        env.ledger().with_mut(|l| l.timestamp += 604_801);
+
+        // Withdraw succeeds
+        client.withdraw_unstaked_gov_tokens(&collab_a);
+        assert_eq!(client.get_gov_balance(&collab_a), 5_500);
+        let stake_info3 = client.get_staked_gov(&collab_a);
+        assert_eq!(stake_info3.pending_unstake_amount, 0);
+    }
+}
+
+/// Issue #929 — dynamic per-token fee overrides and fee pool withdrawal.
+mod dynamic_fees {
+    use super::*;
+    use soroban_sdk::vec;
+
+    /// Initializes a 2-collaborator (60/40) splitter in `env`, mints `funding`
+    /// of a fresh token to it, and sets the default royalty rate to
+    /// `default_bps` (skipped when 0, since `set_royalty_rate` rejects 0).
+    /// Returns `(client, token, collaborator_a, collaborator_b)`.
+    fn fixture(
+        env: &Env,
+        default_bps: u32,
+        funding: i128,
+    ) -> (RoyaltySplitterClient<'_>, Address, Address, Address) {
+        env.mock_all_auths();
+        let (contract_id, client) = setup(env);
+        let a = Address::generate(env);
+        let b = Address::generate(env);
+        client.initialize(
+            &vec![env, a.clone(), b.clone()],
+            &vec![env, 6_000_u32, 4_000_u32],
+        );
+        if default_bps > 0 {
+            client.set_royalty_rate(&default_bps);
+        }
+        let token_admin = Address::generate(env);
+        let token = make_token(env, &token_admin);
+        if funding > 0 {
+            mint(env, &token, &contract_id, funding);
+        }
+        (client, token, a, b)
+    }
+
+    #[test]
+    fn no_override_and_no_default_rate_takes_no_fee() {
+        let env = Env::default();
+        let (client, token, a, b) = fixture(&env, 0, 10_000);
+        assert_eq!(client.get_token_fee_override(&token), None);
+
+        client.distribute(&token);
+
+        assert_eq!(client.get_fee_pool(&token), 0);
+        assert_eq!(TokenClient::new(&env, &token).balance(&a), 6_000);
+        assert_eq!(TokenClient::new(&env, &token).balance(&b), 4_000);
+    }
+
+    #[test]
+    fn distribute_falls_back_to_default_rate_when_no_override_set() {
+        // 10% default rate, no per-token override configured.
+        let env = Env::default();
+        let (client, token, a, b) = fixture(&env, 1_000, 10_000);
+
+        client.distribute(&token);
+
+        // 10% of 10_000 = 1_000 fee; 9_000 left split 60/40.
+        assert_eq!(client.get_fee_pool(&token), 1_000);
+        assert_eq!(TokenClient::new(&env, &token).balance(&a), 5_400);
+        assert_eq!(TokenClient::new(&env, &token).balance(&b), 3_600);
+    }
+
+    #[test]
+    fn token_override_replaces_default_rate() {
+        // Default rate is 10%, but this token has a 20% override.
+        let env = Env::default();
+        let (client, token, a, b) = fixture(&env, 1_000, 10_000);
+        client.set_token_fee_override(&token, &2_000);
+        assert_eq!(client.get_token_fee_override(&token), Some(2_000));
+
+        client.distribute(&token);
+
+        // 20% of 10_000 = 2_000 fee; 8_000 left split 60/40.
+        assert_eq!(client.get_fee_pool(&token), 2_000);
+        assert_eq!(TokenClient::new(&env, &token).balance(&a), 4_800);
+        assert_eq!(TokenClient::new(&env, &token).balance(&b), 3_200);
+    }
+
+    #[test]
+    fn override_is_per_token_other_tokens_keep_default_rate() {
+        let env = Env::default();
+        let (client, token_a, a, b) = fixture(&env, 1_000, 10_000);
+        client.set_token_fee_override(&token_a, &2_000);
+
+        // A second token with no override still uses the 10% default.
+        let token_b_admin = Address::generate(&env);
+        let token_b = make_token(&env, &token_b_admin);
+        mint(&env, &token_b, &client.address, 10_000);
+
+        client.distribute(&token_a);
+        client.distribute(&token_b);
+
+        assert_eq!(client.get_fee_pool(&token_a), 2_000); // 20%
+        assert_eq!(client.get_fee_pool(&token_b), 1_000); // 10% default
+        assert_eq!(TokenClient::new(&env, &token_a).balance(&a), 4_800);
+        assert_eq!(TokenClient::new(&env, &token_b).balance(&a), 5_400);
+        let _ = b;
+    }
+
+    #[test]
+    fn fee_pool_accumulates_across_multiple_distributions() {
+        // `distribute` pays out the whole current contract balance each
+        // call; the fee it carves off is left behind in that balance (not
+        // transferred out) until `withdraw_fees` moves it. So the second
+        // distribution's fee is computed on (leftover fee + freshly minted),
+        // not on the fresh mint alone.
+        let env = Env::default();
+        let (client, token, _a, _b) = fixture(&env, 1_000, 10_000);
+        client.distribute(&token); // fee = 10% of 10_000 = 1_000; pool = 1_000
+
+        mint(&env, &token, &client.address, 20_000);
+        // Contract balance is now 1_000 (leftover fee) + 20_000 = 21_000.
+        client.distribute(&token); // fee = 10% of 21_000 = 2_100; pool = 3_100
+
+        assert_eq!(client.get_fee_pool(&token), 3_100);
+    }
+
+    #[test]
+    fn set_token_fee_override_requires_admin_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+        let token = Address::generate(&env);
+        client.set_token_fee_override(&token, &500);
+        let auths = env.auths();
+        assert_eq!(auths.len(), 1);
+        assert_eq!(auths[0].0, admin);
+    }
+
+    #[test]
+    fn set_token_fee_override_rejects_out_of_range_bps() {
+        let env = Env::default();
+        let (client, token, _a, _b) = fixture(&env, 0, 0);
+        assert_eq!(
+            client.try_set_token_fee_override(&token, &10_001),
+            Err(Ok(ContractError::FEE_OVERRIDE_TOO_HIGH))
+        );
+    }
+
+    #[test]
+    fn withdraw_fees_transfers_pool_and_resets_it() {
+        let env = Env::default();
+        let (client, token, _a, _b) = fixture(&env, 1_000, 10_000);
+        client.distribute(&token); // fee pool now 1_000
+
+        let admin = client.get_admin();
+        let admin_balance_before = TokenClient::new(&env, &token).balance(&admin);
+
+        let withdrawn = client.withdraw_fees(&token);
+        assert_eq!(withdrawn, 1_000);
+        assert_eq!(client.get_fee_pool(&token), 0);
+        assert_eq!(
+            TokenClient::new(&env, &token).balance(&admin),
+            admin_balance_before + 1_000
+        );
+    }
+
+    #[test]
+    fn withdraw_fees_with_empty_pool_returns_error() {
+        let env = Env::default();
+        let (client, token, _a, _b) = fixture(&env, 0, 0);
+        assert_eq!(
+            client.try_withdraw_fees(&token),
+            Err(Ok(ContractError::NO_FEES_TO_WITHDRAW))
+        );
+    }
+
+    #[test]
+    fn withdraw_fees_requires_admin_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        client.set_royalty_rate(&1_000);
+
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+        mint(&env, &token, &client.address, 10_000);
+        client.distribute(&token);
+
+        let auths_before = env.auths().len();
+        client.withdraw_fees(&token);
+        let auths = env.auths();
+        // withdraw_fees itself is the top-level authorized call in this batch.
+        assert!(auths.len() >= auths_before);
+        assert_eq!(auths.last().unwrap().0, admin);
+    }
+
+    #[test]
+    fn withdraw_fees_only_affects_the_named_token() {
+        let env = Env::default();
+        let (client, token_a, _a, _b) = fixture(&env, 1_000, 10_000);
+        client.set_token_fee_override(&token_a, &2_000);
+
+        let token_b_admin = Address::generate(&env);
+        let token_b = make_token(&env, &token_b_admin);
+        mint(&env, &token_b, &client.address, 10_000);
+
+        client.distribute(&token_a); // fee pool: 2_000
+        client.distribute(&token_b); // fee pool: 1_000
+
+        client.withdraw_fees(&token_a);
+        assert_eq!(client.get_fee_pool(&token_a), 0);
+        assert_eq!(client.get_fee_pool(&token_b), 1_000);
+    }
+}
+
+/// Issue #930 — tiered royalty rates by NFT rarity, resale count, and age.
+mod tiered_royalties {
+    use super::*;
+    use soroban_sdk::vec;
+    use stellar_royalty_splitter::RoyaltyTier;
+
+    const RARE_BPS: u32 = 1_000; // 10% base tier rate for "rare"
+
+    fn rarity(env: &Env, s: &str) -> String {
+        String::from_str(env, s)
+    }
+
+    fn tier(env: &Env, name: &str, rate_bps: u32) -> RoyaltyTier {
+        RoyaltyTier {
+            rarity: rarity(env, name),
+            rate_bps,
+            description: String::from_str(env, "test tier"),
+        }
+    }
+
+    /// Initialized single-collaborator splitter with one "rare" tier at
+    /// `RARE_BPS` configured.
+    fn fixture(env: &Env) -> RoyaltySplitterClient<'_> {
+        env.mock_all_auths();
+        let (_, client) = setup(env);
+        client.initialize(&vec![env, Address::generate(env)], &vec![env, 10_000_u32]);
+        client.set_royalty_tiers(&vec![env, tier(env, "rare", RARE_BPS)]);
+        client
+    }
+
+    #[test]
+    fn admin_can_define_tiers_with_rate_and_description() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let tiers = client.get_royalty_tiers();
+        assert_eq!(tiers.len(), 1);
+        assert_eq!(tiers.get(0).unwrap().rarity, rarity(&env, "rare"));
+        assert_eq!(tiers.get(0).unwrap().rate_bps, RARE_BPS);
+    }
+
+    #[test]
+    fn set_royalty_tiers_requires_admin_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+        client.set_royalty_tiers(&vec![&env, tier(&env, "rare", RARE_BPS)]);
+        let auths = env.auths();
+        assert_eq!(auths.len(), 1);
+        assert_eq!(auths[0].0, admin);
+    }
+
+    #[test]
+    fn set_royalty_tiers_rejects_empty_list_and_bad_rate() {
+        let env = Env::default();
+        let client = fixture(&env);
+        assert_eq!(
+            client.try_set_royalty_tiers(&vec![&env]),
+            Err(Ok(ContractError::INVALID_ROYALTY_TIERS))
+        );
+        assert_eq!(
+            client.try_set_royalty_tiers(&vec![&env, tier(&env, "epic", 10_001)]),
+            Err(Ok(ContractError::TIER_RATE_TOO_HIGH))
+        );
+    }
+
+    #[test]
+    fn unknown_rarity_is_rejected() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+        assert_eq!(
+            client.try_record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "mythic"), &1_000),
+            Err(Ok(ContractError::UNKNOWN_ROYALTY_TIER))
+        );
+    }
+
+    #[test]
+    fn first_resale_uses_full_tier_rate() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        let royalty =
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        // 10% of 10_000 = 1_000, full tier rate (1st resale).
+        assert_eq!(royalty, 1_000);
+        assert_eq!(client.get_resale_count(&token, &1u64), 1);
+    }
+
+    #[test]
+    fn second_resale_reduces_rate_by_half() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        let royalty =
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        // 2nd resale: 50% of 10% = 5% of 10_000 = 500.
+        assert_eq!(royalty, 500);
+        assert_eq!(client.get_resale_count(&token, &1u64), 2);
+    }
+
+    #[test]
+    fn third_resale_still_at_half_rate() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        for _ in 0..3 {
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        }
+        // 3rd resale is still ">= 2, < 4" => 50% of tier rate.
+        assert_eq!(client.get_resale_count(&token, &1u64), 3);
+        let preview = client.get_tiered_royalty_rate(&token, &1u64, &rarity(&env, "rare"));
+        // Preview is for the *next* (4th) sale, which crosses into the 25% band.
+        assert_eq!(preview, 250);
+    }
+
+    #[test]
+    fn fourth_plus_resale_reduces_rate_to_quarter() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        let mut royalty = 0;
+        for _ in 0..4 {
+            royalty =
+                client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        }
+        // 4th resale: 25% of 10% = 2.5% of 10_000 = 250.
+        assert_eq!(royalty, 250);
+        assert_eq!(client.get_resale_count(&token, &1u64), 4);
+
+        // A 5th resale stays at the 25% floor (no further resale-count decay
+        // defined beyond "4th+").
+        let fifth =
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        assert_eq!(fifth, 250);
+    }
+
+    #[test]
+    fn resale_count_and_first_seen_are_tracked_per_nft_id_independently() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        // A different nft_id under the same token starts its own count at 0.
+        assert_eq!(client.get_resale_count(&token, &1u64), 2);
+        assert_eq!(client.get_resale_count(&token, &2u64), 0);
+
+        let royalty =
+            client.record_tiered_secondary_sale(&token, &2u64, &rarity(&env, "rare"), &10_000);
+        assert_eq!(royalty, 1_000); // nft_id 2's *first* resale: full tier rate.
+        assert_eq!(client.get_resale_count(&token, &2u64), 1);
+    }
+
+    #[test]
+    fn time_degradation_applies_after_ninety_days() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        // First sale: establishes first-seen timestamp, full tier rate.
+        let first =
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        assert_eq!(first, 1_000);
+        assert_eq!(client.get_nft_first_seen(&token, &1u64), Some(1_000_000));
+
+        // Advance past the 90-day threshold (7_776_000s) with no further
+        // resales, so resale count stays at 1 (no count-based degradation)
+        // and only the time-based degradation applies.
+        env.ledger()
+            .with_mut(|l| l.timestamp = 1_000_000 + 7_776_000 + 1);
+        let second =
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        // 2nd resale ALSO crosses the resale-count threshold (>= 2 => 50%),
+        // and the sale is > 90 days after first-seen => a further 50%.
+        // Compounded: 10% * 50% * 50% = 2.5% of 10_000 = 250.
+        assert_eq!(second, 250);
+    }
+
+    #[test]
+    fn time_and_resale_degradation_compound_multiplicatively_resale_first_then_time() {
+        // Isolate the time-based factor from the resale-count factor by
+        // keeping the sale on the FIRST resale (count == 1, no count-based
+        // degradation) but past the 90-day mark, so only the time factor
+        // should apply on top of the untouched full tier rate.
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        // Seed first-seen without counting as this NFT's first resale by
+        // using a different nft_id for the seed... Soroban has no "peek"
+        // that writes first-seen without a resale, so instead we assert the
+        // documented compounding directly via the read-only preview, which
+        // computes the *next* sale's rate without mutating state.
+        let preview_before_any_sale =
+            client.get_tiered_royalty_rate(&token, &1u64, &rarity(&env, "rare"));
+        // No first-seen recorded yet => age is treated as 0 (not degraded);
+        // this is the 1st-ever resale preview => full tier rate.
+        assert_eq!(preview_before_any_sale, 1_000);
+
+        client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+
+        // Now advance time past 90 days, but check the *3rd* resale preview
+        // math directly matches resale-first-then-time compounding:
+        // tier 1000 bps, count 2 (>=2 => 50%) = 500, age > 90d (=> further
+        // 50%) = 250.
+        env.ledger()
+            .with_mut(|l| l.timestamp = 1_000_000 + 7_776_000 + 1);
+        let preview = client.get_tiered_royalty_rate(&token, &1u64, &rarity(&env, "rare"));
+        assert_eq!(preview, 250);
+    }
+
+    #[test]
+    fn no_time_degradation_before_ninety_days() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+
+        // Still well within 90 days.
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000 + 1_000);
+        let royalty =
+            client.record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &10_000);
+        // 2nd resale, no time degradation: 50% of 10% = 500.
+        assert_eq!(royalty, 500);
+    }
+
+    #[test]
+    fn record_tiered_secondary_sale_rejects_non_positive_price() {
+        let env = Env::default();
+        let client = fixture(&env);
+        let token = Address::generate(&env);
+        assert_eq!(
+            client.try_record_tiered_secondary_sale(&token, &1u64, &rarity(&env, "rare"), &0),
+            Err(Ok(ContractError::SalePriceNotPositive))
+        );
+    }
+}
+
+/// Issue #931 — cliff and linear vesting schedules for collaborator shares.
+mod vesting {
+    use super::*;
+    use soroban_sdk::vec;
+
+    const DAY: u64 = 86_400;
+
+    #[test]
+    fn admin_can_set_vesting_schedule() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        client.initialize(
+            &vec![&env, admin.clone(), beneficiary.clone()],
+            &vec![&env, 5_000_u32, 5_000_u32],
+        );
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &120_u32);
+
+        let schedule = client.get_vesting_schedule(&beneficiary).unwrap();
+        assert_eq!(schedule.beneficiary, beneficiary);
+        assert_eq!(schedule.total_shares, 1_000);
+        assert_eq!(schedule.cliff_days, 30);
+        assert_eq!(schedule.vesting_days, 120);
+        assert_eq!(schedule.start_time, 1_000_000);
+        assert_eq!(schedule.claimed_shares, 0);
+    }
+
+    #[test]
+    fn set_vesting_schedule_requires_admin_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+
+        let beneficiary = Address::generate(&env);
+        client.set_vesting_schedule(&beneficiary, &100_u32, &10_u32, &10_u32);
+        let auths = env.auths();
+        assert_eq!(auths.len(), 1);
+        assert_eq!(auths[0].0, admin);
+    }
+
+    #[test]
+    fn set_vesting_schedule_rejects_invalid_args() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        assert_eq!(
+            client.try_set_vesting_schedule(&beneficiary, &0u32, &10u32, &10u32),
+            Err(Ok(ContractError::INVALID_VESTING_SCHEDULE))
+        );
+        // vesting_days < cliff_days makes no sense (deadline before cliff).
+        assert_eq!(
+            client.try_set_vesting_schedule(&beneficiary, &100u32, &20u32, &10u32),
+            Err(Ok(ContractError::INVALID_VESTING_SCHEDULE))
+        );
+    }
+
+    #[test]
+    fn zero_vested_before_cliff() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &120_u32);
+
+        // 1 second before the 30-day cliff.
+        let just_before_cliff = 1_000_000 + 30 * DAY - 1;
+        assert_eq!(
+            client.get_vested_shares(&beneficiary, &just_before_cliff),
+            0
+        );
+        // Right at start_time.
+        assert_eq!(client.get_vested_shares(&beneficiary, &1_000_000), 0);
+    }
+
+    #[test]
+    fn cliff_equals_vesting_jumps_to_full_at_cliff() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &30_u32);
+
+        let cliff_time = 1_000_000 + 30 * DAY;
+        assert_eq!(client.get_vested_shares(&beneficiary, &(cliff_time - 1)), 0);
+        assert_eq!(client.get_vested_shares(&beneficiary, &cliff_time), 1_000);
+        assert_eq!(
+            client.get_vested_shares(&beneficiary, &(cliff_time + 10 * DAY)),
+            1_000
+        );
+    }
+
+    #[test]
+    fn partial_vesting_is_linear_between_cliff_and_deadline() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        // cliff at day 30, deadline at day 30 + 120 = 150. Linear window is
+        // 120 days wide.
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &150_u32);
+
+        let cliff = 30 * DAY;
+        let deadline = 150 * DAY;
+
+        // Exactly at the cliff: 0 vested (linear segment starts at 0 here).
+        assert_eq!(client.get_vested_shares(&beneficiary, &cliff), 0);
+        // Halfway through the 120-day linear window: 50% => 500.
+        assert_eq!(
+            client.get_vested_shares(&beneficiary, &(cliff + 60 * DAY)),
+            500
+        );
+        // Just before the deadline: close to, but not, full.
+        let almost_full = client.get_vested_shares(&beneficiary, &(deadline - DAY));
+        assert!(almost_full < 1_000 && almost_full > 900);
+    }
+
+    #[test]
+    fn full_vesting_after_deadline() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &150_u32);
+
+        let deadline = 150 * DAY;
+        assert_eq!(client.get_vested_shares(&beneficiary, &deadline), 1_000);
+        assert_eq!(
+            client.get_vested_shares(&beneficiary, &(deadline + 1_000 * DAY)),
+            1_000
+        );
+    }
+
+    #[test]
+    fn no_schedule_reports_zero_vested_shares() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let nobody = Address::generate(&env);
+        assert_eq!(client.get_vested_shares(&nobody, &1_000_000), 0);
+    }
+
+    #[test]
+    fn distribute_uses_only_vested_shares_for_scheduled_beneficiary() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+        let scheduled = Address::generate(&env);
+        let unscheduled = Address::generate(&env);
+        client.initialize(
+            &vec![&env, scheduled.clone(), unscheduled.clone()],
+            &vec![&env, 5_000_u32, 5_000_u32],
+        );
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        // Cliff at day 30, linear to day 150; at "now" (t=0) nothing is vested.
+        client.set_vesting_schedule(&scheduled, &1_000_u32, &30_u32, &150_u32);
+
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+        mint(&env, &token, &contract_id, 10_000);
+
+        client.distribute(&token);
+
+        // `scheduled` has 0 vested shares right now => receives nothing yet,
+        // even though their nominal ShareMap share is still 50%.
+        assert_eq!(TokenClient::new(&env, &token).balance(&scheduled), 0);
+        // `unscheduled` is completely unaffected: full 50% as before #931.
+        assert_eq!(TokenClient::new(&env, &token).balance(&unscheduled), 5_000);
+
+        // The unvested amount is not lost: it stays in the contract balance
+        // (not transferred to anyone), available for `scheduled` once more
+        // vests and another distribution runs.
+        assert_eq!(TokenClient::new(&env, &token).balance(&contract_id), 5_000);
+    }
+
+    #[test]
+    fn distribute_pays_proportional_vested_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+        let scheduled = Address::generate(&env);
+        let unscheduled = Address::generate(&env);
+        client.initialize(
+            &vec![&env, scheduled.clone(), unscheduled.clone()],
+            &vec![&env, 5_000_u32, 5_000_u32],
+        );
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        client.set_vesting_schedule(&scheduled, &1_000_u32, &30_u32, &150_u32);
+        // Halfway through the linear window: 50% vested.
+        env.ledger().with_mut(|l| l.timestamp = 30 * DAY + 60 * DAY);
+
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+        mint(&env, &token, &contract_id, 10_000);
+        client.distribute(&token);
+
+        // scheduled's nominal payout is 5_000 (50% share); only 50% of that
+        // (500 of 1_000 total_shares vested) is transferable now => 2_500.
+        assert_eq!(TokenClient::new(&env, &token).balance(&scheduled), 2_500);
+        assert_eq!(TokenClient::new(&env, &token).balance(&unscheduled), 5_000);
+    }
+
+    #[test]
+    fn distribute_pays_full_share_after_vesting_completes() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+        let scheduled = Address::generate(&env);
+        let unscheduled = Address::generate(&env);
+        client.initialize(
+            &vec![&env, scheduled.clone(), unscheduled.clone()],
+            &vec![&env, 5_000_u32, 5_000_u32],
+        );
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        client.set_vesting_schedule(&scheduled, &1_000_u32, &30_u32, &150_u32);
+        env.ledger().with_mut(|l| l.timestamp = 150 * DAY + 1);
+
+        let token_admin = Address::generate(&env);
+        let token = make_token(&env, &token_admin);
+        mint(&env, &token, &contract_id, 10_000);
+        client.distribute(&token);
+
+        assert_eq!(TokenClient::new(&env, &token).balance(&scheduled), 5_000);
+        assert_eq!(TokenClient::new(&env, &token).balance(&unscheduled), 5_000);
+    }
+
+    #[test]
+    fn claim_vested_shares_returns_only_newly_vested_delta() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &150_u32);
+
+        // Halfway through: 500 vested, none claimed yet => claim returns 500.
+        env.ledger().with_mut(|l| l.timestamp = 30 * DAY + 60 * DAY);
+        let claimed_1 = client.claim_vested_shares(&beneficiary);
+        assert_eq!(claimed_1, 500);
+        assert_eq!(
+            client
+                .get_vesting_schedule(&beneficiary)
+                .unwrap()
+                .claimed_shares,
+            500
+        );
+
+        // Immediately claiming again with no further time passing: nothing
+        // new to claim => error, and no double-claim of the same 500.
+        assert_eq!(
+            client.try_claim_vested_shares(&beneficiary),
+            Err(Ok(ContractError::NOTHING_TO_CLAIM))
+        );
+
+        // After the deadline: only the remaining 500 (not the full 1_000) is
+        // newly claimable.
+        env.ledger().with_mut(|l| l.timestamp = 150 * DAY + 1);
+        let claimed_2 = client.claim_vested_shares(&beneficiary);
+        assert_eq!(claimed_2, 500);
+        assert_eq!(
+            client
+                .get_vesting_schedule(&beneficiary)
+                .unwrap()
+                .claimed_shares,
+            1_000
+        );
+    }
+
+    #[test]
+    fn claim_vested_shares_requires_beneficiary_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &30_u32);
+        env.ledger().with_mut(|l| l.timestamp = 30 * DAY);
+
+        client.claim_vested_shares(&beneficiary);
+        let auths = env.auths();
+        assert_eq!(auths.len(), 1);
+        assert_eq!(auths[0].0, beneficiary);
+    }
+
+    #[test]
+    fn claim_vested_shares_without_schedule_errors() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let nobody = Address::generate(&env);
+        assert_eq!(
+            client.try_claim_vested_shares(&nobody),
+            Err(Ok(ContractError::NO_VESTING_SCHEDULE))
+        );
+    }
+
+    #[test]
+    fn claim_vested_shares_before_cliff_errors() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+        let admin = Address::generate(&env);
+        client.initialize(&vec![&env, admin.clone()], &vec![&env, 10_000_u32]);
+        let beneficiary = Address::generate(&env);
+
+        env.ledger().with_mut(|l| l.timestamp = 0);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &150_u32);
+        // Still before the cliff.
+        env.ledger().with_mut(|l| l.timestamp = 10 * DAY);
+
+        assert_eq!(
+            client.try_claim_vested_shares(&beneficiary),
+            Err(Ok(ContractError::NOTHING_TO_CLAIM))
+        );
+    }
 }

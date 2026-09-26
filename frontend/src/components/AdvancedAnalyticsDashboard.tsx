@@ -311,7 +311,7 @@ export const AdvancedAnalyticsDashboard: React.FC<
                     />
                     <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(value: any, name: string) => {
+                      formatter={(value: any, _name: string) => {
                         if (Array.isArray(value)) {
                           return `${formatCurrency(
                             value[0],

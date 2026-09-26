@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { useNotifications, Notification } from "../context/NotificationContext";
-import { formatNumber } from "../utils/format";
 import { NotificationCenter } from "./NotificationCenter";
 import "./NotificationBell.css";
 
@@ -9,7 +8,6 @@ export function NotificationBell() {
     notifications,
     unreadCount,
     markAsRead,
-    clearNotification,
     clearAllNotifications,
   } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);

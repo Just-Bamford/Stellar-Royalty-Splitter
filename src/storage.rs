@@ -152,3 +152,16 @@ where
     env.storage().temporary().set(key, value);
     env.storage().temporary().extend_ttl(key, ttl, ttl);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #955 — Governance token and staking
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Governance token staking information for an account.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StakeInfo {
+    pub staked_amount: i128,
+    pub pending_unstake_amount: i128,
+    pub cooldown_until: u64,
+}

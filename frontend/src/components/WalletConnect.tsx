@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useNetwork } from "../context/NetworkContext";
 import { useWallet } from "../context/WalletContext";
 import WalletSelector from "./WalletSelector";

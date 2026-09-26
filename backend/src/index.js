@@ -25,6 +25,8 @@ import { simulateRouter } from "./routes/simulate.js";
 import historyRouter from "./routes/history.js";
 import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
+import { forecastRouter } from "./routes/analytics/forecast.js";
+import { benchmarkingRouter } from "./routes/analytics/benchmarking.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
 import { livenessRouter } from "./routes/liveness.js";
@@ -78,6 +80,10 @@ import { httpMetricsMiddleware } from "./middleware/http-metrics.js";
 import { createTrafficShadowMiddleware } from "./middleware/traffic-shadow.js";
 import { getPendingRoyaltyPools } from "./database/secondary-royalties.js";
 import { initRedisCache } from "./cache.js";
+import { openseaRouter } from "./routes/marketplaces/opensea.js";
+import { raribleRouter } from "./routes/marketplaces/rarible.js";
+import { smsPreferencesRouter } from "./routes/notifications/sms.js";
+import { taxReportsRouter } from "./routes/tax/reports.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -366,7 +372,11 @@ app.use("/api/v1/simulate", simulateRouter);
 app.use("/api/v1/onboarding", onboardingRouter);
 app.use("/api/v1", historyRouter);
 app.use("/api/v1", webhooksRouter);
+app.use("/api/v1/analytics/forecast", readLimiter);
+app.use("/api/v1/analytics/forecast", forecastRouter);
 app.use("/api/v1", analyticsRouter);
+// Collaborator performance benchmarking (#952)
+app.use("/api/v1/analytics/benchmarking", benchmarkingRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
 app.use(livenessRouter);
@@ -405,6 +415,10 @@ app.use("/api/v1/notifications", notificationsRouter);
 
 // SMS notification preferences (#927)
 app.use("/api/v1/notifications/sms", smsPreferencesRouter);
+
+// Stripe fiat payout integration (#924)
+app.use("/api/v1/payments/stripe", writeLimiter);
+app.use("/api/v1/payments/stripe", stripeRouter);
 
 // Payment hold/release system (#596)
 app.use("/api/v1/payment-holds", writeLimiter);

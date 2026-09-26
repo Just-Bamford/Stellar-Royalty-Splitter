@@ -10,7 +10,7 @@ const LANGUAGES = [
 
 export const LanguageSelector: React.FC = () => {
   const { i18n } = useTranslation();
-  const { settings, updateSettings } = useSettings();
+  const { updateSettings } = useSettings();
 
   const currentLanguage = LANGUAGES.find((lang) => lang.code === i18n.language) || LANGUAGES[0];
 

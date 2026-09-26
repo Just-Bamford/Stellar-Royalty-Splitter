@@ -423,6 +423,168 @@ export function initializeDatabase() {
             ON crm_activity_log(contractId, createdAt DESC);
         `,
     },
+    {
+      // #924: Stripe fiat payout integration — linked Connect accounts and
+      // payout records (status tracked pending -> completed/failed via the
+      // Stripe webhook).
+      version: 16,
+      sql: `
+          CREATE TABLE IF NOT EXISTS stripe_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL UNIQUE,
+            stripeAccountId TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'pending'
+              CHECK(status IN ('pending', 'connected', 'disconnected')),
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_stripe_accounts_walletAddress
+            ON stripe_accounts(walletAddress);
+          CREATE INDEX IF NOT EXISTS idx_stripe_accounts_stripeAccountId
+            ON stripe_accounts(stripeAccountId);
+
+          CREATE TABLE IF NOT EXISTS stripe_payouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL,
+            stripeAccountId TEXT NOT NULL,
+            stripePayoutId TEXT UNIQUE,
+            amountXlm TEXT NOT NULL,
+            amountUsdCents INTEGER NOT NULL,
+            xlmUsdRate TEXT NOT NULL,
+            frequency TEXT NOT NULL DEFAULT 'once'
+              CHECK(frequency IN ('once', 'weekly', 'monthly')),
+            status TEXT NOT NULL DEFAULT 'pending'
+              CHECK(status IN ('pending', 'in_transit', 'completed', 'failed')),
+            failureReason TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_stripe_payouts_walletAddress
+            ON stripe_payouts(walletAddress, createdAt DESC);
+          CREATE INDEX IF NOT EXISTS idx_stripe_payouts_stripePayoutId
+            ON stripe_payouts(stripePayoutId);
+          CREATE INDEX IF NOT EXISTS idx_stripe_payouts_status
+            ON stripe_payouts(status);
+
+          CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stripeEventId TEXT NOT NULL UNIQUE,
+            eventType TEXT NOT NULL,
+            payoutId INTEGER,
+            payload TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(payoutId) REFERENCES stripe_payouts(id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_type
+            ON stripe_webhook_events(eventType, createdAt DESC);
+        `,
+    },
+    {
+      version: 17,
+      sql: `
+        -- Marketplace webhook integrations — OpenSea (#928) and Rarible (#954).
+        --
+        -- src/database/marketplace-events.js talks to src/database/core.js, but
+        -- marketplace_events / marketplace_settings were never part of this
+        -- migration chain: on a database created through initializeDatabase()
+        -- (src/database/index.js) every marketplace webhook failed with
+        -- "no such table: marketplace_events" before it could record anything.
+        CREATE TABLE IF NOT EXISTS marketplace_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT NOT NULL,
+          eventId TEXT NOT NULL,
+          contractId TEXT NOT NULL,
+          nftId TEXT NOT NULL,
+          salePrice TEXT,
+          royaltyAmount TEXT,
+          status TEXT NOT NULL DEFAULT 'recorded',
+          rawPayload TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, eventId)
+        );
+        CREATE INDEX IF NOT EXISTS idx_marketplace_events_contractId
+          ON marketplace_events(contractId, createdAt DESC);
+
+        -- Per-contract "marketplace auto-recording" toggle (#928), shared by
+        -- every marketplace provider.
+        CREATE TABLE IF NOT EXISTS marketplace_settings (
+          contractId TEXT PRIMARY KEY,
+          autoRecordingEnabled INTEGER NOT NULL DEFAULT 1,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- The marketplace write path records the resale through
+        -- database/secondary-royalties.js (recordSecondarySale) and the audit
+        -- entry through database/audit.js (addAuditLog). Both tables are
+        -- currently defined only in the legacy src/database.js schema, which
+        -- the app no longer initialises, so they are created here too —
+        -- IF NOT EXISTS keeps this compatible with databases that already
+        -- have them from that schema.
+        CREATE TABLE IF NOT EXISTS secondary_sales (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          nftId TEXT NOT NULL,
+          previousOwner TEXT NOT NULL,
+          newOwner TEXT NOT NULL,
+          salePrice TEXT NOT NULL,
+          saleToken TEXT NOT NULL,
+          royaltyAmount TEXT NOT NULL,
+          royaltyRate INTEGER NOT NULL,
+          distributed INTEGER NOT NULL DEFAULT 0,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          transactionHash TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_contractId ON secondary_sales(contractId);
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_nftId ON secondary_sales(nftId);
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_timestamp ON secondary_sales(timestamp);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_secondary_sales_dedup
+          ON secondary_sales(contractId, nftId, previousOwner, newOwner, salePrice, saleToken);
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          action TEXT NOT NULL,
+          user TEXT,
+          details TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_contractId ON audit_log(contractId);
+        CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+      `,
+    },
+    {
+      // #950: Tax compliance reporting — 1099-NEC, T4A, EU-VAT form storage.
+      version: 18,
+      sql: `
+        CREATE TABLE IF NOT EXISTS tax_forms (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          taxYear TEXT NOT NULL,
+          formType TEXT NOT NULL CHECK(formType IN ('1099-NEC', 'T4A', 'EU-VAT')),
+          country TEXT NOT NULL CHECK(country IN ('US', 'CA', 'EU')),
+          totalIncomeUsd INTEGER NOT NULL DEFAULT 0,
+          withheldUsd INTEGER NOT NULL DEFAULT 0,
+          formData TEXT NOT NULL DEFAULT '{}',
+          paymentBreakdown TEXT NOT NULL DEFAULT '[]',
+          status TEXT NOT NULL DEFAULT 'generated'
+            CHECK(status IN ('generated', 'void', 'amended')),
+          generatedBy TEXT NOT NULL DEFAULT 'system',
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_wallet_year
+          ON tax_forms(walletAddress, taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_year
+          ON tax_forms(taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_type
+          ON tax_forms(formType, taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_country
+          ON tax_forms(country, taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_status
+          ON tax_forms(status, taxYear);
+      `,
+    },
   ];
 
   for (const migration of migrations) {
