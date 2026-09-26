@@ -840,3 +840,34 @@ fn test_royalty_distribution_consistency_across_upgrades() {
     assert_eq!(token_client.balance(&collaborator), 4000);
     assert_eq!(client.get_distribute_count(), 2);
 }
+
+#[test]
+fn test_staged_version_rollout_and_rollback() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_contract_id, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let collaborator = Address::generate(&env);
+    client.initialize(
+        &vec![&env, admin, collaborator],
+        &vec![&env, 6_000_u32, 4_000_u32],
+    );
+    let v2 = Address::generate(&env);
+    let hash = BytesN::from_array(&env, &[7; 32]);
+    let v1_instance = Address::generate(&env);
+    let v1_hash = BytesN::from_array(&env, &[6; 32]);
+    client.register_version(&String::from_str(&env, VERSION), &v1_instance, &v1_hash, &10_000_u32);
+    let v2_name = String::from_str(&env, "2.0.0");
+    client.register_version(&v2_name, &v2, &hash, &0_u32);
+    client.set_migration_stage(&1_u32);
+    let (stage, registry, _) = client.get_migration_status();
+    assert_eq!(stage, 1);
+    assert_eq!(registry.get(String::from_str(&env, VERSION)).unwrap().traffic_bps, 9_500);
+    assert_eq!(registry.get(v2_name.clone()).unwrap().traffic_bps, 500);
+    client.sync_version_state(&v2_name, &hash);
+    client.set_migration_stage(&3_u32);
+    assert_eq!(client.get_migration_status().0, 3);
+    client.rollback_migration();
+    assert_eq!(client.get_migration_status().0, 0);
+    assert!(client.get_migration_status().2.get(String::from_str(&env, "2.0.0")).is_some());
+}
