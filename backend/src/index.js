@@ -71,6 +71,10 @@ import { verifySignatureMiddleware } from "./verify-signature.js";
 import { reputationRouter } from "./routes/reputation.js";
 import { searchRouter } from "./routes/search.js";
 import { privateProofsRouter } from "./routes/private-proofs.js";
+import { collaborationRouter } from "./routes/collaboration.js";
+import { royaltyOracleRouter } from "./routes/royalty-oracle.js";
+import { complianceAuditRouter } from "./routes/compliance-audit.js";
+import { startOracleScheduler } from "./services/royalty-oracle.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -345,6 +349,9 @@ app.use("/api/v1/disputes", disputesRouter);
 app.use("/api/v1/reputation", reputationRouter);
 app.use("/api/v1/search", searchRouter);
 app.use("/api/v1/private-proofs", privateProofsRouter);
+app.use("/api/v1/collaboration", collaborationRouter);
+app.use("/api/v1/royalty-oracle", royaltyOracleRouter);
+app.use("/api/v1/compliance-audit", complianceAuditRouter);
 app.use("/api/v1/referrals", writeLimiter);
 app.use("/api/v1/referrals", referralsRouter);
 app.use("/metrics", metricsRouter);
@@ -446,6 +453,9 @@ async function startServer() {
 
   // Start the payment schedule job (#599)
   const paymentScheduleJob = startPaymentScheduleJob();
+  const oracleScheduler = startOracleScheduler({
+    collections: (process.env.ORACLE_COLLECTIONS ?? "").split(",").map((id) => id.trim()).filter(Boolean),
+  });
 
   const metricsPusher = createMetricsPusher();
   metricsPusher.start();
@@ -499,6 +509,7 @@ async function startServer() {
       if (paymentScheduleJob) {
         paymentScheduleJob.stop();
       }
+      oracleScheduler.stop();
       metricsPusher.stop();
     },
   });

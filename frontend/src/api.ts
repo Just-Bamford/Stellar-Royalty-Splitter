@@ -265,6 +265,16 @@ export interface SLAStats {
 }
 
 export const api = {
+  getCollaboration: (contractId: string) =>
+    get<any>(`/v1/collaboration/${encodeURIComponent(contractId)}`),
+  applyCollaborationOperation: (contractId: string, body: any) =>
+    post<any>(`/v1/collaboration/${encodeURIComponent(contractId)}/operations`, body),
+  getOracleRecommendations: () => get<any>("/v1/royalty-oracle/recommendations"),
+  collectOracleMarketData: (body: any) => post<any>("/v1/royalty-oracle/collect", body),
+  decideOracleRecommendation: (collectionId: string, approved: boolean) =>
+    post<any>(`/v1/royalty-oracle/recommendations/${encodeURIComponent(collectionId)}/decision`, { approved }),
+  getComplianceAudit: (contractId: string) =>
+    get<any>(`/v1/compliance-audit/${encodeURIComponent(contractId)}`),
   initialize: (body: {
     contractId: string;
     walletAddress: string;
@@ -692,4 +702,3 @@ export interface OnboardingReminderResponse {
     previewText: string;
   };
 }
-

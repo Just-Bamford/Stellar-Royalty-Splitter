@@ -5,6 +5,36 @@
 
 import { db, countWrite } from "./core.js";
 import { AUDIT_ACTIONS } from "../validation.js";
+import { createHash } from "node:crypto";
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contractId TEXT NOT NULL,
+    action TEXT NOT NULL,
+    user TEXT,
+    details TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    prevHash TEXT,
+    entryHash TEXT
+  );
+`);
+for (const column of ["prevHash", "entryHash"]) {
+  try { db.exec(`ALTER TABLE audit_log ADD COLUMN ${column} TEXT`); } catch (_) { /* already exists */ }
+}
+let legacyPrevious = null;
+for (const row of db.prepare("SELECT id, contractId, action, user, details, timestamp, prevHash, entryHash FROM audit_log ORDER BY id ASC").all()) {
+  if (row.entryHash) {
+    legacyPrevious = row.entryHash;
+    continue;
+  }
+  let details = row.details;
+  try { details = JSON.parse(row.details || "{}"); } catch (_) { /* preserve legacy text */ }
+  const payload = JSON.stringify({ contractId: row.contractId, action: row.action, user: row.user, details, timestamp: row.timestamp, prevHash: legacyPrevious });
+  const entryHash = createHash("sha256").update(payload).digest("hex");
+  db.prepare("UPDATE audit_log SET prevHash = ?, entryHash = ? WHERE id = ?").run(legacyPrevious, entryHash, row.id);
+  legacyPrevious = entryHash;
+}
 
 // Field names that must never end up in an audit log's `details` blob. This
 // is a defense-in-depth guard on top of the fact that no call site in this
@@ -33,7 +63,9 @@ export function getAuditLog(contractId, limit = 100, offset = 0, filters = {}) {
       action,
       user,
       details,
-      timestamp
+      timestamp,
+      prevHash,
+      entryHash
     FROM audit_log
     WHERE contractId = ?
   `;
@@ -124,12 +156,18 @@ export function addAuditLog(contractId, action, user, details) {
     throw new Error(`Refusing to record unsupported audit action: ${action}`);
   }
 
+  const cleanDetails = stripSensitiveDetails(details);
+  const previous = db.prepare("SELECT entryHash FROM audit_log ORDER BY id DESC LIMIT 1").get();
+  const timestamp = new Date().toISOString();
+  const prevHash = previous?.entryHash ?? null;
+  const payload = JSON.stringify({ contractId, action, user, details: cleanDetails, timestamp, prevHash });
+  const entryHash = createHash("sha256").update(payload).digest("hex");
   const stmt = db.prepare(`
     INSERT INTO audit_log
-    (contractId, action, user, details)
-    VALUES (?, ?, ?, ?)
+    (contractId, action, user, details, timestamp, prevHash, entryHash)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(contractId, action, user, JSON.stringify(stripSensitiveDetails(details)));
+  stmt.run(contractId, action, user, JSON.stringify(cleanDetails), timestamp, prevHash, entryHash);
   countWrite();
 }
