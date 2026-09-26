@@ -7,6 +7,7 @@ import { invalidateContract } from "../cache.js";
 import { recordTransactionFailure, recordTransactionSuccess } from "../metrics.js";
 import logger from "../logger.js";
 import { broadcastToContract } from "../websocket.js";
+import { createBatchPlan } from "../services/tx-batcher.js";
 
 export const batchDistributeRouter = Router();
 
@@ -113,6 +114,16 @@ batchDistributeRouter.post(
       });
 
       const failureCount = results.filter((r) => r.error).length;
+      const batchPlan = req.body.compress
+        ? createBatchPlan(
+            results.filter((result) => !result.error).map((result) => ({
+              type: "distribute",
+              contractId: result.contractId,
+              xdr: result.xdr,
+            })),
+            { requested: true },
+          )
+        : undefined;
 
       res.json({
         success: failureCount === 0,
@@ -121,6 +132,7 @@ batchDistributeRouter.post(
         succeeded: results.length - failureCount,
         failed: failureCount,
         maxBatchSize: MAX_BATCH_OPERATIONS,
+        ...(batchPlan ? { batchPlan } : {}),
         results,
       });
     } catch (err) {

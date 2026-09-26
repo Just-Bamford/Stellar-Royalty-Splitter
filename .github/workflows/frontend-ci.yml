@@ -2,12 +2,12 @@ name: Frontend CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-ci.yml"
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-ci.yml"
@@ -166,6 +166,18 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+
+      - name: Verify expanded suite
+        run: |
+          COUNT=$(node -e '
+            const fs = require("fs");
+            const source = fs.readFileSync("e2e/comprehensive-royalty.spec.ts", "utf8");
+            const caseLines = source.split("\\n").filter((line) => /^    \"/.test(line));
+            const count = (caseLines.join("\\n").match(/\"[^\"]+\"/g) || []).length;
+            process.stdout.write(String(count));
+          ')
+          test "$COUNT" -ge 100
+          echo "Validated $COUNT generated E2E scenarios"
 
       - name: Upload Playwright report
         if: always()

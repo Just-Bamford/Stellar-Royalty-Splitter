@@ -73,6 +73,36 @@ pub struct MigrationRecord {
     pub note: String,
 }
 
+/// A separately deployed contract version participating in a gradual rollout.
+#[contracttype]
+#[derive(Clone)]
+pub struct VersionSlot {
+    pub version: String,
+    pub instance: Address,
+    pub wasm_hash: BytesN<32>,
+    pub traffic_bps: u32,
+    pub active: bool,
+}
+
+/// Digest proving that a version received the latest synchronized state.
+#[contracttype]
+#[derive(Clone)]
+pub struct VersionSync {
+    pub source_version: String,
+    pub state_digest: BytesN<32>,
+    pub synced_at: u64,
+}
+
+/// All gradual-rollout state stored under one persistent key so the contract's
+/// storage-key enum remains within Soroban's contracttype variant limit.
+#[contracttype]
+#[derive(Clone)]
+pub struct VersioningState {
+    pub stage: u32,
+    pub registry: Map<String, VersionSlot>,
+    pub sync_records: Map<String, VersionSync>,
+}
+
 /// Selects which distribution operation a pause/unpause applies to (#749).
 ///
 /// `Primary` and `Secondary` allow an admin to pause one distribution path
@@ -249,6 +279,7 @@ pub enum StorageKey {
     InitializeNonce,
     AppliedMigrations,
     MigrationMemo,
+    VersioningState,
     ContributorJoinDate,
     ContributorActivityCount,
     RecipientEarnings(Address, Address),
@@ -789,6 +820,112 @@ impl RoyaltySplitter {
             (symbol_short!("royalty"), symbol_short!("migrate")),
             (from_version, to_version),
         );
+    }
+
+    fn empty_versioning_state(env: &Env) -> VersioningState {
+        VersioningState {
+            stage: 0,
+            registry: Map::new(env),
+            sync_records: Map::new(env),
+        }
+    }
+
+    /// Register a separately deployed version for a gradual rollout.
+    pub fn register_version(
+        env: Env,
+        version: String,
+        instance: Address,
+        wasm_hash: BytesN<32>,
+        traffic_bps: u32,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        Self::check_admin_auth(&env, auth::msg::UPDATE_WASM_ADMIN);
+        if version.len() == 0 || traffic_bps > 10_000 {
+            return Err(ContractError::InvalidBasisPoints);
+        }
+        let mut state: VersioningState = storage::persistent_get(&env, &StorageKey::VersioningState)
+            .unwrap_or(Self::empty_versioning_state(&env));
+        state.registry.set(
+            version.clone(),
+            VersionSlot {
+                version,
+                instance,
+                wasm_hash,
+                traffic_bps,
+                active: true,
+            },
+        );
+        storage::persistent_set(&env, &StorageKey::VersioningState, &state);
+        Ok(())
+    }
+
+    /// Move through shadow (0), canary (1), dual-write (2), and full (3).
+    pub fn set_migration_stage(env: Env, stage: u32) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        Self::check_admin_auth(&env, auth::msg::UPDATE_WASM_ADMIN);
+        if stage > 3 {
+            return Err(ContractError::InvalidBasisPoints);
+        }
+        let mut state: VersioningState = storage::persistent_get(&env, &StorageKey::VersioningState)
+            .unwrap_or(Self::empty_versioning_state(&env));
+        let mut versions: Vec<String> = Vec::new(&env);
+        let current_version = String::from_str(&env, VERSION);
+        for (version, mut slot) in state.registry.iter() {
+            slot.traffic_bps = if stage == 0 {
+                0
+            } else if stage == 1 || stage == 2 {
+                if version == current_version { 9_500 } else { 500 }
+            } else {
+                10_000
+            };
+            slot.active = true;
+            state.registry.set(version.clone(), slot);
+            versions.push_back(version);
+        }
+        state.stage = stage;
+        storage::persistent_set(&env, &StorageKey::VersioningState, &state);
+        env.events().publish(
+            (symbol_short!("royalty"), symbol_short!("mig_stage")),
+            (stage, versions),
+        );
+        Ok(())
+    }
+
+    /// Record a state digest written to a target version during dual-write.
+    pub fn sync_version_state(
+        env: Env,
+        source_version: String,
+        state_digest: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        Self::check_admin_auth(&env, auth::msg::UPDATE_WASM_ADMIN);
+        let mut state: VersioningState = storage::persistent_get(&env, &StorageKey::VersioningState)
+            .unwrap_or(Self::empty_versioning_state(&env));
+        state.sync_records.set(
+            source_version.clone(),
+            VersionSync {
+                source_version,
+                state_digest,
+                synced_at: env.ledger().timestamp(),
+            },
+        );
+        storage::persistent_set(&env, &StorageKey::VersioningState, &state);
+        Ok(())
+    }
+
+    /// Return the registered versions and current rollout stage.
+    pub fn get_migration_status(
+        env: Env,
+    ) -> (u32, Map<String, VersionSlot>, Map<String, VersionSync>) {
+        storage::extend_instance_ttl(&env);
+        let state: VersioningState = storage::persistent_get(&env, &StorageKey::VersioningState)
+            .unwrap_or(Self::empty_versioning_state(&env));
+        (state.stage, state.registry, state.sync_records)
+    }
+
+    /// Roll back routing to shadow mode without deleting either version.
+    pub fn rollback_migration(env: Env) -> Result<(), ContractError> {
+        Self::set_migration_stage(env, 0)
     }
 
     pub fn get_applied_migrations(env: Env) -> Vec<MigrationRecord> {
