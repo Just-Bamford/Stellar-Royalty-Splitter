@@ -810,6 +810,35 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_zk_audit_credential ON zk_audit_log(credentialId);
       `,
     },
+    {
+      // #995: Decentralized governance on Snapshot
+      version: 25,
+      sql: `
+        CREATE TABLE IF NOT EXISTS governance_votes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proposalId TEXT NOT NULL,
+          voterAddress TEXT NOT NULL,
+          choice INTEGER NOT NULL,
+          votingPower REAL NOT NULL,
+          votedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_proposal ON governance_votes(proposalId);
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_voter ON governance_votes(voterAddress);
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_votedAt ON governance_votes(votedAt);
+
+        CREATE TABLE IF NOT EXISTS governance_executions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proposalId TEXT NOT NULL UNIQUE,
+          executorAddress TEXT NOT NULL,
+          executedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          status TEXT NOT NULL CHECK(status IN ('pending', 'success', 'failed')),
+          txHash TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_proposal ON governance_executions(proposalId);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_status ON governance_executions(status);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_executedAt ON governance_executions(executedAt);
+      `,
+    },
   ];
 
   for (const migration of migrations) {

@@ -89,6 +89,7 @@ import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
 import { searchRouter } from "./routes/search.js";
 import { zkPrivacyRouter } from "./routes/zk-privacy.js";
+import snapshotRouter from "./routes/governance/snapshot.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -468,6 +469,9 @@ app.use("/api/v1/search", searchRouter);
 
 // Zero-knowledge proof privacy system (#972)
 app.use("/api/v1/zk-privacy", zkPrivacyRouter);
+
+// Decentralized governance on Snapshot (#995)
+app.use("/api/v1/governance", snapshotRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;
