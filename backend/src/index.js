@@ -59,6 +59,7 @@ import { csvImportRouter } from "./routes/csv-import.js";
 import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { granularPreferencesRouter } from "./routes/notifications/preferences.js";
 import { salesforceRouter } from "./routes/crm/salesforce.js";
 import { hubspotRouter } from "./routes/crm/hubspot.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
@@ -444,6 +445,7 @@ app.use("/api/v1/contributor-tax", contributorTaxRouter);
 
 // Real-time notifications (#594)
 app.use("/api/v1/notifications", notificationsRouter);
+app.use("/api/v1/notifications/preferences", granularPreferencesRouter);
 
 // SMS notification preferences (#927)
 app.use("/api/v1/notifications/sms", smsPreferencesRouter);

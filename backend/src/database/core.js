@@ -854,6 +854,51 @@ export function initializeDatabase() {
           lastRefreshedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_earnings_summary_mv_refreshed ON earnings_summary_mv(lastRefreshedAt);
+        `,
+    },
+    {
+      // #1046: Advanced notification system with user preferences
+      // Expanded notification types, per-type channel/frequency controls,
+      // quiet hours, and notification center (archive, search, mark-unread).
+      version: 24,
+      sql: `
+        -- Add archived + channel columns to notifications for #1046
+        ALTER TABLE notifications ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE notifications ADD COLUMN channel TEXT NOT NULL DEFAULT 'in_app';
+        CREATE INDEX IF NOT EXISTS idx_notifications_archived
+          ON notifications(walletAddress, archived, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_type
+          ON notifications(walletAddress, type, created_at DESC);
+
+        -- Expanded notification preferences (#1046)
+        -- Per-type toggles for the new notification categories
+        ALTER TABLE notification_preferences
+          ADD COLUMN notify_dispute_created INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE notification_preferences
+          ADD COLUMN notify_dispute_resolved INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE notification_preferences
+          ADD COLUMN notify_reputation_changed INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE notification_preferences
+          ADD COLUMN notify_governance INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE notification_preferences
+          ADD COLUMN notify_security_alert INTEGER NOT NULL DEFAULT 1;
+
+        -- Frequency preference: immediate, daily_digest, weekly_digest
+        ALTER TABLE notification_preferences
+          ADD COLUMN frequency TEXT NOT NULL DEFAULT 'immediate'
+          CHECK(frequency IN ('immediate', 'daily_digest', 'weekly_digest'));
+
+        -- Quiet hours: pause notifications between quiet_hours_start and quiet_hours_end (local time)
+        ALTER TABLE notification_preferences
+          ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE notification_preferences
+          ADD COLUMN quiet_hours_start INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE notification_preferences
+          ADD COLUMN quiet_hours_end INTEGER NOT NULL DEFAULT 0;
+
+        -- Channel preferences stored as JSON for per-type channel routing
+        ALTER TABLE notification_preferences
+          ADD COLUMN channel_preferences TEXT NOT NULL DEFAULT '{}';
       `,
     },
   ];
