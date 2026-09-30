@@ -314,7 +314,7 @@ export function createTrafficShaper({
     const entry = cache.get(endpoint);
     if (entry && entry.expiresAt > Date.now()) {
       res.setHeader("X-Degraded", "cache");
-      ress.setHeader("X-Cached-At", new Date(entry.createdAt).toISOString());
+      res.setHeader("X-Cached-At", new Date(entry.createdAt).toISOString());
       return res.status(200).json(entry.data);
     }
     return false;
@@ -410,7 +410,7 @@ export function createTrafficShaper({
       queueLength: queue.length,
     });
 
-    return sendErro(
+    return sendError(
       res,
       429,
       "too_many_requests",

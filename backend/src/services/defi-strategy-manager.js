@@ -17,7 +17,7 @@ class DeFiStrategyManager {
   constructor({ provider, signer, aaveConfig, makerConfig } = {}) {
     this.provider = provider;
     this.signer = signer || null;
-    this.aave = aveProvider ? new AaveIntegration({ provider, signer, ...aaveConfig }) : null;
+    this.aave = aaveConfig ? new AaveIntegration({ provider, signer, ...aaveConfig }) : null;
     this.maker = makerConfig ? new MakerDAOIntegration({ provider, signer, ...makerConfig }) : null;
     this.strategies = new Map();
   }
@@ -38,7 +38,7 @@ class DeFiStrategyManager {
     return { strategy: STRATEGY.IDLE, txHash: result.txHash };
   }
 
-  async mintDAIFromMaker({ tilk, amount }) {
+  async mintDAIFromMaker({ ilk, amount }) {
     if (!this.maker) throw new Error('MakerDAO integration not configured');
     const result = await this.maker.mintDAI(ilk, amount);
     return { strategy: STRATEGY.MAKER_DAI, txHash: result.txHash };
