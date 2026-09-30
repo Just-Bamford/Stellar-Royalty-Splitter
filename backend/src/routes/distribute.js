@@ -15,6 +15,7 @@ import { invalidateContractCaches } from "../cache-invalidation.js";
 import logger from "../logger.js";
 import { tieredLimiters } from "../middleware/tieredRateLimit.js";
 import { broadcastToContract } from "../websocket.js";
+import { runHook } from "../plugins/plugin-framework.js";
 
 export const distributeRouter = Router();
 
@@ -46,6 +47,13 @@ distributeRouter.post(
       // directly, so the backend never observes the on-chain outcome.
       logger.info("distribution started", { contractId, walletAddress, tokenId });
 
+      // Plugin hook: beforeDistribute — runs before XDR is built (#998).
+      // Fail-open: errors in plugins are caught inside runHook; this await
+      // never throws and does not block the distribution on plugin failure.
+      await runHook("beforeDistribute", { contractId, walletAddress, tokenId });
+      // Plugin hook: onPayment — payment initiation event (#998).
+      await runHook("onPayment", { contractId, walletAddress, tokenId });
+
       // Use shared handler to record transaction, build XDR, and log audit
       const buildStart = Date.now();
       const { xdr, transactionId } = await buildAndRecordTransaction({
@@ -75,6 +83,10 @@ distributeRouter.post(
         requestedAmount: req.body.requestedAmount ?? null,
         tokenId: req.body.tokenId ?? null,
       });
+
+      // Plugin hook: afterDistribute — post-process after distribution is built (#998).
+      // Fire-and-forget: runs after response is sent so plugins don't add latency.
+      await runHook("afterDistribute", { contractId, walletAddress, transactionId, xdr });
 
       res.json({ xdr, transactionId });
     } catch (err) {

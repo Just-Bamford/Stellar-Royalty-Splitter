@@ -40,6 +40,9 @@ import { TaxComplianceReport } from "./components/TaxComplianceReport";
 import { PaymentHoldManager } from "./components/PaymentHoldManager";
 import { ContributorOnboardingChecklist } from "./components/ContributorOnboardingChecklist";
 import { MultiContractEarnings } from "./components/MultiContractEarnings";
+import { UserProfile } from "./components/UserProfile";
+import { ActivityFeed } from "./components/ActivityFeed";
+import { CommunityForum } from "./components/CommunityForum";
 import { useNotifications } from "./context/NotificationContext";
 import { ToastContainer } from "react-toastify";
 
@@ -68,6 +71,7 @@ export default function App() {
     () => localStorage.getItem("srs_currentPage") ?? "dashboard",
   );
   const [selectedTxHash, setSelectedTxHash] = useState<string | null>(null);
+  const [selectedProfileAddress, setSelectedProfileAddress] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionToast, setSessionToast] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -604,6 +608,37 @@ export default function App() {
             onConnectWallet={() => handlePageChange("connect-wallet")}
           />,
           "Onboarding Checklist",
+        );
+      case "profile":
+        return withErrorBoundary(
+          <UserProfile
+            walletAddress={walletAddress}
+            targetAddress={selectedProfileAddress || walletAddress || undefined}
+            onClose={selectedProfileAddress ? () => setSelectedProfileAddress(null) : undefined}
+          />,
+          "User Profile",
+        );
+      case "feed":
+        return withErrorBoundary(
+          <ActivityFeed
+            walletAddress={walletAddress}
+            onSelectUserAddress={(addr) => {
+              setSelectedProfileAddress(addr);
+              handlePageChange("profile");
+            }}
+          />,
+          "Activity Feed",
+        );
+      case "forum":
+        return withErrorBoundary(
+          <CommunityForum
+            walletAddress={walletAddress}
+            onSelectUserAddress={(addr) => {
+              setSelectedProfileAddress(addr);
+              handlePageChange("profile");
+            }}
+          />,
+          "Community Forum",
         );
 
       default:

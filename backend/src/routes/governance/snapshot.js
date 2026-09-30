@@ -18,7 +18,7 @@ import {
   recordVote,
   getProposalVotes,
   getVoterVotes
-} from "../../services/governance.js";
+} from "../../services/snapshot-governance.js";
 
 export const snapshotRouter = Router();
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { sendError, sendValidationError } from "./error-response.js";
 import { isValidStellarAccountAddress } from "../../shared/stellar-address.js";
 
-// ── Size limits ──────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Size limits ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 // Soroban instance storage limit is 64 KB. These caps prevent single large
 // requests from bloating on-chain storage or exhausting backend processing.
 export const MAX_COLLABORATORS = 10;
@@ -54,7 +54,7 @@ export const initializeSchema = z
 export const INITIALIZE_PAYLOAD_LIMIT_BYTES = 10 * 1024;
 export const INITIALIZE_COLLABORATORS_PAYLOAD_LIMIT_BYTES = 8 * 1024;
 
-// Named size limits — kept in sync with on-chain MAX_COLLABORATORS / MAX_RECIPIENTS constants.
+// Named size limits ÔÇö kept in sync with on-chain MAX_COLLABORATORS / MAX_RECIPIENTS constants.
 export const MAX_COLLABORATORS_BACKEND = 20;
 
 // `.finite()` is load-bearing, not defensive: z.number().positive() is a plain
@@ -78,7 +78,7 @@ export const distributeSchema = z.object({
 });
 
 // Soroban simulation footprint limits the practical size of a single ledger
-// entry write set — 50 operations per batch keeps each request well within
+// entry write set ÔÇö 50 operations per batch keeps each request well within
 // that limit (#759).
 export const MAX_BATCH_OPERATIONS = 50;
 
@@ -168,7 +168,7 @@ export const transactionConfirmSchema = z.object({
   status: z.enum(["pending", "confirmed", "failed"]).optional(),
 });
 
-// ─── Dispute / ticket schemas (#607) ──────────────────────────────────────────
+// ÔöÇÔöÇÔöÇ Dispute / ticket schemas (#607) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 export const DISPUTE_CATEGORIES = ["wrong_amount", "missing_payment", "other"];
 export const DISPUTE_STATUSES = ["open", "under_review", "resolved", "closed"];
@@ -215,7 +215,7 @@ export const disputeAdminCommentSchema = z.object({
     .max(2000, "message must not exceed 2000 characters"),
 });
 
-// ─── Referral schemas (#603) ───────────────────────────────────────────────────
+// ÔöÇÔöÇÔöÇ Referral schemas (#603) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 /**
  * Referral code format: "REF-" followed by 12 uppercase hex characters.
@@ -335,7 +335,7 @@ export function validateContractIdMiddleware(req, res, next) {
  * Returns true if valid, otherwise sends a 400 and returns false.
  */
 export function validateContractId(contractId, res) {
-  // Same type guard as validateContractIdMiddleware — the two must agree, or
+  // Same type guard as validateContractIdMiddleware ÔÇö the two must agree, or
   // whichever route uses the looser one becomes a validation bypass (#866).
   if (typeof contractId !== "string" || !/^C[A-Z2-7]{55}$/.test(contractId)) {
     sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
@@ -358,7 +358,7 @@ export function validateStellarAddress(address, res) {
 
 /**
  * Zod schema for paginated query params.
- * limit: integer 1–100, defaults to 10.
+ * limit: integer 1ÔÇô100, defaults to 10.
  * offset: non-negative integer, defaults to 0.
  *
  * Query strings arrive as plain strings, so coerce with z.coerce.number().
@@ -380,7 +380,7 @@ export const paginationSchema = z.object({
 /**
  * Zod schema for analytics date-range query params.
  * start / end: optional ISO 8601 date strings.
- * topLimit: integer 1–100, defaults to 10 (caps the topEarners list).
+ * topLimit: integer 1ÔÇô100, defaults to 10 (caps the topEarners list).
  */
 export const analyticsQuerySchema = z
   .object({
@@ -496,7 +496,7 @@ export function encodeCursor(timestamp, id) {
   return Buffer.from(JSON.stringify({ timestamp, id })).toString("base64");
 }
 
-// ── Request Complexity Budgeting (#892) ──────────────────────────────────────
+// ÔöÇÔöÇ Request Complexity Budgeting (#892) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 export {
   calculateComplexity,
   DEFAULT_COMPLEXITY_LIMIT,
@@ -504,3 +504,101 @@ export {
   getComplexityLimit,
   requestComplexityMiddleware,
 } from "./request-complexity.js";
+
+// ── Schedule schemas (#991) ────────────────────────────────────────────────────
+
+function validateScheduleTiming(data, ctx) {
+  if ((data.frequency === "weekly" || data.frequency === "biweekly") && data.dayOfWeek == null) {
+    ctx.addIssue({ code: "custom", path: ["dayOfWeek"], message: "dayOfWeek (0-6) is required for weekly and biweekly schedules" });
+  }
+  if (data.frequency === "monthly" && data.dayOfMonth == null) {
+    ctx.addIssue({ code: "custom", path: ["dayOfMonth"], message: "dayOfMonth (1-28) is required for monthly schedules" });
+  }
+}
+
+export const createScheduleSchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  tokenId: contractAddress,
+  frequency: z.enum(["weekly", "biweekly", "monthly"]),
+  dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  hourOfDay: z.number().int().min(0).max(23).optional().default(0),
+  minuteOfHour: z.number().int().min(0).max(59).optional().default(0),
+}).superRefine(validateScheduleTiming);
+
+export const updateScheduleSchema = z.object({
+  frequency: z.enum(["weekly", "biweekly", "monthly"]).optional(),
+  dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  hourOfDay: z.number().int().min(0).max(23).optional(),
+  minuteOfHour: z.number().int().min(0).max(59).optional(),
+  enabled: z.boolean().optional(),
+}).superRefine((data, ctx) => { if (data.frequency != null) validateScheduleTiming(data, ctx); });
+
+export const executeBatchSchema = z.object({
+  items: z.array(z.object({
+    contractId: contractAddress,
+    walletAddress: stellarAddress,
+    tokenId: contractAddress,
+  })).min(1, "items array must contain at least one entry").max(50, "items array must not exceed 50 entries per batch"),
+});
+
+// ── Rights Management Schemas ──────────────────────────────────────────────────
+
+export const createRightSchema = z.object({
+  contractId: contractAddress,
+  rightType: z.enum(["composition", "performance", "mechanical", "sync"]),
+  ownerAddress: stellarAddress,
+  percentage: z.number().min(0).max(100),
+  licenseTerms: z.enum(["commercial", "personal", "non-commercial"]).optional().default("commercial"),
+  effectiveDate: z.string().optional().nullable(),
+  expirationDate: z.string().optional().nullable(),
+});
+
+export const updateRightSchema = z.object({
+  rightType: z.enum(["composition", "performance", "mechanical", "sync"]).optional(),
+  percentage: z.number().min(0).max(100).optional(),
+  licenseTerms: z.enum(["commercial", "personal", "non-commercial"]).optional(),
+  effectiveDate: z.string().optional().nullable(),
+  expirationDate: z.string().optional().nullable(),
+});
+
+export const setRightsMetadataSchema = z.object({
+  ddex: z.object({
+    iswc: z.string().optional().nullable(),
+    isrc: z.string().optional().nullable(),
+    partyId: z.string().optional().nullable(),
+    territory: z.string().optional().nullable(),
+    musicalWorkId: z.string().optional().nullable(),
+    resourceType: z.string().optional().nullable(),
+  }).optional().nullable(),
+  iso20022: z.object({
+    messageIdentifier: z.string().optional().nullable(),
+    businessService: z.string().optional().nullable(),
+    financialInstrument: z.string().optional().nullable(),
+    paymentContext: z.string().optional().nullable(),
+  }).optional().nullable(),
+  customFields: z.record(z.any()).optional().nullable(),
+});
+
+export const submitProofSchema = z.object({
+  documentName: z.string().min(1),
+  documentType: z.enum(["contract", "copyright_cert", "split_sheet", "other"]),
+  documentUrl: z.string().url("Must be a valid URL"),
+  documentHash: z.string().optional().nullable(),
+  ownerAddress: stellarAddress.optional(),
+});
+
+export const verifyOwnershipSchema = z.object({
+  proofId: z.number().int().optional().nullable(),
+  approved: z.boolean(),
+  verifierAddress: z.string().optional().default("admin"),
+  verifierNotes: z.string().optional(),
+});
+
+export const linkRightDisputeSchema = z.object({
+  ticketId: z.string().min(1),
+  notes: z.string().optional(),
+});
+

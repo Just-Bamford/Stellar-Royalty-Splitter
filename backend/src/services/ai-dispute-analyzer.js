@@ -14,11 +14,14 @@ import {
   getDisputeByTicketId,
   getDisputeEvidence,
   storeDisputeAnalysis,
+  getDisputeAnalysis,
   addMediationRecommendation,
+  getMediationRecommendations,
   getDisputeStatistics,
 } from "../database/disputes.js";
-import { getTransactionHistory, getTransactionDetails } from "../database/transactions.js";
+import { getTransactionHistory } from "../database/transactions.js";
 import { getReputationDetails } from "../database/reputation.js";
+import { batchGetTransactionDetails } from "./query-optimizer.js";
 
 /**
  * Analyze transaction patterns for anomalies.
@@ -34,10 +37,14 @@ async function analyzeTransactionPatterns(disputeId, walletAddress, contractId) 
       ? getTransactionHistory(contractId, 100, 0)
       : [];
 
-    const walletTransactions = transactions.filter(tx => {
+    // Eliminate N+1 query loop using batched transaction lookup (#984)
+    const txHashes = transactions.map((tx) => tx.txHash).filter(Boolean);
+    const detailsMap = batchGetTransactionDetails(txHashes);
+
+    const walletTransactions = transactions.filter((tx) => {
       // Check if wallet was involved in transaction via payouts
-      const details = getTransactionDetails(tx.txHash);
-      return details?.payouts?.some(p => p.collaboratorAddress === walletAddress);
+      const details = detailsMap.get(tx.txHash);
+      return details?.payouts?.some((p) => p.collaboratorAddress === walletAddress);
     });
 
     const findings = {
@@ -54,7 +61,7 @@ async function analyzeTransactionPatterns(disputeId, walletAddress, contractId) 
 
     // Check for amount discrepancies
     for (const tx of walletTransactions) {
-      const details = getTransactionDetails(tx.txHash);
+      const details = detailsMap.get(tx.txHash);
       const payout = details?.payouts?.find(p => p.collaboratorAddress === walletAddress);
       
       if (payout && parseFloat(payout.amountReceived) === 0) {

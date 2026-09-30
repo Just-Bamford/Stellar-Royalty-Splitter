@@ -1,6 +1,7 @@
 import client from "prom-client";
 import http from "http";
 import https from "https";
+import logger from "./logger.js";
 
 const metrics = {
   distributeCallsTotal: 0,
@@ -710,6 +711,7 @@ export function resetMetrics() {
   contractMetrics.clear();
   alertState.clear();
   trackedCollaborators.clear();
+  resetEndpointMetrics();
   register.resetMetrics();
 }
 
@@ -854,4 +856,161 @@ const shadowLatency = new client.Histogram({
 export function recordShadowRequest(result, durationMs) {
   shadowRequests.inc({ result });
   if (Number.isFinite(durationMs) && durationMs >= 0) shadowLatency.observe(durationMs / 1000);
+}
+
+// ── #985 APM Endpoint Response Time & P95 Alerting ─────────────────────────
+
+const DEFAULT_P95_THRESHOLD_MS = 100;
+const APM_WINDOW_SIZE = 100;
+const APM_MIN_SAMPLES_FOR_ALERT = 5;
+const APM_ALERT_DEDUPE_MS = 60 * 1000;
+
+const endpointLatencySamples = new Map();
+const endpointAlertState = new Map();
+
+const endpointP95Alerts = new client.Counter({
+  name: "stellar_endpoint_p95_alerts_total",
+  help: "Total P95 latency threshold (100ms) violation alerts triggered per endpoint",
+  labelNames: ["method", "route"],
+  registers: [register],
+});
+
+const endpointP95Latency = new client.Gauge({
+  name: "stellar_endpoint_p95_latency_ms",
+  help: "Observed P95 response time per endpoint in milliseconds",
+  labelNames: ["method", "route"],
+  registers: [register],
+});
+
+/**
+ * Calculates percentile from an array of numbers.
+ * @param {number[]} values
+ * @param {number} p - Percentile between 0 and 100
+ * @returns {number}
+ */
+export function calculatePercentile(values, p) {
+  if (!values || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const weight = index - lower;
+  if (upper >= sorted.length) return sorted[sorted.length - 1];
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+/**
+ * Record an endpoint response time sample for APM metrics and check P95 alerting.
+ * @param {string} method - HTTP method (GET, POST, etc.)
+ * @param {string} route - Normalized route pattern
+ * @param {number|string} status - HTTP status code
+ * @param {number} durationMs - Duration in milliseconds
+ */
+export function recordEndpointResponseTime(method, route, status, durationMs) {
+  const normMethod = (method || "GET").toUpperCase();
+  const normRoute = route || "unmatched";
+
+  // Record to standard Prometheus HTTP counters and duration histograms
+  recordHttpRequest(normMethod, normRoute, status, durationMs);
+
+  if (!Number.isFinite(durationMs) || durationMs < 0) return;
+
+  const key = `${normMethod}:${normRoute}`;
+  let samples = endpointLatencySamples.get(key);
+  if (!samples) {
+    samples = [];
+    endpointLatencySamples.set(key, samples);
+  }
+
+  samples.push(durationMs);
+  if (samples.length > APM_WINDOW_SIZE) {
+    samples.shift();
+  }
+
+  const p95 = calculatePercentile(samples, 95);
+  endpointP95Latency.set({ method: normMethod, route: normRoute }, Number(p95.toFixed(2)));
+
+  // Evaluate P95 threshold violation alert
+  const threshold = Number(process.env.APM_P95_ALERT_THRESHOLD_MS) || DEFAULT_P95_THRESHOLD_MS;
+  if (samples.length >= APM_MIN_SAMPLES_FOR_ALERT && p95 > threshold) {
+    const now = Date.now();
+    const lastAlert = endpointAlertState.get(key) || 0;
+    if (now - lastAlert >= APM_ALERT_DEDUPE_MS) {
+      endpointAlertState.set(key, now);
+      endpointP95Alerts.inc({ method: normMethod, route: normRoute });
+      alertsTriggered.inc({ contractId: normRoute, type: "endpoint_p95_latency" });
+
+      logger.error(
+        `[CRITICAL] P95 response time alert: endpoint ${normMethod} ${normRoute} P95 latency ${p95.toFixed(2)}ms exceeds ${threshold}ms threshold`,
+        {
+          method: normMethod,
+          route: normRoute,
+          p95Ms: Number(p95.toFixed(2)),
+          thresholdMs: threshold,
+          sampleCount: samples.length,
+        }
+      );
+    }
+  }
+}
+
+/**
+ * Get APM metrics for a specific endpoint.
+ * @param {string} method
+ * @param {string} route
+ * @returns {object|null}
+ */
+export function getEndpointMetrics(method, route) {
+  const normMethod = (method || "GET").toUpperCase();
+  const normRoute = route || "unmatched";
+  const key = `${normMethod}:${normRoute}`;
+  const samples = endpointLatencySamples.get(key);
+  if (!samples || samples.length === 0) return null;
+
+  const count = samples.length;
+  const sum = samples.reduce((acc, v) => acc + v, 0);
+  const avg = sum / count;
+  const p50 = calculatePercentile(samples, 50);
+  const p95 = calculatePercentile(samples, 95);
+  const p99 = calculatePercentile(samples, 99);
+  const min = Math.min(...samples);
+  const max = Math.max(...samples);
+
+  return {
+    method: normMethod,
+    route: normRoute,
+    count,
+    avg: Number(avg.toFixed(2)),
+    min: Number(min.toFixed(2)),
+    max: Number(max.toFixed(2)),
+    p50: Number(p50.toFixed(2)),
+    p95: Number(p95.toFixed(2)),
+    p99: Number(p99.toFixed(2)),
+  };
+}
+
+/**
+ * Get APM metrics for all tracked endpoints.
+ * @returns {Array<object>}
+ */
+export function getAllEndpointMetrics() {
+  const results = [];
+  for (const key of endpointLatencySamples.keys()) {
+    const colonIdx = key.indexOf(":");
+    const method = key.slice(0, colonIdx);
+    const route = key.slice(colonIdx + 1);
+    const m = getEndpointMetrics(method, route);
+    if (m) results.push(m);
+  }
+  return results;
+}
+
+/**
+ * Reset APM endpoint metrics.
+ */
+export function resetEndpointMetrics() {
+  endpointLatencySamples.clear();
+  endpointAlertState.clear();
+  endpointP95Latency.reset();
+  endpointP95Alerts.reset();
 }

@@ -33,7 +33,7 @@ export default defineConfig({
         // Hash all asset filenames for CDN cache invalidation
         assetFileNames: (assetInfo) => {
           // Use content hash for all assets
-          if (assetInfo.name.endsWith(".css")) {
+          if (assetInfo.name?.endsWith(".css")) {
             return `assets/[name].[hash][extname]`;
           }
           return `assets/[name].[hash][extname]`;

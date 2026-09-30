@@ -1,6 +1,11 @@
 import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@apollo/server/express4";
+import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHttpServer";
+import { makeExecutableSchema } from "@graphql-tools/schema";
+import { WebSocketServer } from "ws";
+import { useServer } from "graphql-ws/lib/use/ws";
 import { body as bodyParser } from "express";
+import { PubSub } from "graphql-subscriptions";
 import {
   getContributorContracts,
   getContributorEarningsHistory,
@@ -8,6 +13,21 @@ import {
 } from "./database/analytics.js";
 import { isValidStellarAccountAddress } from "../../shared/stellar-address.js";
 import logger from "./logger.js";
+
+// PubSub instance for GraphQL subscriptions
+const pubsub = new PubSub();
+
+// Subscription event names
+export const SUBSCRIPTION_EVENTS = {
+  DISTRIBUTION_STARTED: "DISTRIBUTION_STARTED",
+  DISTRIBUTION_COMPLETED: "DISTRIBUTION_COMPLETED",
+  DISTRIBUTION_FAILED: "DISTRIBUTION_FAILED",
+  SECONDARY_ROYALTY_RECEIVED: "SECONDARY_ROYALTY_RECEIVED",
+  CONTRACT_INITIALIZED: "CONTRACT_INITIALIZED",
+};
+
+// Export pubsub so route handlers can publish events
+export { pubsub };
 
 const typeDefs = `#graphql
   type Contract {
@@ -40,6 +60,40 @@ const typeDefs = `#graphql
     error: String
   }
 
+  type DistributionEvent {
+    contractId: String!
+    status: String!
+    timestamp: String!
+    tokenId: String
+    totalAmount: String
+    recipients: [RecipientShare!]
+    transactionId: String
+    error: String
+  }
+
+  type RecipientShare {
+    address: String!
+    amount: String!
+    share: Int!
+  }
+
+  type SecondaryRoyaltyEvent {
+    contractId: String!
+    salePrice: String!
+    royaltyAmount: String!
+    seller: String!
+    buyer: String!
+    timestamp: String!
+    tokenId: String
+  }
+
+  type ContractInitializedEvent {
+    contractId: String!
+    owner: String!
+    timestamp: String!
+    recipients: [RecipientShare!]!
+  }
+
   type Query {
     contracts(walletAddress: String!): [Contract!]!
     earnings(
@@ -53,6 +107,12 @@ const typeDefs = `#graphql
   type Mutation {
     initialize(contractId: String!, walletAddress: String!): MutationResponse!
     distribute(contractId: String!, walletAddress: String!, tokenId: String!): MutationResponse!
+  }
+
+  type Subscription {
+    distributionUpdates(contractId: String, walletAddress: String): DistributionEvent!
+    secondaryRoyalties(contractId: String!): SecondaryRoyaltyEvent!
+    contractInitialized(walletAddress: String!): ContractInitializedEvent!
   }
 `;
 
@@ -113,19 +173,90 @@ const resolvers = {
       };
     },
   },
+  Subscription: {
+    distributionUpdates: {
+      subscribe: (_parent, { contractId, walletAddress }) => {
+        logger.info("Client subscribed to distribution updates", { contractId, walletAddress });
+        
+        // Filter by contractId or walletAddress
+        return pubsub.asyncIterator([
+          SUBSCRIPTION_EVENTS.DISTRIBUTION_STARTED,
+          SUBSCRIPTION_EVENTS.DISTRIBUTION_COMPLETED,
+          SUBSCRIPTION_EVENTS.DISTRIBUTION_FAILED,
+        ]);
+      },
+      resolve: (payload, { contractId, walletAddress }) => {
+        // Filter events based on subscription parameters
+        if (contractId && payload.contractId !== contractId) {
+          return null;
+        }
+        if (walletAddress && !payload.recipients?.some(r => r.address === walletAddress)) {
+          return null;
+        }
+        return payload;
+      },
+    },
+    secondaryRoyalties: {
+      subscribe: (_parent, { contractId }) => {
+        logger.info("Client subscribed to secondary royalties", { contractId });
+        return pubsub.asyncIterator([SUBSCRIPTION_EVENTS.SECONDARY_ROYALTY_RECEIVED]);
+      },
+      resolve: (payload, { contractId }) => {
+        if (payload.contractId !== contractId) {
+          return null;
+        }
+        return payload;
+      },
+    },
+    contractInitialized: {
+      subscribe: (_parent, { walletAddress }) => {
+        logger.info("Client subscribed to contract initialization", { walletAddress });
+        return pubsub.asyncIterator([SUBSCRIPTION_EVENTS.CONTRACT_INITIALIZED]);
+      },
+      resolve: (payload, { walletAddress }) => {
+        if (payload.owner !== walletAddress) {
+          return null;
+        }
+        return payload;
+      },
+    },
+  },
 };
 
-export function createGraphQLServer() {
-  const server = new ApolloServer({
-    typeDefs,
-    resolvers,
-    introspection: true,
+export function createGraphQLServer(httpServer) {
+  const schema = makeExecutableSchema({ typeDefs, resolvers });
+  
+  // Create WebSocket server for subscriptions
+  const wsServer = new WebSocketServer({
+    server: httpServer,
+    path: "/graphql",
   });
+
+  // Setup subscription handler
+  const serverCleanup = useServer({ schema }, wsServer);
+
+  const server = new ApolloServer({
+    schema,
+    introspection: true,
+    plugins: [
+      ApolloServerPluginDrainHttpServer({ httpServer }),
+      {
+        async serverWillStart() {
+          return {
+            async drainServer() {
+              await serverCleanup.dispose();
+            },
+          };
+        },
+      },
+    ],
+  });
+  
   return server;
 }
 
-export async function setupGraphQL(app, path) {
-  const server = createGraphQLServer();
+export async function setupGraphQL(app, path, httpServer) {
+  const server = createGraphQLServer(httpServer);
   await server.start();
   
   app.use(path, bodyParser.json(), expressMiddleware(server, {
@@ -134,5 +265,5 @@ export async function setupGraphQL(app, path) {
     }),
   }));
   
-  logger.info(`GraphQL server initialized at ${path}`);
+  logger.info(`GraphQL server initialized at ${path} with WebSocket subscriptions`);
 }

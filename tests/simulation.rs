@@ -16,7 +16,6 @@
  *  4. Systematic Resource Scaling:
  *     Measures CPU instructions and memory byte cost across varying collaborator sizes.
  */
-
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
@@ -76,8 +75,8 @@ fn test_simulate_large_collaborator_pool_rejection_boundary() {
     );
     assert_eq!(
         result.unwrap_err(),
-        Ok(ContractError::TooManyCollaborators.into()),
-        "Must return typed TooManyCollaborators error code"
+        Ok(ContractError::TooManyRecipients.into()),
+        "Must return typed TooManyRecipients error code"
     );
 
     std::println!(
@@ -111,12 +110,12 @@ fn test_simulate_max_collaborator_distribution_success() {
     mint(&env, &token, &contract_id, distribution_amount);
 
     let initial_cpu = env.budget().cpu_instruction_cost();
-    let initial_mem = env.budget().memory_byte_cost();
+    let initial_mem = env.budget().memory_bytes_cost();
 
     client.distribute(&token);
 
     let final_cpu = env.budget().cpu_instruction_cost();
-    let final_mem = env.budget().memory_byte_cost();
+    let final_mem = env.budget().memory_bytes_cost();
 
     let token_client = TokenClient::new(&env, &token);
     assert_eq!(token_client.balance(&contract_id), 0);
@@ -216,7 +215,7 @@ fn test_simulate_high_frequency_1000_distributions() {
 
     let start_time = std::time::Instant::now();
     let initial_cpu = env.budget().cpu_instruction_cost();
-    let initial_mem = env.budget().memory_byte_cost();
+    let initial_mem = env.budget().memory_bytes_cost();
 
     for i in 1..=num_operations {
         mint(&env, &token, &contract_id, amount_per_op);
@@ -225,7 +224,7 @@ fn test_simulate_high_frequency_1000_distributions() {
         // Advance ledger timestamp to simulate continuous high-frequency stream
         env.ledger().with_mut(|l| {
             l.timestamp = l.timestamp.saturating_add(1);
-            l.sequence = l.sequence.saturating_add(1);
+            l.sequence_number = l.sequence_number.saturating_add(1);
         });
 
         if i % 250 == 0 {
@@ -242,22 +241,34 @@ fn test_simulate_high_frequency_1000_distributions() {
 
     let elapsed = start_time.elapsed();
     let total_cpu = env.budget().cpu_instruction_cost() - initial_cpu;
-    let total_mem = env.budget().memory_byte_cost() - initial_mem;
+    let total_mem = env.budget().memory_bytes_cost() - initial_mem;
 
     let throughput_ops_sec = (num_operations as f64) / elapsed.as_secs_f64().max(0.001);
     let avg_cpu_per_op = total_cpu / (num_operations as u64);
 
     let token_client = TokenClient::new(&env, &token);
     assert_eq!(token_client.balance(&contract_id), 0);
-    assert_eq!(token_client.balance(&a), (amount_per_op * (num_operations as i128)) * 5000 / 10000);
+    assert_eq!(
+        token_client.balance(&a),
+        (amount_per_op * (num_operations as i128)) * 5000 / 10000
+    );
 
     std::println!("\n=======================================================");
     std::println!("  HIGH-FREQUENCY SIMULATION SUMMARY (1000 OPERATIONS)");
     std::println!("=======================================================");
     std::println!("  Total Operations:         {}", num_operations);
-    std::println!("  Total Wall-Clock Time:    {:.3} seconds", elapsed.as_secs_f64());
-    std::println!("  Throughput:               {:.1} operations/sec", throughput_ops_sec);
-    std::println!("  Average CPU Cost/Op:      {} instructions", avg_cpu_per_op);
+    std::println!(
+        "  Total Wall-Clock Time:    {:.3} seconds",
+        elapsed.as_secs_f64()
+    );
+    std::println!(
+        "  Throughput:               {:.1} operations/sec",
+        throughput_ops_sec
+    );
+    std::println!(
+        "  Average CPU Cost/Op:      {} instructions",
+        avg_cpu_per_op
+    );
     std::println!("  Total CPU Instructions:   {}", total_cpu);
     std::println!("  Total Memory Bytes:       {}", total_mem);
     std::println!("=======================================================\n");
@@ -293,7 +304,13 @@ fn test_measure_resource_scaling_by_collaborator_count() {
 
         for _ in 0..count {
             collaborators.push_back(Address::generate(&env));
-            let s = share_each + if remainder > 0 { remainder -= 1; 1 } else { 0 };
+            let s = share_each
+                + if remainder > 0 {
+                    remainder -= 1;
+                    1
+                } else {
+                    0
+                };
             shares.push_back(s);
         }
 
@@ -301,12 +318,12 @@ fn test_measure_resource_scaling_by_collaborator_count() {
         mint(&env, &token, &contract_id, 100_000);
 
         let pre_cpu = env.budget().cpu_instruction_cost();
-        let pre_mem = env.budget().memory_byte_cost();
+        let pre_mem = env.budget().memory_bytes_cost();
 
         client.distribute(&token);
 
         let cpu_used = env.budget().cpu_instruction_cost() - pre_cpu;
-        let mem_used = env.budget().memory_byte_cost() - pre_mem;
+        let mem_used = env.budget().memory_bytes_cost() - pre_mem;
 
         let token_client = TokenClient::new(&env, &token);
         let contract_bal = token_client.balance(&contract_id);

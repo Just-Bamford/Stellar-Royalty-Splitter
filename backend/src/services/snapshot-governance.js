@@ -1,6 +1,6 @@
 /**
- * Governance service for Snapshot integration and vote execution
- * Implements gasless voting with on-chain execution
+ * Snapshot governance service for gasless voting (#995)
+ * Implements Snapshot integration with on-chain execution
  *
  * Responsibilities:
  *   - Fetch proposals from Snapshot

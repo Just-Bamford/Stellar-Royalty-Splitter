@@ -33,6 +33,7 @@ import {
   recordSecondaryRoyaltyDistributed,
   recordSecondarySaleProcessing,
 } from "../metrics.js";
+import { cacheGet, cacheSet, cacheKey, TTL } from "../cache.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -46,6 +47,11 @@ secondaryRoyaltyRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("secondaryRoyaltyPool", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
 
       // Call the contract method to fetch pool balance
       const result = await server.simulateTransaction({
@@ -53,7 +59,9 @@ secondaryRoyaltyRouter.get(
         function: "get_secondary_royalty_pool",
       });
 
-      res.json({ poolBalance: result });
+      const responsePayload = { poolBalance: result };
+      cacheSet(cKey, responsePayload, 30_000); // 30s TTL
+      res.json(responsePayload);
     } catch (err) {
       next(err);
     }
@@ -218,9 +226,16 @@ secondaryRoyaltyRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("secondaryRoyaltyRate", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
 
       const rate = await getRoyaltyRateFromContract(contractId);
-      res.json({ contractId, royaltyRate: rate });
+      const result = { contractId, royaltyRate: rate };
+      cacheSet(cKey, result, TTL.contractState);
+      res.json(result);
     } catch (err) {
       next(err);
     }

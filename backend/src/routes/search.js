@@ -17,6 +17,7 @@
 import { Router } from "express";
 import logger from "../logger.js";
 import { sendError } from "../error-response.js";
+import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   searchAll,
   searchCollaborators,
@@ -32,6 +33,17 @@ import {
 } from "../database/search.js";
 
 export const searchRouter = Router();
+
+// Helper to record search analytics in the background without blocking the HTTP response
+function recordSearchAsync(query, type, count) {
+  setImmediate(() => {
+    try {
+      recordSearch(query, type, count);
+    } catch (err) {
+      logger.warn("Asynchronous search recording failed", { error: err.message });
+    }
+  });
+}
 
 // ─── Admin auth middleware ────────────────────────────────────────────────────
 
@@ -69,6 +81,12 @@ searchRouter.get("/", (req, res, next) => {
     }
 
     const searchLimit = Math.min(parseInt(limit) || 50, 100);
+    const cKey = cacheKey("search:universal", searchQuery, searchLimit, semantic, advanced, req.query.searchType, req.query.contractId);
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     let results;
 
     // Advanced search with filters
@@ -95,15 +113,18 @@ searchRouter.get("/", (req, res, next) => {
       results = searchAll(searchQuery, searchLimit);
     }
 
-    // Record search for analytics
-    recordSearch(searchQuery, req.query.searchType || 'all', results.totalResults || 0);
+    // Record search asynchronously for analytics without blocking response
+    recordSearchAsync(searchQuery, req.query.searchType || 'all', results.totalResults || 0);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       query: searchQuery,
       data: results,
       searchMode: advanced === 'true' ? 'advanced' : semantic === 'true' ? 'semantic' : 'standard',
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 30_000); // 30s TTL
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -123,17 +144,26 @@ searchRouter.get("/collaborators", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
+    const cKey = cacheKey("search:collaborators", searchQuery, searchLimit, searchOffset, contractId);
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const results = searchCollaborators(searchQuery, searchLimit, searchOffset, contractId);
 
-    // Record search
-    recordSearch(searchQuery, 'collaborators', results.length);
+    // Record search in background
+    recordSearchAsync(searchQuery, 'collaborators', results.length);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       query: searchQuery,
       data: results,
       count: results.length,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 30_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -153,17 +183,26 @@ searchRouter.get("/transactions", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
+    const cKey = cacheKey("search:transactions", searchQuery, searchLimit, searchOffset, contractId);
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const results = searchTransactions(searchQuery, searchLimit, searchOffset, contractId);
 
-    // Record search
-    recordSearch(searchQuery, 'transactions', results.length);
+    // Record search in background
+    recordSearchAsync(searchQuery, 'transactions', results.length);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       query: searchQuery,
       data: results,
       count: results.length,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 30_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -183,17 +222,26 @@ searchRouter.get("/disputes", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
+    const cKey = cacheKey("search:disputes", searchQuery, searchLimit, searchOffset, status);
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const results = searchDisputes(searchQuery, searchLimit, searchOffset, status);
 
-    // Record search
-    recordSearch(searchQuery, 'disputes', results.length);
+    // Record search in background
+    recordSearchAsync(searchQuery, 'disputes', results.length);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       query: searchQuery,
       data: results,
       count: results.length,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 30_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -211,13 +259,22 @@ searchRouter.get("/suggestions", (req, res, next) => {
     }
 
     const searchLimit = Math.min(parseInt(limit) || 10, 20);
+    const cKey = cacheKey("search:suggestions", prefix, searchLimit);
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const suggestions = getSearchSuggestions(prefix, searchLimit);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       prefix,
       data: suggestions,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -232,13 +289,22 @@ searchRouter.get("/trending", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 10, 20);
     const timeHours = Math.min(parseInt(hours) || 24, 168); // Max 7 days
 
+    const cKey = cacheKey("search:trending", searchLimit, timeHours);
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const trending = getTrendingSearches(searchLimit, timeHours);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       data: trending,
       timeframe: `${timeHours} hours`,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -248,12 +314,21 @@ searchRouter.get("/trending", (req, res, next) => {
 
 searchRouter.get("/statistics", (req, res, next) => {
   try {
+    const cKey = cacheKey("search:statistics");
+    const cached = cacheGet(cKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const statistics = getSearchStatistics();
 
-    return res.json({
+    const responsePayload = {
       success: true,
       data: statistics,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }

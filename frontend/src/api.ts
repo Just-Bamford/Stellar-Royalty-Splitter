@@ -1,4 +1,4 @@
-// Thin client that talks to the Express backend
+﻿// Thin client that talks to the Express backend
 
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractContractError } from "./lib/contract-errors";
@@ -401,7 +401,7 @@ export const api = {
   // Read-only: there is no client-side write path for audit entries. Audit
   // records are created exclusively server-side as a side effect of real
   // configuration/administrative actions (initialize, distribute,
-  // secondary-royalty routes) — see backend/src/routes/history.js.
+  // secondary-royalty routes) ÔÇö see backend/src/routes/history.js.
   getAuditLog: (contractId: string, limit = 100, offset = 0) =>
     get<{ success: boolean; data: AuditLogEntry[] }>(
       `/audit/${contractId}?limit=${limit}&offset=${offset}`,
@@ -713,7 +713,7 @@ export const api = {
 
   getContributorsMissingTaxInfo: () => get<any>("/v1/contributor-tax/missing"),
 
-  // Contributor Tier APIs (#589) — used by CollaboratorTable and the
+  // Contributor Tier APIs (#589) ÔÇö used by CollaboratorTable and the
   // Collaborator Directory (#923) to read/assign VIP/regular/trial tiers.
   getContractTiers: (contractId: string) =>
     get<{ success: boolean; data: ContributorTier[]; validTiers: string[] }>(
@@ -731,7 +731,7 @@ export const api = {
       { tier, notes: notes ?? null },
     ),
 
-  // Contributor Suspension / Deactivation APIs (#593) — read by
+  // Contributor Suspension / Deactivation APIs (#593) ÔÇö read by
   // ContributorSuspension.tsx and the Collaborator Directory's bulk
   // suspend/unsuspend action (#923).
   getContributorStatuses: (contractId: string, includeActive = false) =>
@@ -753,7 +753,7 @@ export const api = {
       body,
     ),
 
-  // Notification send API (#927) — reused by the Collaborator Directory's
+  // Notification send API (#927) ÔÇö reused by the Collaborator Directory's
   // bulk "send message" action (#923) to message selected collaborators.
   sendNotification: (
     walletAddress: string,

@@ -40,6 +40,7 @@ import {
   disputeStatusUpdateEmail,
 } from "../email/templates/dispute-notification.js";
 import { sendEventSms } from "../services/sms-notifications.js";
+import { runHook } from "../plugins/plugin-framework.js";
 
 export const disputesRouter = Router();
 
@@ -106,6 +107,10 @@ disputesRouter.post("/", validate(disputeSubmitSchema), async (req, res, next) =
       walletAddress,
       category,
     });
+
+    // Plugin hook: onDispute — notify plugins of new dispute (#998).
+    // Fail-open: errors caught inside runHook; never blocks dispute creation.
+    await runHook("onDispute", dispute);
 
     // Record reputation activity for dispute opened (#962)
     try {

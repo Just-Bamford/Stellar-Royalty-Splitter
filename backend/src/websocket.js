@@ -59,6 +59,19 @@ export function initializeWebSocket(server) {
           ws.send(JSON.stringify({ type: "subscribed_finality", transactionId: msg.transactionId }));
           logger.info("Client subscribed to finality updates", { transactionId: msg.transactionId });
         }
+        // #959: Collaborative editor subscriptions
+        if (msg.type === "subscribe_contract_edits" && msg.contractId) {
+          const key = `contract:${msg.contractId}`;
+          if (!clients.has(key)) {
+            clients.set(key, new Set());
+          }
+          clients.get(key).add(ws);
+          // Track the contract key on the socket for cleanup on close
+          if (!ws.contractKeys) ws.contractKeys = new Set();
+          ws.contractKeys.add(key);
+          ws.send(JSON.stringify({ type: "subscribed_contract_edits", contractId: msg.contractId }));
+          logger.info("Client subscribed to contract edits", { contractId: msg.contractId });
+        }
         if (msg.type === "ping") {
           ws.send(JSON.stringify({ type: "pong" }));
         }
@@ -93,6 +106,17 @@ export function initializeWebSocket(server) {
       // Clean up any finality subscriptions
       if (ws.finalityKeys) {
         ws.finalityKeys.forEach((key) => {
+          if (clients.has(key)) {
+            clients.get(key).delete(ws);
+            if (clients.get(key).size === 0) {
+              clients.delete(key);
+            }
+          }
+        });
+      }
+      // Clean up any contract subscriptions (#959)
+      if (ws.contractKeys) {
+        ws.contractKeys.forEach((key) => {
           if (clients.has(key)) {
             clients.get(key).delete(ws);
             if (clients.get(key).size === 0) {
@@ -222,6 +246,61 @@ export function broadcastTransactionStatus(transactionId, update) {
   });
   let sent = 0;
   const key = `txn:${transactionId}`;
+  if (clients.has(key)) {
+    clients.get(key).forEach((ws) => {
+      if (ws.readyState === 1) {
+        ws.send(message);
+        sent++;
+      }
+    });
+  }
+  return sent;
+}
+
+/**
+ * #959: Broadcast contract edit events to all clients subscribed to a contract
+ * 
+ * Clients subscribe by sending:
+ *   { type: "subscribe_contract_edits", contractId: "CONTRACT_ABC" }
+ * 
+ * Edit events include: field_locked, field_unlocked, field_updated
+ * 
+ * @param {string} contractId - Contract identifier
+ * @param {object} event - { type, field, userId, data }
+ * @returns {number} number of sockets that received the message
+ */
+export function broadcastContractEdit(contractId, event) {
+  const message = JSON.stringify({
+    type: "contract_edit",
+    data: { ...event, contractId },
+  });
+  let sent = 0;
+  const key = `contract:${contractId}`;
+  if (clients.has(key)) {
+    clients.get(key).forEach((ws) => {
+      if (ws.readyState === 1) {
+        ws.send(message);
+        sent++;
+      }
+    });
+  }
+  return sent;
+}
+
+/**
+ * #986: Broadcast audit events in real-time
+ * 
+ * @param {string} contractId - Contract identifier
+ * @param {object} auditEvent - Audit log entry
+ * @returns {number} number of sockets that received the message
+ */
+export function broadcastAuditEvent(contractId, auditEvent) {
+  const message = JSON.stringify({
+    type: "audit_event",
+    data: { ...auditEvent, contractId },
+  });
+  let sent = 0;
+  const key = `contract:${contractId}`;
   if (clients.has(key)) {
     clients.get(key).forEach((ws) => {
       if (ws.readyState === 1) {

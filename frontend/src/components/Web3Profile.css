@@ -1,0 +1,187 @@
+/* ── Web3Profile — base layout ─────────────────────────────────────────────── */
+
+.web3-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  vertical-align: middle;
+}
+
+.web3-profile--plain {
+  font-family: monospace;
+  color: var(--text-secondary, #888);
+}
+
+/* ── Avatar ──────────────────────────────────────────────────────────────────── */
+
+.web3-avatar {
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+}
+
+.web3-avatar--sm  { width: 1.5rem; height: 1.5rem; font-size: 0.55rem; }
+.web3-avatar--md  { width: 2.25rem; height: 2.25rem; font-size: 0.7rem; }
+.web3-avatar--lg  { width: 3.25rem; height: 3.25rem; font-size: 0.95rem; }
+
+.web3-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.web3-avatar__initials {
+  user-select: none;
+  line-height: 1;
+}
+
+/* ── sm — inline pill ────────────────────────────────────────────────────────── */
+
+.web3-profile--sm {
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.web3-profile--sm .web3-profile__name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary, #222);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.web3-profile__lens-badge {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+/* ── md / lg — card ──────────────────────────────────────────────────────────── */
+
+.web3-profile--md,
+.web3-profile--lg {
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.web3-profile__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.web3-profile__name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.web3-profile__name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary, #222);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web3-profile--lg .web3-profile__name {
+  font-size: 1rem;
+}
+
+/* Verified checkmark */
+.web3-profile__verified {
+  color: #2ecc71;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.web3-profile__address {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+}
+
+/* Lens stats row */
+.web3-profile__lens-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #777);
+}
+
+.web3-profile__lens-handle {
+  font-weight: 500;
+  color: var(--text-primary, #444);
+}
+
+.web3-profile__stat strong {
+  color: var(--text-primary, #222);
+}
+
+.web3-profile__bio {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #777);
+  margin: 0.25rem 0 0;
+  line-height: 1.4;
+  max-width: 32ch;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ── Loading skeleton ────────────────────────────────────────────────────────── */
+
+.web3-profile--loading {
+  gap: 0.4rem;
+}
+
+.web3-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base, #e0e0e0) 25%,
+    var(--skeleton-highlight, #f0f0f0) 50%,
+    var(--skeleton-base, #e0e0e0) 75%
+  );
+  background-size: 200% 100%;
+  animation: web3-shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+.web3-skeleton--name {
+  width: 7rem;
+  height: 0.75rem;
+}
+
+.web3-skeleton--sub {
+  width: 5rem;
+  height: 0.65rem;
+  margin-top: 0.2rem;
+}
+
+@keyframes web3-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Dark mode overrides ──────────────────────────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  .web3-profile--plain        { color: var(--text-secondary, #aaa); }
+  .web3-profile__name         { color: var(--text-primary, #f0f0f0); }
+  .web3-profile__address      { color: var(--text-secondary, #999); }
+  .web3-profile__lens-handle  { color: var(--text-primary, #ddd); }
+  .web3-profile__stat strong  { color: var(--text-primary, #f0f0f0); }
+}

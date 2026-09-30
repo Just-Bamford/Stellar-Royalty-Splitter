@@ -1,4 +1,4 @@
-// Minimal Express app for testing — no DB init, no listen
+﻿// Minimal Express app for testing ÔÇö no DB init, no listen
 import express from "express";
 import { createBodySizeLimiters } from "../src/body-size-limit.js";
 import { initializeRouter } from "../src/routes/initialize.js";
@@ -8,6 +8,9 @@ import { collaboratorsRouter } from "../src/routes/collaborators.js";
 import { simulateRouter } from "../src/routes/simulate.js";
 import { metricsRouter } from "../src/routes/metrics.js";
 import { notFoundHandler, errorHandler } from "../src/error-response.js";
+import { schedulesRouter, batchRouter } from "../src/routes/schedules.js";
+import { identityRouter } from "../src/routes/identity.js";
+import { backupRouter } from "../src/routes/backup.js";
 
 const app = express();
 
@@ -20,6 +23,10 @@ app.use("/api/v1/batch-distribute", batchDistributeRouter);
 app.use("/api/v1/collaborators", collaboratorsRouter);
 app.use("/api/v1/simulate", simulateRouter);
 app.use("/metrics", metricsRouter);
+app.use("/api/v1/schedules", schedulesRouter);
+app.use("/api/v1/batch", batchRouter);
+app.use("/api/v1/identity", identityRouter);
+app.use("/api/v1/backup", backupRouter);
 
 // Same standard-shape handlers production uses (#662), so tests against
 // this harness exercise the real response format instead of a stand-in.

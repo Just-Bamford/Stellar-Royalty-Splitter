@@ -1,5 +1,5 @@
 /**
- * Database module index — re-exports all database functions.
+ * Database module index ÔÇö re-exports all database functions.
  * Provides backwards compatibility while organizing code into focused submodules.
  */
 
@@ -399,6 +399,134 @@ export {
   getZKPrivacyStatistics,
 } from "./zk-privacy.js";
 
+// Query optimizer & batching utilities (#984)
+export {
+  explainQueryPlan,
+  batchGetContributorStatus,
+  batchGetTransactionDetails,
+  batchGetDisputeComments,
+  batchGetCollaboratorReputation,
+  refreshEarningsSummaryMV,
+  getOptimizedEarningsSummary,
+} from "../services/query-optimizer.js";
+
+// Real-time collaborative contract editor (#959)
+export {
+  createEditSession,
+  extendEditSession,
+  releaseEditSession,
+  getActiveEditSessions,
+  recordContractEdit,
+  getContractEditHistory,
+  applyOperationalTransform,
+  getFieldVersion,
+  cleanupExpiredSessions,
+} from "./collaborative-editor.js";
+
+// Dynamic royalty oracle with ML predictions (#960)
+export {
+  storePrediction,
+  getLatestPrediction,
+  getPredictionHistory,
+  storeModelMetadata,
+  getLatestModelMetadata,
+  getModelMetadata,
+  storeMarketData,
+  getLatestMarketData,
+  getMarketDataHistory,
+  calculatePredictionAccuracy,
+  getMarketTrends,
+} from "./oracle.js";
+
+// Time-locked vesting contracts (#983)
+export {
+  createVestingSchedule,
+  calculateVestedAmount,
+  releaseVestedTokens,
+  getVestingSchedule,
+  getVestingSchedulesByBeneficiary,
+  getVestingSchedulesByContract,
+  getVestingReleaseHistory,
+  getSchedulesWithReleasableTokens,
+  cancelVestingSchedule,
+  getVestingStatistics,
+} from "./vesting.js";
+
+// Enhanced audit logging with hash-chain (#986)
+export {
+  addAuditEntry,
+  verifyAuditChainIntegrity,
+  getAuditEntries,
+  getAuditStatistics,
+  exportAuditLogJSON,
+  exportAuditLogCSV,
+  getComplianceReport,
+  searchAuditLog,
+} from "./audit-enhanced.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
+
+// Contract backups and disaster recovery (#993)
+export {
+  getIsoWeek,
+  createBackupRecord,
+  markBackupUploading,
+  markBackupCompleted,
+  markBackupFailed,
+  recordDrillResult,
+  getBackupById,
+  listBackups,
+  countBackups,
+  getLatestBackup,
+  backupExistsForWeek,
+  getContractsWithBackups,
+  pruneOldBackups,
+} from "./backups.js";
+
+// Distribution schedules and batch execution (#991)
+export {
+  createSchedule,
+  getScheduleById,
+  listSchedulesByContract,
+  countSchedulesByContract,
+  updateSchedule,
+  deleteSchedule,
+  pauseSchedule,
+  resumeSchedule,
+  markScheduleRun,
+  getDueSchedules,
+  createBatchExecution,
+  markBatchRunning,
+  markBatchCompleted,
+  markBatchFailed,
+  recordBatchItem,
+  getBatchExecution,
+  listBatchExecutionsBySchedule,
+  listRecentBatchExecutions,
+} from "./schedules.js";
+
+// Rights Management System
+export {
+  initializeRightsTables,
+  clearRightsTables,
+  createRightRecord,
+  getRightById,
+  getRightsByContract,
+  getRightsByOwner,
+  updateRightRecord,
+  deleteRightRecord,
+  upsertRightMetadataRecord,
+  getRightMetadataRecord,
+  createVerificationProofRecord,
+  getVerificationProofById,
+  getVerificationProofsRecord,
+  updateVerificationProofStatusRecord,
+  addRightHistoryRecord,
+  getRightHistoryRecord,
+  linkRightToDisputeRecord,
+  getRightsForDisputeRecord,
+  getDisputesForRightRecord,
+} from "./rights-schema.js";
+

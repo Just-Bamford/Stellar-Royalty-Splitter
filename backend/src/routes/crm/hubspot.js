@@ -35,6 +35,7 @@ import {
   findContactMappingByExternalId,
   listContactMappings,
   recordCrmActivity,
+  listCrmActivities,
   listKnownCollaborators,
 } from "../../database/crm-sync-status.js";
 import { setContributorStatus } from "../../database/contributor-status.js";

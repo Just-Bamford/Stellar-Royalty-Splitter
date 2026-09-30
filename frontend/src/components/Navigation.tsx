@@ -63,6 +63,9 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
     { id: "tax-info", labelKey: "taxInfo", icon: "📋" },
     { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },
+    { id: "profile", labelKey: "userProfile", icon: "👤" },
+    { id: "feed", labelKey: "activityFeed", icon: "📡" },
+    { id: "forum", labelKey: "communityForum", icon: "💬" },
     { id: "settings", labelKey: "settings", icon: "⚡" },
   ];
 

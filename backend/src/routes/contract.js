@@ -376,8 +376,18 @@ contractRouter.get("/info", async (req, res, next) => {
 contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
+    const cKey = cacheKey("contractStatus", contractId);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const initialized = await isContractInitialized(contractId);
-    res.json({ initialized });
+    const result = { initialized };
+    if (initialized) {
+      cacheSet(cKey, result, TTL.contractState);
+    }
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -394,6 +404,12 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
     const { tokenId } = req.query;
     if (!tokenId) return sendError(res, 400, "bad_request", "tokenId query param required");
     if (!validateContractId(tokenId, res)) return;
+
+    const cKey = cacheKey("contractBalance", contractId, tokenId);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
 
     const contract = new Contract(contractId);
     const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN", "0");
@@ -416,7 +432,9 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
       ? ((BigInt(retval.i128().hi()) << 64n) | BigInt(retval.i128().lo())).toString()
       : "0";
 
-    res.json({ balance });
+    const result = { balance };
+    cacheSet(cKey, result, 15_000); // 15s TTL for volatile balance
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -433,6 +451,12 @@ contractRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("contractCollaboratorCount", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
+
       const contract = new Contract(contractId);
       const dummyAccount = new Account(
         "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
@@ -452,7 +476,9 @@ contractRouter.get(
       }
 
       const count = sim.result?.retval?.u32?.() ?? 0;
-      res.json({ contractId, count });
+      const result = { contractId, count };
+      cacheSet(cKey, result, TTL.contractState);
+      res.json(result);
     } catch (err) {
       next(err);
     }
@@ -470,6 +496,12 @@ contractRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("contractSharesTotal", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
+
       const contract = new Contract(contractId);
 
       const dummyAccount = new Account(
@@ -492,7 +524,9 @@ contractRouter.get(
       const resultVal = sim.result?.retval;
       const totalShares = resultVal?.u32?.() ?? 0;
 
-      res.json({ contractId, totalShares });
+      const result = { contractId, totalShares };
+      cacheSet(cKey, result, TTL.contractState);
+      res.json(result);
     } catch (err) {
       next(err);
     }
@@ -507,6 +541,12 @@ contractRouter.get(
 contractRouter.get("/version/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
+    const cKey = cacheKey("contractVersion", contractId);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const initialized = await isContractInitialized(contractId);
     if (!initialized) {
       return sendError(res, 404, "not_found", "contract not initialized");
@@ -517,8 +557,11 @@ contractRouter.get("/version/:contractId", validateContractIdMiddleware, async (
       return sendError(res, 404, "not_found", "contract version unavailable");
     }
 
-    res.json({ contractId, version });
+    const result = { contractId, version };
+    cacheSet(cKey, result, TTL.contractState);
+    res.json(result);
   } catch (err) {
     next(err);
   }
 });
+

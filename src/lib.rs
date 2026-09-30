@@ -64,6 +64,21 @@ pub struct VestingSchedule {
     pub claimed_shares: u32,
 }
 
+/// A continuous token payment stream (#1054).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Stream {
+    pub id: u64,
+    pub token: Address,
+    pub payer: Address,
+    pub recipient: Address,
+    pub rate_per_second: i128,
+    pub accrued_amount: i128,
+    pub last_accrual: u64,
+    pub paused: bool,
+    pub stopped: bool,
+}
+
 /// One entry in the royalty rate change history (#323).
 #[contracttype]
 #[derive(Clone)]
@@ -244,6 +259,44 @@ pub struct PendingDistribution {
     pub recipient_count: u32,
 }
 
+/// Action payload for advanced governance proposals (#982).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GovProposalAction {
+    /// Change default royalty rate in basis points (1..=10,000).
+    ChangeRoyaltyRate(u32),
+    /// Set a per-token protocol fee override in basis points (0..=10,000).
+    SetTokenFeeOverride(Address, u32),
+    /// Pause all contract distributions.
+    PauseContract,
+    /// Unpause contract distributions.
+    UnpauseContract,
+    /// Remove a collaborator and reassign their share.
+    RemoveCollaborator(Address),
+    /// Allocate budget/tokens from contract balance to a recipient.
+    AllocateBudget(Address, Address, i128),
+}
+
+/// Advanced governance proposal with voting and delegation (#982).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovProposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub action: GovProposalAction,
+    pub title: String,
+    pub description: String,
+    pub created_at: u64,
+    pub voting_ends_at: u64,
+    pub voting_period_secs: u64,
+    pub yes_votes: i128,
+    pub no_votes: i128,
+    pub quorum_votes: i128,
+    pub executed: bool,
+    pub rejected: bool,
+    pub executed_at: u64,
+}
+
 /// Typed storage keys.
 ///
 /// Instance storage keys: small, frequently accessed values (Admin, Paused, etc.).
@@ -345,6 +398,22 @@ pub enum ExtKey {
     /// (see `VestingSchedule`'s doc comment) so there is only one mutable
     /// piece of state to keep consistent, not two.
     VestingSchedule(Address),
+    /// #982 — Total governance token supply in smallest units (instance storage).
+    GovTotalSupply,
+    /// #982 — Delegate address for an account's voting power (persistent storage).
+    GovDelegate(Address),
+    /// #982 — Accumulated delegated voting power to an account (persistent storage).
+    GovDelegatedPower(Address),
+    /// #982 — Governance proposals map (persistent storage).
+    GovProposals,
+    /// #982 — Governance proposal count (instance storage).
+    GovProposalCount,
+    /// #982 — Map of proposal votes per (proposal_id, voter) (persistent storage).
+    GovProposalVotes,
+    /// #1054 — next stream identifier (instance storage).
+    StreamCount,
+    /// #1054 — continuous payment stream by identifier (persistent storage).
+    Stream(u64),
 }
 
 /// Maximum number of rate-change entries kept in history.
@@ -471,6 +540,21 @@ pub const TIER_TIME_DEGRADE_AGE_SECS: u64 = 7_776_000;
 /// `Self::tiered_secondary_rate` for the exact order and a worked example).
 pub const TIER_TIME_DEGRADE_BPS: u32 = 5_000;
 
+/// Minimum governance proposal voting period (2 days = 172,800 seconds) (#982).
+pub const MIN_GOV_VOTING_PERIOD: u64 = 172_800;
+
+/// Maximum governance proposal voting period (7 days = 604,800 seconds) (#982).
+pub const MAX_GOV_VOTING_PERIOD: u64 = 604_800;
+
+/// Default governance proposal voting period (3 days = 259,200 seconds) (#982).
+pub const DEFAULT_GOV_VOTING_PERIOD: u64 = 259_200;
+
+/// Maximum delegation hops to detect and prevent cycles/unbounded traversal (#982).
+pub const MAX_DELEGATION_HOPS: u32 = 5;
+
+/// Default quorum in basis points (20% of total governance token supply) (#982).
+pub const DEFAULT_QUORUM_BPS: u32 = 2_000;
+
 /// Backward-compatible alias for integration tests and external references.
 pub type DataKey = StorageKey;
 
@@ -569,6 +653,20 @@ impl ContractError {
     pub const NO_VESTING_SCHEDULE: Self = Self::NotInitialized;
     /// `claim_vested_shares` when nothing newly vested since the last claim.
     pub const NOTHING_TO_CLAIM: Self = Self::NoBalance;
+    /// Voting period ended when attempting to cast a vote (#982).
+    pub const GOV_VOTING_CLOSED: Self = Self::ProposalVotingClosed;
+    /// Voting period still active when attempting to execute (#982).
+    pub const GOV_VOTING_STILL_OPEN: Self = Self::ProposalStillOpen;
+    /// Proposal already executed or rejected (#982).
+    pub const GOV_PROPOSAL_EXECUTED: Self = Self::ProposalAlreadyExecuted;
+    /// Voter has already voted on this proposal (#982).
+    pub const GOV_ALREADY_VOTED: Self = Self::AlreadyVoted;
+    /// Delegation cycle detected (e.g. A -> B -> A) (#982).
+    pub const GOV_DELEGATION_CYCLE: Self = Self::DuplicateRecipient;
+    /// Delegation limit or max hops exceeded (#982).
+    pub const GOV_DELEGATION_LIMIT_EXCEEDED: Self = Self::TooManyRecipients;
+    /// Insufficient voting power or tokens (#982).
+    pub const GOV_INSUFFICIENT_POWER: Self = Self::AmountNotPositive;
 }
 
 #[contract]
@@ -591,6 +689,25 @@ impl RoyaltySplitter {
     fn require_share_map(env: &Env) -> Result<Map<Address, u32>, ContractError> {
         storage::persistent_get::<Map<Address, u32>>(env, &StorageKey::ShareMap)
             .ok_or(ContractError::NoShareMap)
+    }
+
+    fn stream_or_error(env: &Env, stream_id: u64) -> Result<Stream, ContractError> {
+        storage::persistent_get(env, &StorageKey::Ext(ExtKey::Stream(stream_id)))
+            .ok_or(ContractError::NotInitialized)
+    }
+
+    fn accrue_stream(env: &Env, stream: &Stream) -> Result<i128, ContractError> {
+        if stream.paused || stream.stopped {
+            return Ok(stream.accrued_amount);
+        }
+        let elapsed = env.ledger().timestamp().saturating_sub(stream.last_accrual);
+        let earned = (elapsed as i128)
+            .checked_mul(stream.rate_per_second)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        stream
+            .accrued_amount
+            .checked_add(earned)
+            .ok_or(ContractError::ArithmeticOverflow)
     }
 
     fn checked_add_share_total(_env: &Env, total: u32, share: u32) -> Result<u32, ContractError> {
@@ -763,12 +880,6 @@ impl RoyaltySplitter {
             }
 
             share_map.set(addr.clone(), share);
-            // #955 — Issue governance tokens 1:1 to basis points on setup
-            storage::persistent_set(
-                env,
-                &StorageKey::Ext(ExtKey::GovBalance(addr)),
-                &(share as i128),
-            );
         }
 
         let now = env.ledger().timestamp();
@@ -782,6 +893,8 @@ impl RoyaltySplitter {
         storage::instance_set(env, &StorageKey::Admin, &admin);
         storage::persistent_set(env, &StorageKey::Collaborators, &collaborators);
         storage::persistent_set(env, &StorageKey::ShareMap, &share_map);
+        // #982 — Initialize total governance token supply to 0
+        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &0_i128);
 
         let version = String::from_str(env, VERSION);
         storage::instance_set(env, &StorageKey::ContractVersion, &version);
@@ -1916,6 +2029,146 @@ impl RoyaltySplitter {
             .instance()
             .get(&StorageKey::DistributeHistory)
             .unwrap_or(0)
+    }
+
+    /// Start a continuously accruing stream. The initial deposit is held by
+    /// this contract and claims are limited by its available token balance.
+    pub fn start_stream(
+        env: Env,
+        token: Address,
+        payer: Address,
+        recipient: Address,
+        rate_per_second: i128,
+        initial_deposit: i128,
+    ) -> Result<u64, ContractError> {
+        storage::extend_instance_ttl(&env);
+        payer.require_auth();
+        if rate_per_second <= 0 || initial_deposit <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+
+        let stream_id: u64 = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Ext(ExtKey::StreamCount))
+            .unwrap_or(0);
+        token::Client::new(&env, &token).transfer(&payer, &env.current_contract_address(), &initial_deposit);
+        let stream = Stream {
+            id: stream_id,
+            token,
+            payer,
+            recipient,
+            rate_per_second,
+            accrued_amount: 0,
+            last_accrual: env.ledger().timestamp(),
+            paused: false,
+            stopped: false,
+        };
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
+        storage::instance_set(
+            &env,
+            &StorageKey::Ext(ExtKey::StreamCount),
+            &stream_id.saturating_add(1),
+        );
+        env.events().publish(
+            (symbol_short!("stream"), symbol_short!("started")),
+            (stream_id, stream.recipient, stream.rate_per_second),
+        );
+        Ok(stream_id)
+    }
+
+    pub fn get_stream(env: Env, stream_id: u64) -> Option<Stream> {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)))
+    }
+
+    pub fn get_stream_accrued(env: Env, stream_id: u64) -> Result<i128, ContractError> {
+        storage::extend_instance_ttl(&env);
+        let stream = Self::stream_or_error(&env, stream_id)?;
+        Self::accrue_stream(&env, &stream)
+    }
+
+    pub fn claim_stream(env: Env, stream_id: u64) -> Result<i128, ContractError> {
+        storage::extend_instance_ttl(&env);
+        let mut stream = Self::stream_or_error(&env, stream_id)?;
+        stream.recipient.require_auth();
+        let accrued = Self::accrue_stream(&env, &stream)?;
+        if accrued <= 0 {
+            return Err(ContractError::NoBalance);
+        }
+        let balance = token::Client::new(&env, &stream.token).balance(&env.current_contract_address());
+        let amount = accrued.min(balance);
+        if amount <= 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+        token::Client::new(&env, &stream.token).transfer(
+            &env.current_contract_address(),
+            &stream.recipient,
+            &amount,
+        );
+        stream.accrued_amount = accrued - amount;
+        stream.last_accrual = env.ledger().timestamp();
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
+        env.events().publish(
+            (symbol_short!("stream"), symbol_short!("claimed")),
+            (stream_id, stream.recipient, amount),
+        );
+        Ok(amount)
+    }
+
+    pub fn pause_stream(env: Env, stream_id: u64) -> Result<(), ContractError> {
+        Self::set_stream_paused(env, stream_id, true)
+    }
+
+    pub fn resume_stream(env: Env, stream_id: u64) -> Result<(), ContractError> {
+        Self::set_stream_paused(env, stream_id, false)
+    }
+
+    fn set_stream_paused(env: Env, stream_id: u64, paused: bool) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        let mut stream = Self::stream_or_error(&env, stream_id)?;
+        stream.payer.require_auth();
+        if stream.stopped {
+            return Err(ContractError::ContractPaused);
+        }
+        stream.accrued_amount = Self::accrue_stream(&env, &stream)?;
+        stream.last_accrual = env.ledger().timestamp();
+        stream.paused = paused;
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
+        Ok(())
+    }
+
+    pub fn stop_stream(env: Env, stream_id: u64) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        let mut stream = Self::stream_or_error(&env, stream_id)?;
+        stream.payer.require_auth();
+        stream.accrued_amount = Self::accrue_stream(&env, &stream)?;
+        stream.last_accrual = env.ledger().timestamp();
+        stream.stopped = true;
+        stream.paused = true;
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
+        Ok(())
+    }
+
+    pub fn update_stream_rate(
+        env: Env,
+        stream_id: u64,
+        rate_per_second: i128,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        if rate_per_second <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+        let mut stream = Self::stream_or_error(&env, stream_id)?;
+        stream.payer.require_auth();
+        if stream.stopped {
+            return Err(ContractError::ContractPaused);
+        }
+        stream.accrued_amount = Self::accrue_stream(&env, &stream)?;
+        stream.last_accrual = env.ledger().timestamp();
+        stream.rate_per_second = rate_per_second;
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
+        Ok(())
     }
 
     pub fn distribute(env: Env, token: Address) -> Result<(), ContractError> {
@@ -4898,6 +5151,636 @@ impl RoyaltySplitter {
             0
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // #982 — Advanced Governance with Voting and Delegation
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Mint governance tokens to an account (#982).
+    /// Mechanics only (token distribution/economics scheme left configurable).
+    pub fn gov_mint(env: Env, to: Address, amount: i128) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        Self::check_admin_auth(&env, "gov_mint: admin authorization required");
+
+        if amount <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+
+        let current_bal: i128 =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovBalance(to.clone())))
+                .unwrap_or(0);
+        let new_bal = current_bal
+            .checked_add(amount)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovBalance(to.clone())),
+            &new_bal,
+        );
+
+        let supply: i128 =
+            storage::instance_get(&env, &StorageKey::Ext(ExtKey::GovTotalSupply)).unwrap_or(0);
+        let new_supply = supply
+            .checked_add(amount)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::GovTotalSupply), &new_supply);
+
+        // If receiver has active delegate, propagate delegated power
+        if let Some(del) = storage::persistent_get::<Address>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(to.clone())),
+        ) {
+            let del_power: i128 = storage::persistent_get(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(del.clone())),
+            )
+            .unwrap_or(0);
+            let new_del_power = del_power
+                .checked_add(amount)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+            storage::persistent_set(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(del)),
+                &new_del_power,
+            );
+        }
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("mint")),
+            (to, amount, new_supply),
+        );
+        Ok(())
+    }
+
+    /// Transfer governance tokens between accounts (#982).
+    /// Adjusts voting power and active delegation balances proportionally.
+    pub fn gov_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        from.require_auth();
+
+        if amount <= 0 {
+            return Err(ContractError::AmountNotPositive);
+        }
+        if from == to {
+            return Err(ContractError::DuplicateRecipient);
+        }
+
+        let from_bal: i128 =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovBalance(from.clone())))
+                .unwrap_or(0);
+        if from_bal < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let new_from_bal = from_bal
+            .checked_sub(amount)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovBalance(from.clone())),
+            &new_from_bal,
+        );
+
+        let to_bal: i128 =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovBalance(to.clone())))
+                .unwrap_or(0);
+        let new_to_bal = to_bal
+            .checked_add(amount)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovBalance(to.clone())),
+            &new_to_bal,
+        );
+
+        // Adjust sender's delegate power if active
+        if let Some(from_del) = storage::persistent_get::<Address>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(from.clone())),
+        ) {
+            let p: i128 = storage::persistent_get(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(from_del.clone())),
+            )
+            .unwrap_or(0);
+            let new_p = p.saturating_sub(amount);
+            storage::persistent_set(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(from_del)),
+                &new_p,
+            );
+        }
+
+        // Adjust receiver's delegate power if active
+        if let Some(to_del) = storage::persistent_get::<Address>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(to.clone())),
+        ) {
+            let p: i128 = storage::persistent_get(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(to_del.clone())),
+            )
+            .unwrap_or(0);
+            let new_p = p
+                .checked_add(amount)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+            storage::persistent_set(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(to_del)),
+                &new_p,
+            );
+        }
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("transfer")),
+            (from, to, amount),
+        );
+        Ok(())
+    }
+
+    /// Check governance token balance of an account (#982).
+    pub fn gov_balance(env: Env, account: Address) -> i128 {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get::<i128>(&env, &StorageKey::Ext(ExtKey::GovBalance(account)))
+            .unwrap_or(0)
+    }
+
+    /// Read total governance token supply (#982).
+    pub fn gov_total_supply(env: Env) -> i128 {
+        storage::extend_instance_ttl(&env);
+        storage::instance_get::<i128>(&env, &StorageKey::Ext(ExtKey::GovTotalSupply)).unwrap_or(0)
+    }
+
+    /// Delegate voting power to another account (#982).
+    /// Tracks delegation chains and explicitly rejects delegations that create cycles (A -> B -> A)
+    /// or exceed maximum delegation depth.
+    pub fn delegate_gov_votes(env: Env, from: Address, to: Address) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        from.require_auth();
+
+        if from == to {
+            return Err(ContractError::GOV_DELEGATION_CYCLE);
+        }
+
+        // Cycle & hop detection: traverse delegation chain from `to`
+        let mut curr = to.clone();
+        for _ in 0..MAX_DELEGATION_HOPS {
+            if curr == from {
+                return Err(ContractError::GOV_DELEGATION_CYCLE);
+            }
+            if let Some(next_del) = storage::persistent_get::<Address>(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegate(curr.clone())),
+            ) {
+                curr = next_del;
+            } else {
+                break;
+            }
+        }
+        if let Some(next_del) = storage::persistent_get::<Address>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(curr.clone())),
+        ) {
+            if next_del == from {
+                return Err(ContractError::GOV_DELEGATION_CYCLE);
+            }
+            return Err(ContractError::GOV_DELEGATION_LIMIT_EXCEEDED);
+        }
+
+        let from_bal = Self::gov_balance(env.clone(), from.clone());
+
+        // Revoke any prior delegation from `from`
+        if let Some(old_del) = storage::persistent_get::<Address>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(from.clone())),
+        ) {
+            let old_power: i128 = storage::persistent_get(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(old_del.clone())),
+            )
+            .unwrap_or(0);
+            let new_old_power = old_power.saturating_sub(from_bal);
+            storage::persistent_set(
+                &env,
+                &StorageKey::Ext(ExtKey::GovDelegatedPower(old_del)),
+                &new_old_power,
+            );
+        }
+
+        // Set new delegate
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(from.clone())),
+            &to,
+        );
+
+        // Add to new delegate's delegated power
+        let target_power: i128 = storage::persistent_get(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegatedPower(to.clone())),
+        )
+        .unwrap_or(0);
+        let new_target_power = target_power
+            .checked_add(from_bal)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegatedPower(to.clone())),
+            &new_target_power,
+        );
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("delegate")),
+            (from, to, from_bal),
+        );
+        Ok(())
+    }
+
+    /// Revoke active delegation at any time (#982).
+    pub fn revoke_gov_delegation(env: Env, from: Address) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        from.require_auth();
+
+        let old_del: Address =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovDelegate(from.clone())))
+                .ok_or(ContractError::CollaboratorNotFound)?;
+
+        let from_bal = Self::gov_balance(env.clone(), from.clone());
+        let old_power: i128 = storage::persistent_get(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegatedPower(old_del.clone())),
+        )
+        .unwrap_or(0);
+        let new_old_power = old_power.saturating_sub(from_bal);
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegatedPower(old_del)),
+            &new_old_power,
+        );
+
+        storage::persistent_remove(&env, &StorageKey::Ext(ExtKey::GovDelegate(from.clone())));
+
+        env.events()
+            .publish((symbol_short!("gov"), symbol_short!("del_rev")), from);
+        Ok(())
+    }
+
+    /// Read active delegate for an account (#982).
+    pub fn get_gov_delegate(env: Env, account: Address) -> Option<Address> {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get::<Address>(&env, &StorageKey::Ext(ExtKey::GovDelegate(account)))
+    }
+
+    /// Read effective voting power for an account (own balance + delegated votes received) (#982).
+    /// If an account has delegated their voting power away, their direct effective power is 0.
+    pub fn get_effective_gov_votes(env: Env, account: Address) -> i128 {
+        storage::extend_instance_ttl(&env);
+        if storage::persistent_get::<Address>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovDelegate(account.clone())),
+        )
+        .is_some()
+        {
+            return 0;
+        }
+
+        let balance = Self::gov_balance(env.clone(), account.clone());
+        let delegated_power: i128 =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovDelegatedPower(account)))
+                .unwrap_or(0);
+        balance.saturating_add(delegated_power)
+    }
+
+    /// Create a governance proposal with a configurable 2-7 day voting period (#982).
+    pub fn create_gov_proposal(
+        env: Env,
+        proposer: Address,
+        action: GovProposalAction,
+        title: String,
+        description: String,
+        voting_period_secs: u64,
+    ) -> Result<u64, ContractError> {
+        storage::extend_instance_ttl(&env);
+        proposer.require_auth();
+
+        let voting_power = Self::get_effective_gov_votes(env.clone(), proposer.clone());
+        let raw_bal = Self::gov_balance(env.clone(), proposer.clone());
+        if voting_power <= 0 && raw_bal <= 0 {
+            return Err(ContractError::GOV_INSUFFICIENT_POWER);
+        }
+
+        if !(MIN_GOV_VOTING_PERIOD..=MAX_GOV_VOTING_PERIOD).contains(&voting_period_secs) {
+            return Err(ContractError::InvalidProposalDuration);
+        }
+
+        // Validate action parameters
+        match &action {
+            GovProposalAction::ChangeRoyaltyRate(rate) => {
+                if *rate == 0 {
+                    return Err(ContractError::RoyaltyRateZero);
+                }
+                if *rate > 10_000 {
+                    return Err(ContractError::RoyaltyRateTooHigh);
+                }
+            }
+            GovProposalAction::SetTokenFeeOverride(_, fee_bps) => {
+                if *fee_bps > 10_000 {
+                    return Err(ContractError::RoyaltyRateTooHigh);
+                }
+            }
+            GovProposalAction::RemoveCollaborator(target) => {
+                let share_map: Map<Address, u32> =
+                    storage::persistent_get(&env, &StorageKey::ShareMap)
+                        .ok_or(ContractError::NoShareMap)?;
+                if !share_map.contains_key(target.clone()) {
+                    return Err(ContractError::CollaboratorNotFound);
+                }
+            }
+            GovProposalAction::AllocateBudget(_, _, amount) => {
+                if *amount <= 0 {
+                    return Err(ContractError::AmountNotPositive);
+                }
+            }
+            _ => {}
+        }
+
+        let now = env.ledger().timestamp();
+        let id: u64 =
+            storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::GovProposalCount))
+                .unwrap_or(0)
+                .checked_add(1)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+
+        let total_supply = Self::gov_total_supply(env.clone());
+        let quorum_votes = if total_supply > 0 {
+            (total_supply.saturating_mul(DEFAULT_QUORUM_BPS as i128) / 10_000).max(1)
+        } else {
+            2_000i128
+        };
+
+        let proposal = GovProposal {
+            id,
+            proposer: proposer.clone(),
+            action: action.clone(),
+            title,
+            description,
+            created_at: now,
+            voting_ends_at: now.saturating_add(voting_period_secs),
+            voting_period_secs,
+            yes_votes: 0,
+            no_votes: 0,
+            quorum_votes,
+            executed: false,
+            rejected: false,
+            executed_at: 0,
+        };
+
+        let mut proposals: Map<u64, GovProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovProposals))
+                .unwrap_or(Map::new(&env));
+        proposals.set(id, proposal);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::GovProposals), &proposals);
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::GovProposalCount), &id);
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("created")),
+            (
+                id,
+                proposer,
+                now.saturating_add(voting_period_secs),
+                quorum_votes,
+            ),
+        );
+        Ok(id)
+    }
+
+    /// Cast a vote on an active governance proposal weighted by effective voting power (#982).
+    pub fn vote_gov_proposal(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+        support: bool,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        voter.require_auth();
+
+        let weight = Self::get_effective_gov_votes(env.clone(), voter.clone());
+        if weight <= 0 {
+            return Err(ContractError::GOV_INSUFFICIENT_POWER);
+        }
+
+        let mut proposals: Map<u64, GovProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovProposals))
+                .ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
+        if proposal.executed || proposal.rejected {
+            return Err(ContractError::GOV_PROPOSAL_EXECUTED);
+        }
+        if env.ledger().timestamp() >= proposal.voting_ends_at {
+            return Err(ContractError::GOV_VOTING_CLOSED);
+        }
+
+        let mut all_votes: Map<u64, Map<Address, bool>> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovProposalVotes))
+                .unwrap_or(Map::new(&env));
+        let mut proposal_votes = all_votes.get(proposal_id).unwrap_or(Map::new(&env));
+
+        if proposal_votes.contains_key(voter.clone()) {
+            return Err(ContractError::GOV_ALREADY_VOTED);
+        }
+
+        proposal_votes.set(voter.clone(), support);
+        all_votes.set(proposal_id, proposal_votes);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::GovProposalVotes), &all_votes);
+
+        if support {
+            proposal.yes_votes = proposal
+                .yes_votes
+                .checked_add(weight)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+        } else {
+            proposal.no_votes = proposal
+                .no_votes
+                .checked_add(weight)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+        }
+
+        proposals.set(proposal_id, proposal);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::GovProposals), &proposals);
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("voted")),
+            (proposal_id, voter, support, weight),
+        );
+        Ok(())
+    }
+
+    /// Permissionless execution of an approved governance proposal once voting ends (#982).
+    /// Enforces quorum (>=20% total supply) and simple majority (>50% votes cast).
+    pub fn execute_gov_proposal(env: Env, proposal_id: u64) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+
+        let mut proposals: Map<u64, GovProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovProposals))
+                .ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
+        if proposal.executed || proposal.rejected {
+            return Err(ContractError::GOV_PROPOSAL_EXECUTED);
+        }
+
+        let now = env.ledger().timestamp();
+        if now < proposal.voting_ends_at {
+            return Err(ContractError::GOV_VOTING_STILL_OPEN);
+        }
+
+        let total_votes = proposal.yes_votes.saturating_add(proposal.no_votes);
+        let meets_quorum = total_votes >= proposal.quorum_votes;
+        let meets_majority =
+            proposal.yes_votes > proposal.no_votes && proposal.yes_votes > (total_votes / 2);
+
+        if !meets_quorum || !meets_majority {
+            proposal.rejected = true;
+            proposals.set(proposal_id, proposal.clone());
+            storage::persistent_set(&env, &StorageKey::Ext(ExtKey::GovProposals), &proposals);
+            env.events().publish(
+                (symbol_short!("gov"), symbol_short!("rejected")),
+                (proposal_id, proposal.yes_votes, proposal.no_votes),
+            );
+            return Ok(());
+        }
+
+        // Execute action conservatively
+        match &proposal.action {
+            GovProposalAction::ChangeRoyaltyRate(rate) => {
+                Self::set_royalty_rate_value(&env, *rate)?;
+            }
+            GovProposalAction::SetTokenFeeOverride(token, fee_bps) => {
+                storage::instance_set(
+                    &env,
+                    &StorageKey::Ext(ExtKey::TokenFeeOverride(token.clone())),
+                    fee_bps,
+                );
+                env.events().publish(
+                    (symbol_short!("royalty"), symbol_short!("fee_ovr")),
+                    (token.clone(), *fee_bps),
+                );
+            }
+            GovProposalAction::PauseContract => {
+                storage::instance_set(&env, &StorageKey::Paused, &true);
+                env.events()
+                    .publish((symbol_short!("royalty"), symbol_short!("paused")), ());
+            }
+            GovProposalAction::UnpauseContract => {
+                storage::instance_set(&env, &StorageKey::Paused, &false);
+                env.events()
+                    .publish((symbol_short!("royalty"), symbol_short!("unpaused")), ());
+            }
+            GovProposalAction::RemoveCollaborator(target) => {
+                let collaborators: Vec<Address> =
+                    storage::persistent_get(&env, &StorageKey::Collaborators)
+                        .ok_or(ContractError::NoCollaborators)?;
+                let mut share_map: Map<Address, u32> =
+                    storage::persistent_get(&env, &StorageKey::ShareMap)
+                        .ok_or(ContractError::NoShareMap)?;
+
+                let target_share = share_map
+                    .get(target.clone())
+                    .ok_or(ContractError::CollaboratorNotFound)?;
+                share_map.remove(target.clone());
+
+                let mut new_collabs = Vec::new(&env);
+                for c in collaborators.iter() {
+                    if &c != target {
+                        new_collabs.push_back(c);
+                    }
+                }
+
+                if new_collabs.is_empty() {
+                    return Err(ContractError::EmptyCollaborators);
+                }
+
+                // Reassign target_share to the first remaining collaborator (the admin)
+                let first_admin = new_collabs.get(0).unwrap();
+                let current_first_share = share_map.get(first_admin.clone()).unwrap_or(0);
+                let new_first_share = current_first_share
+                    .checked_add(target_share)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+                share_map.set(first_admin, new_first_share);
+
+                storage::persistent_set(&env, &StorageKey::Collaborators, &new_collabs);
+                storage::persistent_set(&env, &StorageKey::ShareMap, &share_map);
+
+                env.events().publish(
+                    (symbol_short!("royalty"), symbol_short!("col_rem")),
+                    (target.clone(), target_share),
+                );
+            }
+            GovProposalAction::AllocateBudget(token, recipient, amount) => {
+                let token_client = token::Client::new(&env, token);
+                let balance = token_client.balance(&env.current_contract_address());
+                if balance < *amount {
+                    return Err(ContractError::InsufficientBalance);
+                }
+                token_client.transfer(&env.current_contract_address(), recipient, amount);
+                env.events().publish(
+                    (symbol_short!("gov"), symbol_short!("budget")),
+                    (token.clone(), recipient.clone(), *amount),
+                );
+            }
+        }
+
+        proposal.executed = true;
+        proposal.executed_at = now;
+        proposals.set(proposal_id, proposal.clone());
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::GovProposals), &proposals);
+
+        env.events().publish(
+            (symbol_short!("gov"), symbol_short!("executed")),
+            (proposal_id, proposal.yes_votes),
+        );
+        Ok(())
+    }
+
+    /// Read governance proposal by id (#982).
+    pub fn get_gov_proposal(env: Env, proposal_id: u64) -> Result<GovProposal, ContractError> {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get::<Map<u64, GovProposal>>(
+            &env,
+            &StorageKey::Ext(ExtKey::GovProposals),
+        )
+        .ok_or(ContractError::ProposalNotFound)?
+        .get(proposal_id)
+        .ok_or(ContractError::ProposalNotFound)
+    }
+
+    /// Check if account has voted on proposal (#982).
+    pub fn has_voted_gov_proposal(env: Env, proposal_id: u64, voter: Address) -> bool {
+        storage::extend_instance_ttl(&env);
+        let all_votes: Map<u64, Map<Address, bool>> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::GovProposalVotes))
+                .unwrap_or(Map::new(&env));
+        all_votes
+            .get(proposal_id)
+            .map(|m| m.contains_key(voter))
+            .unwrap_or(false)
+    }
+
+    /// Read total governance proposal count (#982).
+    pub fn get_gov_proposal_count(env: Env) -> u64 {
+        storage::extend_instance_ttl(&env);
+        storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::GovProposalCount)).unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -6186,5 +7069,558 @@ mod oracle_tests {
             Err(Ok(ContractError::NoBalance))
         );
         assert_eq!(client.get_royalty_rate(), 500);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Advanced Governance tests (#982)
+// ─────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod advanced_governance_tests {
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
+
+    fn create_token(env: &Env) -> (Address, StellarAssetClient<'_>, TokenClient<'_>) {
+        let admin = Address::generate(env);
+        let token = env.register_stellar_asset_contract(admin);
+        let asset_client = StellarAssetClient::new(env, &token);
+        let token_client = TokenClient::new(env, &token);
+        (token, asset_client, token_client)
+    }
+
+    fn setup_gov(
+        env: &Env,
+    ) -> (
+        Address,
+        Address,
+        Address,
+        Address,
+        RoyaltySplitterClient<'_>,
+    ) {
+        let admin = Address::generate(env);
+        let collab_a = Address::generate(env);
+        let collab_b = Address::generate(env);
+
+        let contract_id = env.register_contract(None, RoyaltySplitter);
+        let client = RoyaltySplitterClient::new(env, &contract_id);
+
+        let collabs = Vec::from_array(env, [collab_a.clone(), collab_b.clone()]);
+        let shares = Vec::from_array(env, [6_000u32, 4_000u32]);
+
+        client.initialize(&collabs, &shares);
+
+        (contract_id, admin, collab_a, collab_b, client)
+    }
+
+    #[test]
+    fn test_gov_token_mint_transfer_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        assert_eq!(client.gov_total_supply(), 0);
+        assert_eq!(client.gov_balance(&alice), 0);
+        assert_eq!(client.gov_balance(&bob), 0);
+
+        // Mint tokens to Alice and Bob
+        client.gov_mint(&alice, &1_000);
+        client.gov_mint(&bob, &500);
+
+        assert_eq!(client.gov_balance(&alice), 1_000);
+        assert_eq!(client.gov_balance(&bob), 500);
+        assert_eq!(client.gov_total_supply(), 1_500);
+
+        // Transfer from Alice to Bob
+        client.gov_transfer(&alice, &bob, &300);
+        assert_eq!(client.gov_balance(&alice), 700);
+        assert_eq!(client.gov_balance(&bob), 800);
+        assert_eq!(client.gov_total_supply(), 1_500);
+
+        // Failure cases
+        assert_eq!(
+            client.try_gov_mint(&alice, &0),
+            Err(Ok(ContractError::AmountNotPositive))
+        );
+        assert_eq!(
+            client.try_gov_transfer(&alice, &bob, &1_000),
+            Err(Ok(ContractError::InsufficientBalance))
+        );
+        assert_eq!(
+            client.try_gov_transfer(&alice, &bob, &-50),
+            Err(Ok(ContractError::AmountNotPositive))
+        );
+    }
+
+    #[test]
+    fn test_gov_delegation_power_and_revocation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+        client.gov_mint(&bob, &500);
+
+        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 500);
+
+        // Alice delegates to Bob
+        client.delegate_gov_votes(&alice, &bob);
+        assert_eq!(client.get_gov_delegate(&alice), Some(bob.clone()));
+        assert_eq!(client.get_effective_gov_votes(&alice), 0);
+        assert_eq!(client.get_effective_gov_votes(&bob), 1_500);
+
+        // Alice revokes delegation
+        client.revoke_gov_delegation(&alice);
+        assert_eq!(client.get_gov_delegate(&alice), None);
+        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 500);
+    }
+
+    #[test]
+    fn test_gov_delegation_cycle_prevention() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, alice, bob, client) = setup_gov(&env);
+        let charlie = Address::generate(&env);
+
+        client.gov_mint(&alice, &1_000);
+        client.gov_mint(&bob, &500);
+        client.gov_mint(&charlie, &200);
+
+        // Self-delegation rejection
+        assert_eq!(
+            client.try_delegate_gov_votes(&alice, &alice),
+            Err(Ok(ContractError::GOV_DELEGATION_CYCLE))
+        );
+
+        // Direct cycle rejection: A -> B, then B -> A
+        client.delegate_gov_votes(&alice, &bob);
+        assert_eq!(
+            client.try_delegate_gov_votes(&bob, &alice),
+            Err(Ok(ContractError::GOV_DELEGATION_CYCLE))
+        );
+
+        // Transitive cycle rejection: A -> B -> C, then C -> A
+        client.revoke_gov_delegation(&alice);
+        client.delegate_gov_votes(&alice, &bob);
+        client.delegate_gov_votes(&bob, &charlie);
+        assert_eq!(
+            client.try_delegate_gov_votes(&charlie, &alice),
+            Err(Ok(ContractError::GOV_DELEGATION_CYCLE))
+        );
+    }
+
+    #[test]
+    fn test_gov_proposal_lifecycle_change_royalty_rate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+        client.gov_mint(&bob, &500);
+
+        let action = GovProposalAction::ChangeRoyaltyRate(800);
+        let title = String::from_str(&env, "Increase Royalty Rate");
+        let desc = String::from_str(&env, "Set royalty rate to 8%");
+        let duration = DEFAULT_GOV_VOTING_PERIOD; // 3 days = 259,200s
+
+        let prop_id = client.create_gov_proposal(&alice, &action, &title, &desc, &duration);
+        assert_eq!(prop_id, 1);
+        assert_eq!(client.get_gov_proposal_count(), 1);
+
+        let prop = client.get_gov_proposal(&prop_id);
+        assert_eq!(prop.id, 1);
+        assert_eq!(prop.proposer, alice);
+        assert_eq!(prop.quorum_votes, 300); // 20% of 1500 = 300
+        assert_eq!(prop.voting_ends_at, 10_000 + duration);
+        assert!(!prop.executed);
+        assert!(!prop.rejected);
+
+        // Alice votes Yes (1,000 votes)
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+        assert!(client.has_voted_gov_proposal(&prop_id, &alice));
+        assert!(!client.has_voted_gov_proposal(&prop_id, &bob));
+
+        // Advance past voting deadline
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + duration + 1);
+
+        // Execute proposal
+        client.execute_gov_proposal(&prop_id);
+
+        let updated_prop = client.get_gov_proposal(&prop_id);
+        assert!(updated_prop.executed);
+        assert_eq!(client.get_royalty_rate(), 800);
+    }
+
+    #[test]
+    fn test_gov_proposal_lifecycle_set_token_fee_override() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, bob, client) = setup_gov(&env);
+        let token = Address::generate(&env);
+
+        client.gov_mint(&alice, &1_000);
+        client.gov_mint(&bob, &500);
+
+        let action = GovProposalAction::SetTokenFeeOverride(token.clone(), 250);
+        let title = String::from_str(&env, "Set Fee Override");
+        let desc = String::from_str(&env, "Override fee to 2.5%");
+
+        let prop_id =
+            client.create_gov_proposal(&alice, &action, &title, &desc, &DEFAULT_GOV_VOTING_PERIOD);
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop_id);
+
+        let prop = client.get_gov_proposal(&prop_id);
+        assert!(prop.executed);
+        assert_eq!(client.get_token_fee_override(&token), Some(250));
+    }
+
+    #[test]
+    fn test_gov_proposal_lifecycle_pause_and_unpause() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, _, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        // Proposal 1: Pause Contract
+        let prop1 = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::PauseContract,
+            &String::from_str(&env, "Pause"),
+            &String::from_str(&env, "Pause contract"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+        client.vote_gov_proposal(&alice, &prop1, &true);
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop1);
+        assert!(client.is_paused());
+
+        // Proposal 2: Unpause Contract
+        let current_time = env.ledger().timestamp();
+        let prop2 = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::UnpauseContract,
+            &String::from_str(&env, "Unpause"),
+            &String::from_str(&env, "Unpause contract"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+        client.vote_gov_proposal(&alice, &prop2, &true);
+        env.ledger()
+            .with_mut(|l| l.timestamp = current_time + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop2);
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    fn test_gov_proposal_lifecycle_remove_collaborator() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        assert_eq!(client.get_collaborators().len(), 2);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::RemoveCollaborator(bob.clone()),
+            &String::from_str(&env, "Remove Bob"),
+            &String::from_str(&env, "Remove Bob from collaborators"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop_id);
+
+        let collabs = client.get_collaborators();
+        assert_eq!(collabs.len(), 1);
+        assert_eq!(collabs.get(0).unwrap(), alice);
+        assert_eq!(client.get_share(&alice), 10_000);
+    }
+
+    #[test]
+    fn test_gov_proposal_lifecycle_allocate_budget() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (contract_id, _, alice, _, client) = setup_gov(&env);
+        let (token, asset_client, token_client) = create_token(&env);
+        let grant_recipient = Address::generate(&env);
+
+        // Fund contract with 5,000 units of token
+        asset_client.mint(&contract_id, &5_000);
+        assert_eq!(token_client.balance(&contract_id), 5_000);
+        assert_eq!(token_client.balance(&grant_recipient), 0);
+
+        client.gov_mint(&alice, &1_000);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::AllocateBudget(token.clone(), grant_recipient.clone(), 2_000),
+            &String::from_str(&env, "Grant Budget"),
+            &String::from_str(&env, "Allocate 2,000 tokens to community grant"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop_id);
+
+        assert_eq!(token_client.balance(&grant_recipient), 2_000);
+        assert_eq!(token_client.balance(&contract_id), 3_000);
+    }
+
+    #[test]
+    fn test_gov_boundary_exact_quorum_threshold() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        // Total supply = 1,000. Quorum is exactly 200 (20%).
+        client.gov_mint(&alice, &200);
+        client.gov_mint(&bob, &800);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Quorum Test"),
+            &String::from_str(&env, "Test boundary"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+
+        // Alice votes with exactly 200 votes (meets quorum)
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop_id);
+
+        let prop = client.get_gov_proposal(&prop_id);
+        assert!(prop.executed);
+        assert!(!prop.rejected);
+    }
+
+    #[test]
+    fn test_gov_boundary_voting_period_edge() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &500);
+        client.gov_mint(&bob, &500);
+
+        let duration = DEFAULT_GOV_VOTING_PERIOD;
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Edge Test"),
+            &String::from_str(&env, "Voting period edge"),
+            &duration,
+        );
+
+        let deadline = 10_000 + duration;
+
+        // Exactly 1s before close: vote succeeds
+        env.ledger().with_mut(|l| l.timestamp = deadline - 1);
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        // Exactly at deadline: voting is closed
+        env.ledger().with_mut(|l| l.timestamp = deadline);
+        assert_eq!(
+            client.try_vote_gov_proposal(&bob, &prop_id, &true),
+            Err(Ok(ContractError::GOV_VOTING_CLOSED))
+        );
+    }
+
+    #[test]
+    fn test_gov_boundary_zero_votes_rejects() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, _, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Zero Votes"),
+            &String::from_str(&env, "No one votes"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+
+        // Advance time with 0 votes
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+
+        // Execution should cleanly reject (terminal state)
+        client.execute_gov_proposal(&prop_id);
+
+        let prop = client.get_gov_proposal(&prop_id);
+        assert!(!prop.executed);
+        assert!(prop.rejected);
+    }
+
+    #[test]
+    fn test_gov_failure_double_voting() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, _, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Double Vote"),
+            &String::from_str(&env, "Test double vote"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+        assert_eq!(
+            client.try_vote_gov_proposal(&alice, &prop_id, &true),
+            Err(Ok(ContractError::GOV_ALREADY_VOTED))
+        );
+    }
+
+    #[test]
+    fn test_gov_failure_executing_before_period_ends() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, _, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Early Exec"),
+            &String::from_str(&env, "Test early execution"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        // Execution attempt while voting is still open
+        assert_eq!(
+            client.try_execute_gov_proposal(&prop_id),
+            Err(Ok(ContractError::GOV_VOTING_STILL_OPEN))
+        );
+    }
+
+    #[test]
+    fn test_gov_failure_executing_twice() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, _, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Double Exec"),
+            &String::from_str(&env, "Test double execution"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+        client.vote_gov_proposal(&alice, &prop_id, &true);
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = 10_000 + DEFAULT_GOV_VOTING_PERIOD + 1);
+        client.execute_gov_proposal(&prop_id);
+
+        // Second execution attempt
+        assert_eq!(
+            client.try_execute_gov_proposal(&prop_id),
+            Err(Ok(ContractError::GOV_PROPOSAL_EXECUTED))
+        );
+    }
+
+    #[test]
+    fn test_gov_failure_unauthorized_proposer_and_voter() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, alice, bob, client) = setup_gov(&env);
+
+        // Bob has 0 tokens
+        assert_eq!(
+            client.try_create_gov_proposal(
+                &bob,
+                &GovProposalAction::ChangeRoyaltyRate(500),
+                &String::from_str(&env, "Title"),
+                &String::from_str(&env, "Desc"),
+                &DEFAULT_GOV_VOTING_PERIOD,
+            ),
+            Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
+        );
+
+        // Alice mints tokens and creates proposal
+        client.gov_mint(&alice, &1_000);
+        let prop_id = client.create_gov_proposal(
+            &alice,
+            &GovProposalAction::ChangeRoyaltyRate(500),
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "Desc"),
+            &DEFAULT_GOV_VOTING_PERIOD,
+        );
+
+        // Bob has 0 voting power
+        assert_eq!(
+            client.try_vote_gov_proposal(&bob, &prop_id, &true),
+            Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
+        );
+    }
+
+    #[test]
+    fn test_gov_failure_invalid_duration() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, alice, _, client) = setup_gov(&env);
+
+        client.gov_mint(&alice, &1_000);
+
+        // Too short (< 2 days)
+        assert_eq!(
+            client.try_create_gov_proposal(
+                &alice,
+                &GovProposalAction::ChangeRoyaltyRate(500),
+                &String::from_str(&env, "Title"),
+                &String::from_str(&env, "Desc"),
+                &86_400, // 1 day
+            ),
+            Err(Ok(ContractError::InvalidProposalDuration))
+        );
+
+        // Too long (> 7 days)
+        assert_eq!(
+            client.try_create_gov_proposal(
+                &alice,
+                &GovProposalAction::ChangeRoyaltyRate(500),
+                &String::from_str(&env, "Title"),
+                &String::from_str(&env, "Desc"),
+                &700_000,
+            ),
+            Err(Ok(ContractError::InvalidProposalDuration))
+        );
     }
 }

@@ -2,6 +2,7 @@ import express from "express";
 import logger from "../logger.js";
 import { sendError } from "../error-response.js";
 import { validateStellarAddress } from "../validation.js";
+import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   getContributorContracts,
   getContributorEarningsEvents,
@@ -107,6 +108,12 @@ router.get("/earnings-history/:walletAddress", (req, res) => {
       ? contracts.split(",").map((id) => id.trim()).filter(Boolean)
       : null;
 
+    const cKey = cacheKey("earningsHistory", walletAddress, startDate.toISOString(), endDate.toISOString(), contracts || "all");
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const snapshots = getContributorEarningsHistory(
       walletAddress,
       startDate.toISOString(),
@@ -116,7 +123,7 @@ router.get("/earnings-history/:walletAddress", (req, res) => {
     const events = getContributorEarningsEvents(walletAddress);
     const availableContracts = getContributorContracts(walletAddress);
 
-    res.json({
+    const result = {
       success: true,
       data: {
         walletAddress,
@@ -124,7 +131,10 @@ router.get("/earnings-history/:walletAddress", (req, res) => {
         events,
         contracts: availableContracts,
       },
-    });
+    };
+
+    cacheSet(cKey, result, 60_000); // 60s TTL
+    res.json(result);
   } catch (error) {
     logger.error("Earnings history error:", error);
     sendError(res, 500, "earnings_history_failed", "Failed to load earnings history");

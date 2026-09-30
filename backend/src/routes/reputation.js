@@ -16,6 +16,7 @@ import { Router } from "express";
 import logger from "../logger.js";
 import { sendError } from "../error-response.js";
 import { parsePagination } from "../validation.js";
+import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   getReputationDetails,
   getTopCollaborators,
@@ -69,12 +70,20 @@ reputationRouter.get("/:walletAddress", (req, res, next) => {
       return sendError(res, 400, "invalid_stellar_address", "Invalid Stellar address format");
     }
 
-    const reputation = getReputationDetails(walletAddress);
+    const cKey = cacheKey("reputation:details", walletAddress);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
 
-    return res.json({
+    const reputation = getReputationDetails(walletAddress);
+    const responsePayload = {
       success: true,
       data: reputation,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000); // 60s TTL
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -90,12 +99,20 @@ reputationRouter.get("/leaderboard/top", (req, res, next) => {
       return sendError(res, 400, "invalid_limit", "Limit must be between 1 and 100");
     }
 
-    const topCollaborators = getTopCollaborators(limit);
+    const cKey = cacheKey("reputation:leaderboard:top", limit);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
 
-    return res.json({
+    const topCollaborators = getTopCollaborators(limit);
+    const responsePayload = {
       success: true,
       data: topCollaborators,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -119,10 +136,16 @@ reputationRouter.get("/tier/:tier", (req, res, next) => {
     const pagination = parsePagination(req.query, res);
     if (!pagination) return;
 
+    const cKey = cacheKey("reputation:tier", tier, pagination.limit, pagination.offset);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const collaborators = getCollaboratorsByTier(tier, pagination.limit, pagination.offset);
     const total = countCollaboratorsByTier(tier);
 
-    return res.json({
+    const responsePayload = {
       success: true,
       data: collaborators,
       pagination: {
@@ -130,7 +153,10 @@ reputationRouter.get("/tier/:tier", (req, res, next) => {
         limit: pagination.limit,
         offset: pagination.offset,
       },
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -140,12 +166,20 @@ reputationRouter.get("/tier/:tier", (req, res, next) => {
 
 reputationRouter.get("/statistics", (req, res, next) => {
   try {
-    const statistics = getReputationStatistics();
+    const cKey = cacheKey("reputation:statistics");
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
 
-    return res.json({
+    const statistics = getReputationStatistics();
+    const responsePayload = {
       success: true,
       data: statistics,
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 60_000);
+    return res.json(responsePayload);
   } catch (err) {
     next(err);
   }
