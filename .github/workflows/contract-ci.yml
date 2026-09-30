@@ -9,6 +9,7 @@ on:
       - "benches/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "solidity/**"
       - ".github/workflows/contract-ci.yml"
   push:
     branches: [dev]
@@ -18,6 +19,7 @@ on:
       - "benches/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "solidity/**"
       - ".github/workflows/contract-ci.yml"
 
 jobs:
@@ -195,3 +197,25 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --locked --features testutils test_storage_snapshot -- --nocapture
         continue-on-error: false
+
+  solidity-test:
+    name: Solidity Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: solidity/package-lock.json
+
+      - name: Install Solidity dependencies
+        working-directory: solidity
+        run: npm ci
+
+      - name: Run Solidity tests
+        working-directory: solidity
+        run: npm test

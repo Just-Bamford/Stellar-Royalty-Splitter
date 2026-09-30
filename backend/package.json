@@ -14,7 +14,8 @@
     "test:fuzz": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.fuzz.config.js",
     "bench": "node benchmarks/index.js",
     "bench:ci": "node benchmarks/index.js --repeat 3",
-    "bench:compare": "node benchmarks/compare.js"
+    "bench:compare": "node benchmarks/compare.js",
+    "monitor": "node src/monitoring/metrics-collector.js"
   },
   "jest": {
     "testEnvironment": "node",
@@ -47,6 +48,8 @@
   "dependencies": {
     "@apollo/server": "^4.10.0",
     "@graphql-tools/schema": "^10.0.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/post-quantum": "^0.7.1",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/auto-instrumentations-node": "0.57.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.57.0",

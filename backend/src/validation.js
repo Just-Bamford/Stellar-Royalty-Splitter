@@ -1,4 +1,4 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 import { sendError, sendValidationError } from "./error-response.js";
 import { isValidStellarAccountAddress } from "../../shared/stellar-address.js";
 
@@ -543,3 +543,139 @@ export const executeBatchSchema = z.object({
     tokenId: contractAddress,
   })).min(1, "items array must contain at least one entry").max(50, "items array must not exceed 50 entries per batch"),
 });
+
+// ── Rights Management Schemas ──────────────────────────────────────────────────
+
+export const createRightSchema = z.object({
+  contractId: contractAddress,
+  rightType: z.enum(["composition", "performance", "mechanical", "sync"]),
+  ownerAddress: stellarAddress,
+  percentage: z.number().min(0).max(100),
+  licenseTerms: z.enum(["commercial", "personal", "non-commercial"]).optional().default("commercial"),
+  effectiveDate: z.string().optional().nullable(),
+  expirationDate: z.string().optional().nullable(),
+});
+
+export const updateRightSchema = z.object({
+  rightType: z.enum(["composition", "performance", "mechanical", "sync"]).optional(),
+  percentage: z.number().min(0).max(100).optional(),
+  licenseTerms: z.enum(["commercial", "personal", "non-commercial"]).optional(),
+  effectiveDate: z.string().optional().nullable(),
+  expirationDate: z.string().optional().nullable(),
+});
+
+export const setRightsMetadataSchema = z.object({
+  ddex: z.object({
+    iswc: z.string().optional().nullable(),
+    isrc: z.string().optional().nullable(),
+    partyId: z.string().optional().nullable(),
+    territory: z.string().optional().nullable(),
+    musicalWorkId: z.string().optional().nullable(),
+    resourceType: z.string().optional().nullable(),
+  }).optional().nullable(),
+  iso20022: z.object({
+    messageIdentifier: z.string().optional().nullable(),
+    businessService: z.string().optional().nullable(),
+    financialInstrument: z.string().optional().nullable(),
+    paymentContext: z.string().optional().nullable(),
+  }).optional().nullable(),
+  customFields: z.record(z.any()).optional().nullable(),
+});
+
+export const submitProofSchema = z.object({
+  documentName: z.string().min(1),
+  documentType: z.enum(["contract", "copyright_cert", "split_sheet", "other"]),
+  documentUrl: z.string().url("Must be a valid URL"),
+  documentHash: z.string().optional().nullable(),
+  ownerAddress: stellarAddress.optional(),
+});
+
+export const verifyOwnershipSchema = z.object({
+  proofId: z.number().int().optional().nullable(),
+  approved: z.boolean(),
+  verifierAddress: z.string().optional().default("admin"),
+  verifierNotes: z.string().optional(),
+});
+
+export const linkRightDisputeSchema = z.object({
+  ticketId: z.string().min(1),
+  notes: z.string().optional(),
+});
+
+// ── DAO Treasury Management Schemas (#1076) ───────────────────────────────────
+
+export const treasuryCategorySchema = z.object({
+  name: z.string().min(1).max(64),
+  description: z.string().max(500).optional().nullable(),
+  percentage: z.number().min(0).max(100),
+});
+
+export const treasurySetCategoriesSchema = z
+  .object({
+    categories: z.array(treasuryCategorySchema).min(1).max(50),
+  })
+  .superRefine((d, ctx) => {
+    const total = d.categories.reduce((sum, category) => sum + category.percentage, 0);
+    if (Math.abs(total - 100) > 0.01) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categories"],
+        message: `Category percentages must sum to 100 (got ${Math.round(total * 100) / 100})`,
+      });
+    }
+    const names = d.categories.map((category) => category.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categories"],
+        message: "Duplicate category names are not allowed",
+      });
+    }
+  });
+
+// Omit `category`/`categoryId` to contribute to the general treasury pool,
+// which is split across categories by their configured percentages.
+export const treasuryAllocationSchema = z.object({
+  category: z.string().min(1).max(64).optional().nullable(),
+  categoryId: z.number().int().positive().optional().nullable(),
+  amount: z.number().finite().positive("Allocation amount must be positive"),
+  period: z.string().min(1).max(32).optional().default("all-time"),
+  note: z.string().max(500).optional().nullable(),
+});
+
+export const treasuryExpenseSchema = z
+  .object({
+    category: z.string().min(1).max(64).optional(),
+    categoryId: z.number().int().positive().optional(),
+    amount: z.number().finite().positive("Expense amount must be positive"),
+    description: z.string().min(1).max(500),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be formatted as YYYY-MM-DD")
+      .optional(),
+    requiresApproval: z.boolean().optional(),
+    receiptCid: z.string().max(256).optional().nullable(),
+    receiptUrl: z.string().url("receiptUrl must be a valid URL").optional().nullable(),
+    receiptName: z.string().max(256).optional().nullable(),
+    receiptHash: z.string().max(256).optional().nullable(),
+  })
+  .refine((d) => d.category != null || d.categoryId != null, {
+    message: "Either category (name) or categoryId is required",
+  });
+
+export const treasuryApprovalSchema = z.object({
+  approver: z.string().min(1).max(128).optional(),
+  notes: z.string().max(500).optional().nullable(),
+});
+
+export const treasuryReceiptSchema = z
+  .object({
+    ipfsCid: z.string().min(1).max(256).optional().nullable(),
+    url: z.string().url("url must be a valid URL").optional().nullable(),
+    fileName: z.string().min(1).max(256).optional().nullable(),
+    documentHash: z.string().max(256).optional().nullable(),
+  })
+  .refine((d) => d.ipfsCid != null || d.url != null, {
+    message: "Either ipfsCid or url is required",
+  });
+

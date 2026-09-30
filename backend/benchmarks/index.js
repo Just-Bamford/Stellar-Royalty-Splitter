@@ -7,6 +7,7 @@
  *   node benchmarks/index.js --filter validation      # one group
  *   node benchmarks/index.js --quick                  # 1/10 iterations
  *   node benchmarks/index.js --label "pr-1234"        # tag the result set
+ *   node benchmarks/index.js --dashboard              # dashboard chart data
  *
  * Run via `npm run bench` from backend/.
  */
@@ -15,6 +16,7 @@ import { runAll, runBest, buildReport, writeReport, formatTable } from "./runner
 import validationScenarios from "./scenarios/validation.bench.js";
 import serializationScenarios from "./scenarios/serialization.bench.js";
 import httpScenarios from "./scenarios/http.bench.js";
+import dashboardScenarios from "./scenarios/dashboard.bench.js";
 
 const SCENARIOS = [...validationScenarios, ...serializationScenarios, ...httpScenarios];
 
@@ -38,6 +40,9 @@ function parseArgs(argv) {
       case "--quick":
         args.quick = true;
         break;
+      case "--dashboard":
+        args.dashboard = true;
+        break;
       case "--help":
       case "-h":
         args.help = true;
@@ -58,6 +63,7 @@ Usage: node benchmarks/index.js [options]
   --label <text>    Tag the result set (e.g. a PR number or commit sha)
   --repeat <n>      Run the suite n times and keep each scenario's best pass
   --quick           Run 1/10 of the configured iterations
+  --dashboard       Include dashboard chart data benchmarks
   -h, --help        Show this message
 
 Groups: validation, serialization, http
@@ -71,6 +77,10 @@ async function main() {
     return;
   }
 
+  const scenarios = args.dashboard
+    ? [...SCENARIOS, ...dashboardScenarios]
+    : SCENARIOS;
+
   process.stderr.write(
     `Running ${args.filter ? `"${args.filter}" ` : ""}benchmarks` +
       `${args.quick ? " (quick mode)" : ""}…\n`
@@ -78,12 +88,12 @@ async function main() {
 
   const results =
     args.repeat > 1
-      ? await runBest(SCENARIOS, {
+      ? await runBest(scenarios, {
           filter: args.filter,
           quick: args.quick,
           repeat: args.repeat,
         })
-      : await runAll(SCENARIOS, { filter: args.filter, quick: args.quick });
+      : await runAll(scenarios, { filter: args.filter, quick: args.quick });
   const report = buildReport(results, { label: args.label });
 
   process.stdout.write(`\n${formatTable(results)}\n`);

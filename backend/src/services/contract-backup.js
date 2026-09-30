@@ -34,7 +34,7 @@ import {
   pruneOldBackups,
   getIsoWeek,
   getContractsWithBackups,
-} from "../database/index.js";
+} from "../database/backups.js";
 import { db } from "../database/core.js";
 import { addAuditLog } from "../database/index.js";
 import logger from "../logger.js";
