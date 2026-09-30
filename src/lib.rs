@@ -1,5 +1,6 @@
 use soroban_sdk::unwrap::UnwrapOptimized;
 pub mod auth;
+pub mod multisig;
 mod storage;
 
 #[cfg(test)]

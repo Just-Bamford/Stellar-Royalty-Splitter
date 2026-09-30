@@ -67,7 +67,7 @@ Closes #1042
 - [x] Integration tests added/updated (route contract via supertest + mocked service)
 - [x] Tested on Node 20.x (local Node v20.20.0)
 - [ ] Tested on Node 22.x
-- [x] Manual testing completed (Python-free; scoring engine exercised directly)
+- [x] Manual testing completed (scoring engine exercised directly; no Python dep)
 
 ### Test results
 
@@ -116,29 +116,28 @@ N/A — backend/API only.
   `timingSafeEqual`); raw tokens are never persisted.
 - `getAlerts` is indexed by `(userId, createdAt DESC)` and
   `(status, createdAt DESC)` so admin queries are cheap.
-- `readLimiter` (30 req/min per IP) guards the alert endpoints; write-heavy
-  `/resolve` and `/verify` are also covered by this limiter.
+- `readLimiter` (30 req/min per IP) guards the alert endpoints; write endpoints
+  (`/resolve`, `/verify`) are covered by the same limiter.
 
 ## Migration Guide (if breaking changes)
 
-No breaking changes. Three new tables are created idempotently
+No breaking changes. Four new tables are created idempotently
 (`CREATE TABLE IF NOT EXISTS`) on service load, so no manual migration step is
 required. Existing endpoints, contracts, and transactions are unaffected.
 
 ```diff
-+ POST/GET  /api/v1/security/fraud-alerts            # list / create (read-only)
-+ GET       /api/v1/security/fraud-alerts/:id          # detail
-+ POST      /api/v1/security/fraud-alerts/:id/resolve  # approve | block  [admin]
-+ POST      /api/v1/security/fraud-alerts/:id/verify   # submit 2FA/email token [user]
++ GET  /api/v1/security/fraud-alerts            # list alerts (filter: userId, status)
++ GET  /api/v1/security/fraud-alerts/:id        # alert detail
++ POST /api/v1/security/fraud-alerts/:id/resolve # approve | block  [admin]
++ POST /api/v1/security/fraud-alerts/:id/verify  # submit 2FA/email token [user]
 + DB tables: fraud_baselines, fraud_scores, fraud_alerts, fraud_verification_tokens
 ```
 
 ## Additional Context
 
-- This is **backend Chunk 1 of 2** for #1042; a frontend dashboard for
-  reviewing alerts is tracked separately as Chunk 2.
-- In scope: anomaly detection, scoring, fraud alerts, verification flow.
 - Out of scope: third-party fraud-service integration (future work).
+- The pure scoring engine is `anomaly-scorer.js` (no I/O) so it can be unit-tested
+  and reused by other call sites (e.g. the distribute path) without a DB.
 - The working copy's `backend/src/index.js` previously contained pre-existing
   `no-undef` references to sibling issues #991 / #993
   (`schedulesRouter`, `batchRouter`, `identityRouter`, `backupRouter`,
