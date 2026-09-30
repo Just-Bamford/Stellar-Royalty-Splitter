@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Notification, useNotifications } from "../context/NotificationContext";
+import { formatDateTime } from "../utils/format";
 
 type FilterType = "all" | Notification["type"];
 type SortOrder = "newest" | "oldest";
@@ -18,7 +19,7 @@ const formatTime = (timestamp: number) => {
   if (diffHours < 24) return `${diffHours} hours ago`;
   if (diffDays < 7) return `${diffDays} days ago`;
 
-  return date.toLocaleDateString();
+  return formatDateTime(date, { dateStyle: "short" });
 };
 
 const getIcon = (type: Notification["type"]) => {
