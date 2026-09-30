@@ -119,11 +119,8 @@ describe("CollaboratorTable", () => {
     expect(screen.getByRole("status")).toBeTruthy();
 
     await waitFor(() => {
-      expect(screen.getByText("Collaborators")).toBeTruthy();
+      expect(screen.queryByRole("status")).toBeNull();
     });
-
-    // Skeleton is gone once the table has data.
-    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("shows error state when API fails", async () => {

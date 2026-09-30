@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-dashboard
+  labels:
+    app.kubernetes.io/name: monitoring-dashboard
+data:
+  dashboard.json: |
+    {
+      "title": "Stellar Royalty Splitter - Real-Time Monitoring",
+      "tags": ["monitoring", "production"],
+      "timezone": "utc",
+      "refresh": "10s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "title": "Summary",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total[5m]))", "legendFormat": "Requests/s" },
+            { "expr": "histogram_quantile(0.95, sum by (le))(rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95 latency" },
+            { "expr": "sum(rate(http_requests_total{status=~"5xx"}[5m])) / sum(rate(http_requests_total[5m]))", "legendFarmat": "Error rate" }
+          ]
+        },
+        {
+          "title": "Latency p95 / p99",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum by (le))(rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, sum by (le))(rate(http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99" }
+          ]
+        },
+        {
+          "title": "Error Rate",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total{status=~"5xx"}[5m])) / sum(rate(http_requests_total[5m]))", "legendFormat": "Error rate" }
+          ]
+        },
+        {
+          "title": "Throughput by Endpoint",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+          "targets": [
+            { "expr": "sum by (route)(rate(http_requests_total[5m]))", "legendFormat": "{{route}}" }
+          ]
+        },
+        {
+          "title": "Contract Call Failures",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "targets": [
+            { "expr": "sum(rate(contract_call_failures_total[5m]))", "legendFormat": "failures/s" }
+          ]
+        },
+        {
+          "title": "MTTR (mean time to recovery)",
+          "type": "graph",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "targets": [
+            { "expr": "incident_mttr_seconds", "legendFormat": "MTTR" }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-alerts
+  labels:
+    app.kubernetes.io/name: monitoring-alerts
+data:
+  alerts.yaml: |
+    groups:
+      - name: stellar-royalty-splitter
+        rules:
+          - alert: HighP95Latency
+            expr: histogram_quantile(0.95, sum by (le))(rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "p95 latency exceeds 500ms"
+          - alert: HighErrorRate
+            expr: sum(rate(http_requests_total{status=~"5xx"}[5m])) / sum(rate(http_requests_total[5m])) > 0.01
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Error rate exceeds 1%"
+          - alert: ContractCallFailure
+            expr: increase(contract_call_failures_total[5m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Contract call failed"

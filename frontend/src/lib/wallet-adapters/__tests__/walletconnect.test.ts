@@ -23,9 +23,9 @@ vi.mock("@walletconnect/web3-provider", () => {
 describe("WalletConnectAdapter (#942)", () => {
   let adapter: WalletConnectAdapter;
   let mockCallbacks: {
-    onSessionConnect: ReturnType<typeof vi.fn>;
-    onSessionDisconnect: ReturnType<typeof vi.fn>;
-    onQRCodeURI: ReturnType<typeof vi.fn>;
+    onSessionConnect: ReturnType<typeof vi.fn> & ((address: string) => void);
+    onSessionDisconnect: ReturnType<typeof vi.fn> & (() => void);
+    onQRCodeURI: ReturnType<typeof vi.fn> & ((uri: string) => void);
   };
 
   beforeEach(() => {
