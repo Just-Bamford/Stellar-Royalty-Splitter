@@ -164,6 +164,10 @@ startHealthMonitor();
 
 const app = express();
 
+
+const marketplaceDiscoveryRoutes = require('./routes/marketplaces/discovery');
+app.use('/api/v1/marketplaces', marketplaceDiscoveryRoutes);
+
 // Request correlation ID and logging middleware
 app.use((req, res, next) => {
   const correlationId = req.headers["x-correlation-id"] || crypto.randomUUID();
