@@ -31,8 +31,8 @@ import {
   getBatchExecution,
   listBatchExecutionsBySchedule,
   listRecentBatchExecutions,
-  addAuditLog,
-} from "../database/index.js";
+} from "../database/schedules.js";
+import { addAuditLog } from "../database/index.js";
 import { computeNextRunAt } from "../services/distribution-scheduler.js";
 import { executeBatch } from "../services/batch-processor.js";
 import { sendError } from "../error-response.js";

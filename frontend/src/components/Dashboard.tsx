@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import "./Dashboard.css";
 import { useSettings } from "../context/SettingsContext";
 import { DashboardSkeleton } from "./Skeleton";
@@ -15,21 +15,20 @@ import { formatCurrency, formatNumber } from "../utils/format";
 import { useAnalytics } from "../hooks/queries/useAnalytics";
 import { useContractPerformance } from "../hooks/queries/useContractPerformance";
 import { BulkOperationsPanel } from "./BulkOperationsPanel";
+import { useChartData } from "../hooks/useChartData";
+import {
+  EarningsAreaChart,
+  CollaboratorDonutChart,
+  TimeSeriesChart,
+  EarningsHeatmap,
+  ChartCard,
+} from "./Charts";
+import type { ChartRange } from "../hooks/useChartData";
 
 interface DashboardProps {
   contractId: string;
 }
 
-/**
- * Dashboard ÔÇö analytics overview for a given contract. Orchestrates the
- * DashboardHeader, MetricsGrid, EarningsChart, TopEarners, and CollaboratorList
- * sub-components around a single data fetch. Also renders the Portfolio
- * Overview (contract performance) section from the upstream enhancement.
- *
- * Data fetching is now handled by React Query hooks (#832):
- * - `useAnalytics` ÔÇö per-contract analytics (deduplicates concurrent requests)
- * - `useContractPerformance` ÔÇö portfolio-level performance summary
- */
 export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const { settings } = useSettings();
   const [allTime, setAllTime] = useState(false);
@@ -44,10 +43,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const [selectedContracts, setSelectedContracts] = useState<Set<string>>(new Set());
   const [showAggregated, setShowAggregated] = useState(false);
   const [bulkOperationLoading, setBulkOperationLoading] = useState(false);
+  const [chartRange, setChartRange] = useState<ChartRange>("3M");
 
   const activeDateRange = allTime ? undefined : dateRange;
 
-  // React Query hooks ÔÇö automatically deduplicated, cached, and background-refetched
   const {
     data: analyticsResponse,
     isLoading: loading,
@@ -84,9 +83,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
         )
       : null;
 
+  const chartData = useChartData(stats, chartRange);
+
   const handleSelectContract = (contractId: string, event?: React.MouseEvent) => {
     if (event?.shiftKey) {
-      // Shift+Click multi-select behavior
       setSelectedContracts(new Set(selectedContracts).add(contractId));
     } else {
       const newSet = new Set(selectedContracts);
@@ -115,13 +115,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     if (selectedContracts.size === 0) return;
     setBulkOperationLoading(true);
     try {
-      // Mock implementation - shows confirmation dialog
       if (
         window.confirm(
           `Distribute to ${selectedContracts.size} selected contracts? (This is a preview)`
         )
       ) {
-        // Placeholder for actual bulk distribute implementation
         console.log("Bulk distribute to:", selectedContracts);
       }
     } finally {
@@ -162,7 +160,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     return (
       <div className="dashboard-empty">
         <div className="empty-state">
-          <div className="empty-icon">­ƒôè</div>
+          <div className="empty-icon">💏</div>
           <h2>No Contract Selected</h2>
           <p>Please initialize or select a contract to view analytics.</p>
         </div>
@@ -174,12 +172,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
   function formatContractId(id: string): string {
     if (id.length <= 16) return id;
-    return `${id.slice(0, 8)}ÔÇª${id.slice(-6)}`;
+    return `${id.slice(0, 8)}…${id.slice(-6)}`;
   }
 
   return (
     <div className="dashboard">
-      {/* ÔöÇÔöÇ Date range filter + refresh ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
       <DashboardHeader
         allTime={allTime}
         dateRange={dateRange}
@@ -200,7 +197,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
       {error && <div className="error-message" role="alert">{error}</div>}
       {performanceError && <div className="error-message" role="alert">{performanceError}</div>}
 
-      {/* ÔöÇÔöÇ Portfolio Overview (contract performance) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
+      {/* ── Advanced Visualizations ── */}
+      {!isLoading && chartData && (
+        <section className="dashboard-section charts-section" aria-labelledby="charts-heading">
+          <div className="section-heading-row">
+            <h2 id="charts-heading" className="section-heading">
+              Analytics Visualizations
+            </h2>
+            <div className="chart-range-selector" role="group" aria-label="Chart time range">
+              {(["1W", "1M", "3M", "1Y", "all"] as ChartRange[]).map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  className={`chart-range-btn ${chartRange === range ? "active" : ""}`}
+                  onClick={() => setChartRange(range)}
+                  aria-pressed={chartRange === range}
+                >
+                  {range === "all" ? "All" : range}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="charts-grid">
+            <ChartCard title="Real-time Earnings" subtitle="Cumulative earnings over time" exportName="earnings-area">
+              <EarningsAreaChart data={chartData.earningsSeries} currency={settings.displayCurrency} />
+            </ChartCard>
+            <ChartCard title="Collaborator Breakdown" subtitle="Earnings distribution by collaborator" exportName="collaborator-donut">
+              <CollaboratorDonutChart data={chartData.collaboratorBreakdown} currency={settings.displayCurrency} />
+            </ChartCard>
+            <ChartCard title="Distribution Over Time" subtitle="Payouts with moving average" exportName="time-series">
+              <TimeSeriesChart data={chartData.timeSeries} currency={settings.displayCurrency} />
+            </ChartCard>
+            <ChartCard title="Peak Earning Times" subtitle="Earnings by day-of-week and hour" exportName="earnings-heatmap">
+              <EarningsHeatmap data={chartData.heatmap} currency={settings.displayCurrency} />
+            </ChartCard>
+          </div>
+        </section>
+      )}
+
+      {/* ── Portfolio Overview ── */}
       {performanceData && !performanceLoading && (
         <section className="dashboard-section" aria-labelledby="portfolio-overview-heading">
           <h2 id="portfolio-overview-heading" className="section-heading">
@@ -299,10 +335,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             <span className="address-short">
                               {formatContractId(contract.contractId)}
                             </span>
-                            <span className="address-full">{contract.contractId}</span>
                           </td>
                           <td className="text-right" data-label="Revenue">
-                            {formatCurrency(contract.revenue, settings.displayCurrency)}
+                            {formatcurrency(contract.revenue, settings.displayCurrency)}
                           </td>
                           <td className="text-right" data-label="Transactions">
                             {formatNumber(contract.transactions)}
@@ -310,19 +345,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                           <td className="text-right" data-label="Last Activity">
                             {contract.lastActivity
                               ? new Date(contract.lastActivity).toLocaleDateString()
-                              : "ÔÇö"}
+                              : "—"}
                           </td>
                           <td className="text-right" data-label="Status">
-                            <span className={`status-pill status-${contract.status}`}>
-                              {contract.status}
+                            <span className={`status-badge status-${contract.status || "unknown"}`}>
+                              {contract.status || "unknown"}
                             </span>
                           </td>
                         </tr>
                       ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="table-empty">
-                        No contract activity found
+                      <td colSpan={6} className="empty-row">
+                        No contract performance data available.
                       </td>
                     </tr>
                   )}
@@ -333,61 +368,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
         </section>
       )}
 
-      {/* ÔöÇÔöÇ Per-contract analytics ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
+      {/* ── Top Earners & Collaborators ── */}
       {stats && !loading && (
-        <section className="dashboard-section" aria-labelledby="contract-analytics-heading">
-          {stats.totalTransactions === 0 && (
-            <div className="empty-data-warning" role="status">
-              No data found for this period. Try widening your date range or
-              selecting <strong>All time</strong>.
-            </div>
-          )}
-
-          <h2 id="contract-analytics-heading" className="section-heading">
-            Contract Analytics
+        <section className="dashboard-section" aria-labelledby="earners-heading">
+          <h2 id="earners-heading" className="section-heading">
+            Top Earners & Collaborators
           </h2>
-
-          <MetricsGrid
-            metrics={{
-              totalDistributed: stats.totalDistributed,
-              totalTransactions: stats.totalTransactions,
-              averagePayout: stats.averagePayout,
-              collaboratorCount: stats.collaboratorStats.length,
-            }}
-            displayCurrency={settings.displayCurrency}
-            extraCards={[
-              {
-                label: "Primary Royalties",
-                value: formatCurrency(stats.primaryRoyaltiesTotal ?? 0, settings.displayCurrency),
-                unit: "from distributions",
-                className: "kpi-primary",
-              },
-              {
-                label: "Secondary Royalties",
-                value: formatCurrency(stats.secondaryRoyaltiesTotal ?? 0, settings.displayCurrency),
-                unit: "from resales",
-                className: "kpi-secondary",
-              },
-            ]}
-          />
-
-          <EarningsChart
-            trends={stats.distributionTrends}
-            displayCurrency={settings.displayCurrency}
-          />
-
-          <TopEarners
-            earners={stats.topEarners}
-            totalDistributed={stats.totalDistributed}
-            displayCurrency={settings.displayCurrency}
-          />
-
-          <CollaboratorList
-            collaborators={stats.collaboratorStats}
-            displayCurrency={settings.displayCurrency}
-          />
+          <div className="dashboard-two-col">
+            <TopEarners
+              earners={stats.topEarners || []}
+              currency={settings.displayCurrency}
+            />
+            <CollaboratorList
+              collaborators={stats.collaborators || []}
+              currency={settings.displayCurrency}
+            />
+          </div>
         </section>
       )}
     </div>
   );
 };
+
+export default Dashboard;

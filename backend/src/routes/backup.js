@@ -19,7 +19,7 @@ import {
   countBackups,
   getLatestBackup,
   getBackupById,
-} from "../database/index.js";
+} from "../database/backups.js";
 import { takeSnapshot } from "../services/contract-backup.js";
 import { exportRecoveryBundle, runRecoveryDrill } from "../services/disaster-recovery.js";
 import { isAdminRotateTokenValid } from "../signing-key.js";

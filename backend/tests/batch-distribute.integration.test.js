@@ -140,6 +140,9 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
   referralAwardBonusSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
   paginationSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
   analyticsQuerySchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  createScheduleSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  updateScheduleSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  executeBatchSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
   // Functions
   validate: jest.fn((schema) => (req, res, next) => {
     // Use the schema's safeParse method for proper validation
@@ -155,6 +158,7 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
     next();
   }),
   validateStellarAddress: jest.fn(() => true),
+  validateContractId: jest.fn(() => true),
   validateInitializePayloadSize: jest.fn((req, res, next) => next()),
   validateContractIdMiddleware: jest.fn((req, res, next) => next()),
   parsePagination: jest.fn((query) => ({ limit: 50, offset: 0 })),

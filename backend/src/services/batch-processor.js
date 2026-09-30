@@ -26,9 +26,9 @@ import {
   markBatchCompleted,
   markBatchFailed,
   recordBatchItem,
-  recordTransaction,
-  addAuditLog,
-} from "../database/index.js";
+} from "../database/schedules.js";
+import { recordTransaction, addAuditLog } from "../database/index.js";
+
 import { db } from "../database/core.js";
 import { retryBuildTx, addressToScVal } from "../stellar.js";
 import logger from "../logger.js";

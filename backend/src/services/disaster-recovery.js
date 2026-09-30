@@ -27,8 +27,8 @@ import {
   getLatestBackup,
   getBackupById,
   recordDrillResult,
-  addAuditLog,
-} from "../database/index.js";
+} from "../database/backups.js";
+import { addAuditLog } from "../database/index.js";
 import logger from "../logger.js";
 import { parsePositiveInt } from "../utils.js";
 import { SNAPSHOT_VERSION } from "./contract-backup.js";
