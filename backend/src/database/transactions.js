@@ -6,6 +6,9 @@
 import { db, countWrite } from "./core.js";
 import { recordCollaboratorPayout } from "../metrics.js";
 import { recordAuditEvent } from "../services/audit-trail.js";
+import { decryptField } from "../crypto/encryption.js";
+
+const PAYOUT_AMOUNT_FIELD = "distribution_payouts.amountReceived";
 
 /**
  * Exponential backoff delays in milliseconds for each retry attempt.
@@ -101,6 +104,20 @@ export function addDistributionPayout(
         });
       });
     });
+}
+
+/** Find exact payout amounts by a per-contract keyed index without decrypting the candidate rows. */
+export function findPayoutsByAmount(contractId, amountReceived) {
+  const rows = db.prepare(`
+    SELECT id, transactionId, contractId, collaboratorAddress, amountReceived
+    FROM distribution_payouts_encrypted
+    WHERE amountReceivedHash = field_blind_index(?, ?, '${PAYOUT_AMOUNT_FIELD}')
+  `).all(String(amountReceived), contractId);
+
+  return rows.map((row) => ({
+    ...row,
+    amountReceived: decryptField(row.amountReceived, contractId, PAYOUT_AMOUNT_FIELD),
+  }));
 }
 
 export function getTransactionCount(contractId, filters = {}) {
@@ -324,7 +341,7 @@ export function getTransactionDetails(txHash) {
         blockTime,
         status,
         errorMessage,
-        payoutsJson
+        decrypt_field(payoutsJson, contractId, 'contract_event_archive.payoutsJson') as payoutsJson
       FROM contract_event_archive
       WHERE txHash = ?
     `);

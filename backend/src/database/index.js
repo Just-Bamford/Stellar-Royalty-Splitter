@@ -24,6 +24,7 @@ export {
   updateTransactionHash,
   updateTransactionStatus,
   addDistributionPayout,
+  findPayoutsByAmount,
   getTransactionCount,
   getTransactionHistory,
   getTransactionHistoryCursor,
