@@ -17,7 +17,7 @@
  * The scheduler simply queries WHERE enabled=1 AND nextRunAt <= now.
  */
 
-import { getDueSchedules, markScheduleRun } from "../database/index.js";
+import { getDueSchedules, markScheduleRun } from "../database/schedules.js";
 import { executeBatch } from "./batch-processor.js";
 import logger from "../logger.js";
 import { parsePositiveInt } from "../utils.js";

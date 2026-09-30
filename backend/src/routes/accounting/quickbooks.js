@@ -19,7 +19,8 @@ import { Router } from "express";
 import { z } from "zod";
 import logger from "../../logger.js";
 import { sendError } from "../../error-response.js";
-import { requireRole } from "../../middleware/rbac.js";
+import { requirePermission } from "../../middleware/rbac-check.js";
+import { PERMISSIONS } from "../../models/rbac.js";
 import { addAuditLog } from "../../database/audit.js";
 import { recordAuditEvent } from "../../services/audit-trail.js";
 import {
@@ -70,7 +71,7 @@ const syncSchema = z.object({
  * Without a body: returns { authUrl, state } to send the admin to Intuit's
  * consent screen. With { code, realmId, state }: completes the OAuth exchange.
  */
-quickbooksRouter.post("/connect", requireRole("admin"), async (req, res) => {
+quickbooksRouter.post("/connect", requirePermission(PERMISSIONS.SETTINGS_UPDATE), async (req, res) => {
   try {
     const parsed = connectSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
@@ -164,7 +165,7 @@ quickbooksRouter.get("/callback", async (req, res) => {
  * tracking per-entity status. Idempotent: already-synced distributions are
  * skipped. Optionally restrict with { transactionIds }.
  */
-quickbooksRouter.post("/sync-distributions", requireRole("admin"), async (req, res) => {
+quickbooksRouter.post("/sync-distributions", requirePermission(PERMISSIONS.FINANCIALS_EXPORT), async (req, res) => {
   try {
     const parsed = syncSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
@@ -352,7 +353,7 @@ quickbooksRouter.post(
 /**
  * GET /api/v1/accounting/quickbooks/status
  */
-quickbooksRouter.get("/status", requireRole("admin"), (_req, res) => {
+quickbooksRouter.get("/status", requirePermission(PERMISSIONS.FINANCIALS_READ), (_req, res) => {
   try {
     const connection = getQuickBooksConnection();
     const latestSync = getLatestAccountingSync("distributions");
@@ -384,7 +385,7 @@ quickbooksRouter.get("/status", requireRole("admin"), (_req, res) => {
 /**
  * GET /api/v1/accounting/quickbooks/syncs/:syncId
  */
-quickbooksRouter.get("/syncs/:syncId", requireRole("admin"), (req, res) => {
+quickbooksRouter.get("/syncs/:syncId", requirePermission(PERMISSIONS.FINANCIALS_READ), (req, res) => {
   const syncId = parseInt(req.params.syncId, 10);
   if (!Number.isInteger(syncId) || syncId <= 0) {
     return sendError(res, 400, "invalid_sync_id", "Invalid sync id");

@@ -901,6 +901,82 @@ export function initializeDatabase() {
           ADD COLUMN channel_preferences TEXT NOT NULL DEFAULT '{}';
       `,
     },
+    {
+      // Advanced RBAC: normalized multi-role assignments, temporary grants, immutable change history.
+      version: 24,
+      sql: `
+        CREATE TABLE IF NOT EXISTS user_roles (
+          userId INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'accountant', 'viewer', 'approver')),
+          assignedByUserId INTEGER,
+          assignedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (userId, role),
+          FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY(assignedByUserId) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS temporary_permissions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER NOT NULL,
+          permission TEXT NOT NULL,
+          grantedByUserId INTEGER,
+          grantedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expiresAt DATETIME NOT NULL,
+          revokedAt DATETIME,
+          revokedByUserId INTEGER,
+          FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY(grantedByUserId) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY(revokedByUserId) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_temporary_permissions_active ON temporary_permissions(userId, expiresAt) WHERE revokedAt IS NULL;
+        CREATE TABLE IF NOT EXISTS rbac_audit_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          actorUserId INTEGER,
+          affectedUserId INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          previousState TEXT,
+          newState TEXT,
+          expiresAt DATETIME,
+          revertedAuditId INTEGER,
+          requestId TEXT,
+          timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(actorUserId) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY(affectedUserId) REFERENCES users(id) ON DELETE RESTRICT,
+          FOREIGN KEY(revertedAuditId) REFERENCES rbac_audit_events(id) ON DELETE RESTRICT
+        );
+        CREATE INDEX IF NOT EXISTS idx_rbac_audit_affected ON rbac_audit_events(affectedUserId, timestamp DESC);
+      `,
+    },
+    {
+      // #995: Decentralized governance on Snapshot
+      version: 27,
+      sql: `
+        CREATE TABLE IF NOT EXISTS governance_votes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proposalId TEXT NOT NULL,
+          voterAddress TEXT NOT NULL,
+          choice INTEGER NOT NULL,
+          votingPower REAL NOT NULL,
+          votedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_proposal ON governance_votes(proposalId);
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_voter ON governance_votes(voterAddress);
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_votedAt ON governance_votes(votedAt);
+
+        CREATE TABLE IF NOT EXISTS governance_executions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proposalId TEXT NOT NULL UNIQUE,
+          executorAddress TEXT NOT NULL,
+          executedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          status TEXT NOT NULL CHECK(status IN ('pending', 'success', 'failed')),
+          txHash TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_proposal ON governance_executions(proposalId);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_status ON governance_executions(status);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_executedAt ON governance_executions(executedAt);
+      `,
+    },
+      `,
+    },
   ];
 
   for (const migration of migrations) {

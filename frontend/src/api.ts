@@ -325,12 +325,46 @@ export const api = {
     amount?: string | number;
   }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
 
+  buildBatchDistribution: (body: {
+    contractId: string;
+    walletAddress: string;
+    tokens: string[];
+    idempotencyKey?: string;
+  }) => post<{
+    xdr: string;
+    transactionId: number;
+    tokensIncluded: number;
+    estimate: {
+      individualCost: string;
+      batchCost: string;
+      savings: string;
+      savingsPercent: number;
+      source: string;
+    };
+  }>("/batch-distribute/tokens", body),
+
+  estimateBatchDistribution: (tokenCount: number, resourceMaxBatchSize?: number) =>
+    post<{
+      individualCost: string;
+      batchCost: string;
+      savings: string;
+      savingsPercent: number;
+      source: string;
+      optimalBatchSize: number;
+      remaining: number;
+    }>("/batch-distribute/tokens/estimate", { tokenCount, resourceMaxBatchSize }),
+
   getContractVersion: (contractId: string) =>
     get<{ version: string }>(`/contract/version/${contractId}`),
 
   getContractBalance: (contractId: string, tokenId: string) =>
     get<{ balance: string }>(
       `/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`,
+    ),
+
+  getPendingDistributions: (contractId: string) =>
+    get<{ distributions: Array<{ tokenId: string; amount: string; lastUpdated: string; recipientCount: number }> }>(
+      `/contract/pending-distributions/${contractId}`,
     ),
 
   getCollaborators: (contractId: string) =>

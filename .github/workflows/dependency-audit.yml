@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: [backend, frontend, shared]
+        workspace: [backend, frontend, shared, solidity]
     defaults:
       run:
         working-directory: ${{ matrix.workspace }}

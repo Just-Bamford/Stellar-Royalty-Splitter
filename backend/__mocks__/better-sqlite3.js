@@ -102,7 +102,7 @@ function prepare(sql) {
       },
     };
   }
-  return { run: noop, get: () => undefined, all: () => [] };
+  return { run: () => ({ changes: 1, lastInsertRowid: 1 }), get: () => undefined, all: () => [] };
 }
 
 const mockDb = {

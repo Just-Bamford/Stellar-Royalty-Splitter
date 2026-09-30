@@ -1,0 +1,25 @@
+{
+  "name": "stellar-royalty-splitter-solidity",
+  "version": "1.0.0",
+  "description": "Solidity contracts for multi-chain royalty splitter deployment",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:hardhat": "hardhat test",
+    "deploy:ethereum": "hardhat run scripts/deploy-ethereum.js --network ethereum",
+    "deploy:polygon": "hardhat run scripts/deploy-polygon.js --network polygon",
+    "deploy:arbitrum": "hardhat run scripts/deploy-arbitrum.js --network arbitrum",
+    "deploy:ethereum:testnet": "hardhat run scripts/deploy-ethereum.js --network goerli",
+    "deploy:polygon:testnet": "hardhat run scripts/deploy-polygon.js --network mumbai",
+    "deploy:arbitrum:testnet": "hardhat run scripts/deploy-arbitrum.js --network arbitrum-goerli"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^5.0.0",
+    "hardhat": "^2.19.0",
+    "dotenv": "^16.3.1"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "^0.8.0"
+  }
+}

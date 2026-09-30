@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Database module index ÔÇö re-exports all database functions.
  * Provides backwards compatibility while organizing code into focused submodules.
  */
@@ -242,7 +242,7 @@ export {
   getReferralLinkByCode,
   registerReferral,
   activateReferral,
-  getReferralByReferred,
+  getReferralBy Referred,
   getReferralsByReferrer,
   countReferralsByReferrer,
   awardReferralBonus,
@@ -278,6 +278,17 @@ export {
 
 // Reusable royalty split templates (#652)
 export { createTemplate, listTemplates, getTemplateById, deleteTemplate } from "./templates.js";
+
+// Versioned contract templates and clone provenance
+export {
+  createContractTemplate,
+  getContractTemplate,
+  listContractTemplates,
+  updateContractTemplate,
+  listContractTemplateVersions,
+  addContractTemplateReview,
+  recordContractTemplateClone,
+} from "./contract-templates.js";
 
 // Contributor metrics (#600)
 export {
@@ -521,3 +532,51 @@ export {
   listBatchExecutionsBySchedule,
   listRecentBatchExecutions,
 } from "./schedules.js";
+
+// Rights Management System
+export {
+  initializeRightsTables,
+  clearRightsTables,
+  createRightRecord,
+  getRightById,
+  getRightsByContract,
+  getRightsByOwner,
+  updateRightRecord,
+  deleteRightRecord,
+  upsertRightMetadataRecord,
+  getRightMetadataRecord,
+  createVerificationProofRecord,
+  getVerificationProofById,
+  getVerificationProofsRecord,
+  updateVerificationProofStatusRecord,
+  addRightHistoryRecord,
+  getRightHistoryRecord,
+  linkRightToDisputeRecord,
+  getRightsForDisputeRecord,
+  getDisputesForRightRecord,
+} from "./rights-schema.js";
+
+// DAO Treasury Management (#1076)
+export {
+  initializeTreasuryTables,
+  clearTreasuryTables,
+  createCategoryRecord,
+  getCategoryById,
+  getCategoryByName,
+  listCategories,
+  updateCategoryRecord,
+  deleteCategoryRecord,
+  createAllocationRecord,
+  getAllocationById,
+  listAllocations,
+  createExpenseRecord,
+  getExpenseById,
+  listExpenses as listTreasuryExpenseRecords,
+  updateExpenseRecord,
+  deleteExpenseRecord,
+  createApprovalRecord,
+  listApprovalsByExpense,
+  createReceiptRecord,
+  listReceiptsByExpense,
+} from "./treasury-schema.js";
+

@@ -64,6 +64,10 @@ pub mod msg {
         "set_vesting_schedule: admin authorization required";
     pub const CLAIM_VESTED_SHARES_BENEFICIARY: &str =
         "claim_vested_shares: beneficiary authorization required";
+    pub const ROLLBACK_UPGRADE_ADMIN: &str =
+        "rollback_upgrade: admin authorization required";
+    pub const SET_UPGRADE_TIMELOCK_ADMIN: &str =
+        "set_upgrade_timelock: admin authorization required";
 }
 
 /// Requires admin authorization; panics with `message` if missing.

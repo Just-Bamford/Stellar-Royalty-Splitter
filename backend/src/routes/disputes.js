@@ -41,6 +41,8 @@ import {
 } from "../email/templates/dispute-notification.js";
 import { sendEventSms } from "../services/sms-notifications.js";
 import { runHook } from "../plugins/plugin-framework.js";
+import { requirePermission } from "../middleware/rbac-check.js";
+import { PERMISSIONS } from "../models/rbac.js";
 
 export const disputesRouter = Router();
 
@@ -181,7 +183,7 @@ disputesRouter.get("/", (req, res) => {
 // NOTE: this route must be registered before /:ticketId to avoid "admin" being
 // matched as a ticketId.
 
-disputesRouter.get("/admin/all", requireAdminToken, (req, res) => {
+disputesRouter.get("/admin/all", requirePermission(PERMISSIONS.DISPUTES_READ), (req, res) => {
   const { status } = req.query;
 
   const VALID_STATUSES = ["open", "under_review", "resolved", "closed"];
@@ -211,7 +213,7 @@ disputesRouter.get("/admin/all", requireAdminToken, (req, res) => {
 
 disputesRouter.patch(
   "/admin/:ticketId/status",
-  requireAdminToken,
+  requirePermission(PERMISSIONS.DISPUTES_APPROVE),
   validate(disputeAdminReviewSchema),
   async (req, res, next) => {
     try {
@@ -270,7 +272,7 @@ disputesRouter.patch(
 
 disputesRouter.post(
   "/admin/:ticketId/comments",
-  requireAdminToken,
+  requirePermission(PERMISSIONS.DISPUTES_APPROVE),
   validate(disputeAdminCommentSchema),
   async (req, res, next) => {
     try {
