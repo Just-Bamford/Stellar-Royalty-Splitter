@@ -2053,7 +2053,11 @@ impl RoyaltySplitter {
             .instance()
             .get(&StorageKey::Ext(ExtKey::StreamCount))
             .unwrap_or(0);
-        token::Client::new(&env, &token).transfer(&payer, &env.current_contract_address(), &initial_deposit);
+        token::Client::new(&env, &token).transfer(
+            &payer,
+            &env.current_contract_address(),
+            &initial_deposit,
+        );
         let stream = Stream {
             id: stream_id,
             token,
@@ -2097,7 +2101,8 @@ impl RoyaltySplitter {
         if accrued <= 0 {
             return Err(ContractError::NoBalance);
         }
-        let balance = token::Client::new(&env, &stream.token).balance(&env.current_contract_address());
+        let balance =
+            token::Client::new(&env, &stream.token).balance(&env.current_contract_address());
         let amount = accrued.min(balance);
         if amount <= 0 {
             return Err(ContractError::InsufficientBalance);
@@ -2107,7 +2112,7 @@ impl RoyaltySplitter {
             &stream.recipient,
             &amount,
         );
-        stream.accrued_amount = accrued - amount;
+        stream.accrued_amount = accrued.saturating_sub(amount);
         stream.last_accrual = env.ledger().timestamp();
         storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
         env.events().publish(
@@ -5502,10 +5507,10 @@ impl RoyaltySplitter {
                     return Err(ContractError::CollaboratorNotFound);
                 }
             }
-            GovProposalAction::AllocateBudget(_, _, amount) => {
-                if *amount <= 0 {
-                    return Err(ContractError::AmountNotPositive);
-                }
+            GovProposalAction::AllocateBudget(_, _, amount)
+                if *amount <= 0 =>
+            {
+                return Err(ContractError::AmountNotPositive);
             }
             _ => {}
         }
