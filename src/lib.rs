@@ -297,6 +297,26 @@ pub struct GovProposal {
     pub executed_at: u64,
 }
 
+/// Advanced contract upgrade proposal with governance vote and timelock safety (#1071).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeProposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub new_wasm_hash: BytesN<32>,
+    pub new_version: String,
+    pub description: String,
+    pub created_at: u64,
+    pub voting_ends_at: u64,
+    pub yes_votes: u32,
+    pub no_votes: u32,
+    pub total_voting_power: u32,
+    pub executed: bool,
+    pub rejected: bool,
+    pub scheduled_at: u64,
+    pub timelock_until: u64,
+}
+
 /// Typed storage keys.
 ///
 /// Instance storage keys: small, frequently accessed values (Admin, Paused, etc.).
@@ -414,6 +434,20 @@ pub enum ExtKey {
     StreamCount,
     /// #1054 — continuous payment stream by identifier (persistent storage).
     Stream(u64),
+    /// #1071 — Current logic WASM hash (instance storage).
+    CurrentWasmHash,
+    /// #1071 — Previous logic WASM hash for rollback (instance storage).
+    PreviousWasmHash,
+    /// #1071 — Previous contract version string for rollback (instance storage).
+    PreviousVersion,
+    /// #1071 — Upgrade timelock duration in seconds (instance storage).
+    UpgradeTimelock,
+    /// #1071 — Total upgrade proposals count (instance storage).
+    UpgradeProposalCount,
+    /// #1071 — Map of upgrade proposals (persistent storage).
+    UpgradeProposals,
+    /// #1071 — Map of upgrade proposal votes (persistent storage).
+    UpgradeProposalVotes,
 }
 
 /// Maximum number of rate-change entries kept in history.
@@ -483,6 +517,15 @@ pub const MIN_ADMIN_ROTATION_TIMELOCK: u64 = 3_600;
 
 /// Maximum configurable timelock duration (seconds) for admin rotation — 30 days.
 pub const MAX_ADMIN_ROTATION_TIMELOCK: u64 = 2_592_000;
+
+/// Minimum upgrade timelock duration (seconds) — 24 hours (#1071).
+pub const MIN_UPGRADE_TIMELOCK: u64 = 86_400;
+
+/// Maximum upgrade timelock duration (seconds) — 48 hours (#1071).
+pub const MAX_UPGRADE_TIMELOCK: u64 = 172_800;
+
+/// Default upgrade timelock duration (seconds) — 24 hours (#1071).
+pub const DEFAULT_UPGRADE_TIMELOCK: u64 = 86_400;
 
 /// Maximum number of tokens accepted per `batch_distribute` call.
 pub const MAX_BATCH_TOKENS: u32 = 50;
@@ -667,6 +710,18 @@ impl ContractError {
     pub const GOV_DELEGATION_LIMIT_EXCEEDED: Self = Self::TooManyRecipients;
     /// Insufficient voting power or tokens (#982).
     pub const GOV_INSUFFICIENT_POWER: Self = Self::AmountNotPositive;
+    /// Upgrade timelock has not yet elapsed (#1071).
+    pub const UPGRADE_TIMELOCK_NOT_ELAPSED: Self = Self::AdminRotationTimelockNotElapsed;
+    /// Upgrade proposal has not received majority governance approval (#1071).
+    pub const UPGRADE_NOT_APPROVED: Self = Self::AmountTooSmall;
+    /// Upgrade has not been scheduled or timelock not initialized (#1071).
+    pub const UPGRADE_NOT_SCHEDULED: Self = Self::NotInitialized;
+    /// No previous version or WASM hash available for rollback (#1071).
+    pub const NO_PREVIOUS_VERSION: Self = Self::NotInitialized;
+    /// Configured upgrade timelock is outside 24h..=48h range (#1071).
+    pub const INVALID_UPGRADE_TIMELOCK: Self = Self::InvalidTimelockDuration;
+    /// Upgrade proposal is already scheduled (#1071).
+    pub const UPGRADE_ALREADY_SCHEDULED: Self = Self::DuplicateRecipient;
 }
 
 #[contract]
@@ -5780,6 +5835,426 @@ impl RoyaltySplitter {
     pub fn get_gov_proposal_count(env: Env) -> u64 {
         storage::extend_instance_ttl(&env);
         storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::GovProposalCount)).unwrap_or(0)
+    }
+
+    /// Propose a contract upgrade to a new logic WASM (#1071).
+    /// Requires proposer to be admin or collaborator.
+    pub fn propose_upgrade(
+        env: Env,
+        proposer: Address,
+        new_wasm_hash: BytesN<32>,
+        new_version: String,
+        description: String,
+        voting_duration: u64,
+    ) -> Result<u64, ContractError> {
+        storage::extend_instance_ttl(&env);
+        proposer.require_auth();
+
+        let is_admin = Self::is_authorized_admin(&env, &proposer);
+        let is_collab = storage::persistent_get::<Map<Address, u32>>(&env, &StorageKey::ShareMap)
+            .map(|m| m.contains_key(proposer.clone()))
+            .unwrap_or(false);
+
+        if !is_admin && !is_collab {
+            return Err(ContractError::UnauthorizedEmergencySigner);
+        }
+
+        if !(MIN_PROPOSAL_DURATION..=MAX_PROPOSAL_DURATION).contains(&voting_duration) {
+            return Err(ContractError::InvalidProposalDuration);
+        }
+
+        let now = env.ledger().timestamp();
+        let id: u64 = storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeProposalCount))
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+
+        let proposer_weight = if let Ok(share) = Self::get_share(env.clone(), proposer.clone()) {
+            share
+        } else {
+            1_000
+        };
+
+        let proposal = UpgradeProposal {
+            id,
+            proposer: proposer.clone(),
+            new_wasm_hash: new_wasm_hash.clone(),
+            new_version: new_version.clone(),
+            description,
+            created_at: now,
+            voting_ends_at: now.saturating_add(voting_duration),
+            yes_votes: proposer_weight,
+            no_votes: 0,
+            total_voting_power: 10_000,
+            executed: false,
+            rejected: false,
+            scheduled_at: 0,
+            timelock_until: 0,
+        };
+
+        let mut proposals: Map<u64, UpgradeProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
+                .unwrap_or(Map::new(&env));
+        proposals.set(id, proposal);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposals), &proposals);
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposalCount), &id);
+
+        let mut all_votes: Map<u64, Map<Address, bool>> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposalVotes))
+                .unwrap_or(Map::new(&env));
+        let mut prop_votes: Map<Address, bool> = Map::new(&env);
+        prop_votes.set(proposer.clone(), true);
+        all_votes.set(id, prop_votes);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposalVotes), &all_votes);
+
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("proposed")),
+            (id, proposer, new_wasm_hash),
+        );
+
+        Ok(id)
+    }
+
+    /// Cast vote on an upgrade proposal (#1071).
+    pub fn vote_upgrade(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+        approve: bool,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        voter.require_auth();
+
+        let is_admin = Self::is_authorized_admin(&env, &voter);
+        let is_collab = storage::persistent_get::<Map<Address, u32>>(&env, &StorageKey::ShareMap)
+            .map(|m| m.contains_key(voter.clone()))
+            .unwrap_or(false);
+
+        if !is_admin && !is_collab {
+            return Err(ContractError::UnauthorizedEmergencySigner);
+        }
+
+        let mut proposals: Map<u64, UpgradeProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
+                .ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+
+        let now = env.ledger().timestamp();
+        if now > proposal.voting_ends_at {
+            return Err(ContractError::GOV_VOTING_CLOSED);
+        }
+        if proposal.executed || proposal.rejected {
+            return Err(ContractError::ProposalAlreadyExecuted);
+        }
+
+        let mut all_votes: Map<u64, Map<Address, bool>> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposalVotes))
+                .unwrap_or(Map::new(&env));
+        let mut prop_votes = all_votes.get(proposal_id).unwrap_or(Map::new(&env));
+
+        if prop_votes.contains_key(voter.clone()) {
+            return Err(ContractError::AlreadyVoted);
+        }
+
+        let weight = if let Ok(share) = Self::get_share(env.clone(), voter.clone()) {
+            share
+        } else {
+            1_000
+        };
+
+        if approve {
+            proposal.yes_votes = proposal.yes_votes.saturating_add(weight);
+        } else {
+            proposal.no_votes = proposal.no_votes.saturating_add(weight);
+        }
+
+        prop_votes.set(voter.clone(), approve);
+        all_votes.set(proposal_id, prop_votes);
+        proposals.set(proposal_id, proposal);
+
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposals), &proposals);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposalVotes), &all_votes);
+
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("voted")),
+            (proposal_id, voter, approve),
+        );
+
+        Ok(())
+    }
+
+    /// Schedule an approved upgrade proposal, enforcing 24-48h timelock (#1071).
+    pub fn schedule_upgrade(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<u64, ContractError> {
+        storage::extend_instance_ttl(&env);
+        caller.require_auth();
+
+        let is_admin = Self::is_authorized_admin(&env, &caller);
+        let is_collab = storage::persistent_get::<Map<Address, u32>>(&env, &StorageKey::ShareMap)
+            .map(|m| m.contains_key(caller.clone()))
+            .unwrap_or(false);
+
+        if !is_admin && !is_collab {
+            return Err(ContractError::UnauthorizedEmergencySigner);
+        }
+
+        let mut proposals: Map<u64, UpgradeProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
+                .ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+
+        if proposal.executed || proposal.rejected {
+            return Err(ContractError::ProposalAlreadyExecuted);
+        }
+        if proposal.scheduled_at > 0 {
+            return Err(ContractError::UPGRADE_ALREADY_SCHEDULED);
+        }
+
+        if proposal.yes_votes <= proposal.no_votes || proposal.yes_votes == 0 {
+            return Err(ContractError::UPGRADE_NOT_APPROVED);
+        }
+
+        let now = env.ledger().timestamp();
+        let timelock_delay = storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeTimelock))
+            .unwrap_or(DEFAULT_UPGRADE_TIMELOCK);
+
+        let timelock_until = now.saturating_add(timelock_delay);
+        proposal.scheduled_at = now;
+        proposal.timelock_until = timelock_until;
+
+        proposals.set(proposal_id, proposal);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposals), &proposals);
+
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("sched")),
+            (proposal_id, timelock_until),
+        );
+
+        Ok(timelock_until)
+    }
+
+    /// Execute the scheduled upgrade after timelock delay (#1071).
+    /// Updates logic contract WASM while preserving all instance/persistent state.
+    pub fn execute_upgrade(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        caller.require_auth();
+
+        let mut proposals: Map<u64, UpgradeProposal> =
+            storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
+                .ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(ContractError::ProposalAlreadyExecuted);
+        }
+        if proposal.scheduled_at == 0 {
+            return Err(ContractError::UPGRADE_NOT_SCHEDULED);
+        }
+
+        let now = env.ledger().timestamp();
+        if now < proposal.timelock_until {
+            return Err(ContractError::UPGRADE_TIMELOCK_NOT_ELAPSED);
+        }
+
+        let current_version: String = env
+            .storage()
+            .instance()
+            .get(&StorageKey::ContractVersion)
+            .unwrap_or(String::from_str(&env, "1.0.0"));
+
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::PreviousVersion), &current_version);
+
+        if let Some(curr_wasm) = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash)) {
+            storage::instance_set(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash), &curr_wasm);
+        }
+
+        // Native proxy upgrade: update executable code while preserving state and address
+        env.deployer().update_current_contract_wasm(proposal.new_wasm_hash.clone());
+
+        storage::instance_set(&env, &StorageKey::ContractVersion, &proposal.new_version);
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash), &proposal.new_wasm_hash);
+
+        let mut records: Vec<MigrationRecord> =
+            storage::persistent_get(&env, &StorageKey::AppliedMigrations).unwrap_or(Vec::new(&env));
+        records.push_back(MigrationRecord {
+            from_version: current_version,
+            to_version: proposal.new_version.clone(),
+            applied_at: now,
+            note: proposal.description.clone(),
+        });
+        storage::persistent_set(&env, &StorageKey::AppliedMigrations, &records);
+
+        proposal.executed = true;
+        proposals.set(proposal_id, proposal);
+        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposals), &proposals);
+
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("executed")),
+            (proposal_id, proposal.new_wasm_hash),
+        );
+
+        Ok(())
+    }
+
+    /// Rollback contract to previous logic WASM and version (#1071).
+    pub fn rollback_upgrade(env: Env, caller: Address) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        auth::require_admin(&env, &caller, auth::msg::ROLLBACK_UPGRADE_ADMIN);
+
+        let prev_wasm = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash))
+            .ok_or(ContractError::NO_PREVIOUS_VERSION)?;
+        let prev_ver = storage::instance_get::<String>(&env, &StorageKey::Ext(ExtKey::PreviousVersion))
+            .ok_or(ContractError::NO_PREVIOUS_VERSION)?;
+
+        let current_version: String = env
+            .storage()
+            .instance()
+            .get(&StorageKey::ContractVersion)
+            .unwrap_or(String::from_str(&env, "1.0.0"));
+
+        env.deployer().update_current_contract_wasm(prev_wasm.clone());
+
+        storage::instance_set(&env, &StorageKey::ContractVersion, &prev_ver);
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash), &prev_wasm);
+
+        let now = env.ledger().timestamp();
+        let mut records: Vec<MigrationRecord> =
+            storage::persistent_get(&env, &StorageKey::AppliedMigrations).unwrap_or(Vec::new(&env));
+        records.push_back(MigrationRecord {
+            from_version: current_version,
+            to_version: prev_ver.clone(),
+            applied_at: now,
+            note: String::from_str(&env, "emergency rollback to previous version"),
+        });
+        storage::persistent_set(&env, &StorageKey::AppliedMigrations, &records);
+
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("rollback")),
+            (prev_ver, prev_wasm),
+        );
+
+        Ok(())
+    }
+
+    /// Read an upgrade proposal by ID (#1071).
+    pub fn get_upgrade_proposal(env: Env, proposal_id: u64) -> Result<UpgradeProposal, ContractError> {
+        storage::extend_instance_ttl(&env);
+        storage::persistent_get::<Map<u64, UpgradeProposal>>(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
+            .ok_or(ContractError::ProposalNotFound)?
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)
+    }
+
+    /// Read the configured upgrade timelock delay in seconds (#1071).
+    pub fn get_upgrade_timelock(env: Env) -> u64 {
+        storage::extend_instance_ttl(&env);
+        storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeTimelock))
+            .unwrap_or(DEFAULT_UPGRADE_TIMELOCK)
+    }
+
+    /// Set upgrade timelock delay between 24h and 48h (#1071).
+    pub fn set_upgrade_timelock(env: Env, caller: Address, seconds: u64) -> Result<(), ContractError> {
+        storage::extend_instance_ttl(&env);
+        auth::require_admin(&env, &caller, auth::msg::SET_UPGRADE_TIMELOCK_ADMIN);
+
+        if !(MIN_UPGRADE_TIMELOCK..=MAX_UPGRADE_TIMELOCK).contains(&seconds) {
+            return Err(ContractError::INVALID_UPGRADE_TIMELOCK);
+        }
+
+        storage::instance_set(&env, &StorageKey::Ext(ExtKey::UpgradeTimelock), &seconds);
+        Ok(())
+    }
+
+    /// Get current and previous upgrade/version information (#1071).
+    pub fn get_upgrade_info(
+        env: Env,
+    ) -> (String, Option<BytesN<32>>, Option<String>, Option<BytesN<32>>) {
+        storage::extend_instance_ttl(&env);
+        let current_version = env
+            .storage()
+            .instance()
+            .get(&StorageKey::ContractVersion)
+            .unwrap_or(String::from_str(&env, "1.0.0"));
+        let current_wasm = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash));
+        let prev_ver = storage::instance_get::<String>(&env, &StorageKey::Ext(ExtKey::PreviousVersion));
+        let prev_wasm = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash));
+        (current_version, current_wasm, prev_ver, prev_wasm)
+    }
+}
+
+/// Standalone Proxy contract that decouples state from logic (#1071).
+/// Holds storage and references logic contract address, enabling
+/// seamless upgrades and rollback without state migration.
+#[contract]
+pub struct SplitterProxy;
+
+#[contractimpl]
+impl SplitterProxy {
+    pub fn init_proxy(env: Env, admin: Address, logic_contract: Address, version: String) {
+        admin.require_auth();
+        if env.storage().instance().has(&StorageKey::Admin) {
+            panic!("already initialized");
+        }
+        storage::instance_set(&env, &StorageKey::Admin, &admin);
+        storage::instance_set(&env, &StorageKey::ContractVersion, &version);
+        storage::instance_set(&env, &symbol_short!("logic"), &logic_contract);
+    }
+
+    pub fn upgrade_logic(env: Env, admin: Address, new_logic: Address, new_version: String) {
+        admin.require_auth();
+        let current_admin: Address = env.storage().instance().get(&StorageKey::Admin).expect("not initialized");
+        if admin != current_admin {
+            panic!("unauthorized");
+        }
+        let current_logic: Address = env.storage().instance().get(&symbol_short!("logic")).expect("no logic");
+        let current_ver: String = env.storage().instance().get(&StorageKey::ContractVersion).unwrap_or(String::from_str(&env, "1.0.0"));
+
+        storage::instance_set(&env, &symbol_short!("prev_log"), &current_logic);
+        storage::instance_set(&env, &symbol_short!("prev_ver"), &current_ver);
+        storage::instance_set(&env, &symbol_short!("logic"), &new_logic);
+        storage::instance_set(&env, &StorageKey::ContractVersion, &new_version);
+
+        env.events().publish(
+            (symbol_short!("proxy"), symbol_short!("upgraded")),
+            (current_logic, new_logic),
+        );
+    }
+
+    pub fn rollback_logic(env: Env, admin: Address) {
+        admin.require_auth();
+        let current_admin: Address = env.storage().instance().get(&StorageKey::Admin).expect("not initialized");
+        if admin != current_admin {
+            panic!("unauthorized");
+        }
+        let prev_logic: Address = env.storage().instance().get(&symbol_short!("prev_log")).expect("no rollback logic");
+        let prev_ver: String = env.storage().instance().get(&symbol_short!("prev_ver")).expect("no rollback version");
+
+        storage::instance_set(&env, &symbol_short!("logic"), &prev_logic);
+        storage::instance_set(&env, &StorageKey::ContractVersion, &prev_ver);
+
+        env.events().publish(
+            (symbol_short!("proxy"), symbol_short!("rollback")),
+            prev_logic,
+        );
+    }
+
+    pub fn get_logic(env: Env) -> Address {
+        env.storage().instance().get(&symbol_short!("logic")).expect("no logic")
+    }
+
+    pub fn get_version(env: Env) -> String {
+        env.storage().instance().get(&StorageKey::ContractVersion).expect("no version")
+    }
+
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&StorageKey::Admin).expect("no admin")
     }
 }
 
