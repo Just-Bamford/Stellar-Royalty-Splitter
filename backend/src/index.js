@@ -110,6 +110,7 @@ import { backupRouter } from "./routes/backup.js";
 import { startDistributionScheduler } from "./services/distribution-scheduler.js";
 import { startBackupScheduler } from "./services/contract-backup.js";
 import { rightsRouter } from "./routes/rights-management.js";
+import { automationRouter } from "./routes/automation.js";
 
 
 
@@ -521,6 +522,7 @@ app.use("/api/v1/schedules", writeLimiter);
 app.use("/api/v1/batch", writeLimiter);
 app.use("/api/v1/schedules", schedulesRouter);
 app.use("/api/v1/batch", batchRouter);
+app.use("/api/v1/automation", automationRouter);
 
 // Cross-chain liquidity pool integration (#cross-chain)
 app.use("/api/v1/cross-chain", writeLimiter);
