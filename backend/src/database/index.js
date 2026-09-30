@@ -227,7 +227,7 @@ export {
   getReferralLinkByCode,
   registerReferral,
   activateReferral,
-  getReferralByReferred,
+  getReferralBy Referred,
   getReferralsByReferrer,
   countReferralsByReferrer,
   awardReferralBonus,

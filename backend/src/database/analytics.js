@@ -110,7 +110,7 @@ export function getAnalyticsData(contractId, startDate, endDate) {
       LEFT JOIN distribution_payouts dp ON dp.transactionId = t.id
       WHERE t.contractId = ? AND t.status = 'confirmed'
         AND t.type != 'initialize'
-        AND t​imestamp BETWEEN ? AND ?`
+        AND timestamp BETWEEN ? AND ?`
     )
     .get(contractId, startDate, endDate);
 
@@ -137,7 +137,7 @@ export function getAnalyticsData(contractId, startDate, endDate) {
         COUNT(*) as payouts
       FROM distribution_payouts dp
       JOIN transactions t ON dp.transactionId = t.id
-      WHERE t​contractId = ? AND t.status = 'confirmed'
+      WHERE tcontractId = ? AND t.status = 'confirmed'
         AND t.timestamp BETWEEN ? AND ?
       GROUP BY dp.collaboratorAddress
       ORDER BY totalEarned DESC
@@ -153,7 +153,7 @@ export function getAnalyticsData(contractId, startDate, endDate) {
         COUNT(*) as payoutCount
       FROM distribution_payouts dp
       JOIN transactions t ON dp.transactionId = t.id
-      WHERE t​contractId = ? AND t.status = 'confirmed'
+      WHERE tcontractId = ? AND t.status = 'confirmed'
         AND t.timestamp BETWEEN ? AND ?
       GROUP BY dp.collaboratorAddress
       ORDER BY totalEarned DESC`
@@ -214,7 +214,7 @@ export function getContributorEarningsEvents(walletAddress) {
       JOIN transactions t ON dp.transactionId = t.id
       WHERE dp.collaboratorAddress = ?
         AND t.status = 'confirmed'
-      GROUP BY t​contractId
+      GROUP BY tcontractId
       ORDER BY date ASC`
     )
     .all(walletAddress)
@@ -260,7 +260,7 @@ export function getContributorContracts(walletAddress) {
       JOIN transactions t ON dp.transactionId = t.id
       WHERE dp.collaboratorAddress = ?
         AND t.status = 'confirmed'
-      ORDER BY t​contractId ASC`
+      ORDER BY tcontractId ASC`
     )
     .all(walletAddress)
     .map((row) => row.contractId);
@@ -290,7 +290,7 @@ export function getContributorPayoutRecords(walletAddress, startDate, endDate, c
       FROM distribution_payouts dp
       JOIN transactions t ON dp.transactionId = t.id
       WHERE dp.collaboratorAddress = ?
-        AND t​status = 'confirmed'
+        AND tstatus = 'confirmed'
         AND COALESCE(t.blockTime, t.timestamp) BETWEEN ? AND ?
         ${contractFilter}
       ORDER BY payoutDate DESC`

@@ -9,6 +9,7 @@ import {
   useKeyboardShortcuts,
   type Shortcut,
 } from "./hooks/useKeyboardShortcuts";
+import MarketplaceIntegration from './components/MarketplaceIntegration';
 import { useWebSocket } from "./hooks/useWebSocket";
 import { analytics } from "./lib/analytics";
 
@@ -245,7 +246,8 @@ export default function App() {
       localStorage.setItem("lastContractId", value);
     }
   }
-
+  
+<MarketplaceIntegration />
   function closeHelp() {
     localStorage.setItem("srs_help_seen", "1");
     setShowHelp(false);

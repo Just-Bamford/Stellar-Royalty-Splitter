@@ -902,60 +902,34 @@ export function initializeDatabase() {
       `,
     },
     {
-      // Contract template marketplace: immutable version snapshots, forks and reviews.
-      version: 25,
+      // #995: Decentralized governance on Snapshot
+      version: 27,
       sql: `
-        -- Kept separate from the legacy royalty_split_templates allocation
-        -- presets (#652), whose schema intentionally remains unchanged.
-        CREATE TABLE IF NOT EXISTS contract_templates (
+        CREATE TABLE IF NOT EXISTS governance_votes (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          walletAddress TEXT NOT NULL,
-          name TEXT NOT NULL,
-          description TEXT NOT NULL DEFAULT '',
-          type TEXT NOT NULL DEFAULT 'custom' CHECK(type IN ('equal_split', 'tiered', 'progressive', 'custom')),
-          configuration TEXT NOT NULL,
-          visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private', 'public')),
-          version INTEGER NOT NULL DEFAULT 1,
-          rootTemplateId INTEGER,
-          sourceTemplateId INTEGER,
-          sourceVersion INTEGER,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          proposalId TEXT NOT NULL,
+          voterAddress TEXT NOT NULL,
+          choice INTEGER NOT NULL,
+          votingPower REAL NOT NULL,
+          votedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE TABLE IF NOT EXISTS royalty_split_template_versions (
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_proposal ON governance_votes(proposalId);
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_voter ON governance_votes(voterAddress);
+        CREATE INDEX IF NOT EXISTS idx_governance_votes_votedAt ON governance_votes(votedAt);
+
+        CREATE TABLE IF NOT EXISTS governance_executions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          templateId INTEGER NOT NULL,
-          version INTEGER NOT NULL,
-          snapshot TEXT NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(templateId, version),
-          FOREIGN KEY(templateId) REFERENCES contract_templates(id) ON DELETE CASCADE
+          proposalId TEXT NOT NULL UNIQUE,
+          executorAddress TEXT NOT NULL,
+          executedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          status TEXT NOT NULL CHECK(status IN ('pending', 'success', 'failed')),
+          txHash TEXT
         );
-        CREATE TABLE IF NOT EXISTS royalty_split_template_reviews (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          templateId INTEGER NOT NULL,
-          walletAddress TEXT NOT NULL,
-          rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
-          content TEXT NOT NULL DEFAULT '',
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(templateId, walletAddress),
-          FOREIGN KEY(templateId) REFERENCES contract_templates(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS contract_template_clones (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          sourceContractId TEXT,
-          sourceTemplateId INTEGER,
-          sourceTemplateVersion INTEGER,
-          targetContractId TEXT NOT NULL UNIQUE,
-          walletAddress TEXT NOT NULL,
-          configuration TEXT NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(sourceTemplateId) REFERENCES contract_templates(id) ON DELETE SET NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_contract_template_public_search ON contract_templates(visibility, type, updatedAt DESC);
-        CREATE INDEX IF NOT EXISTS idx_template_versions_template ON royalty_split_template_versions(templateId, version DESC);
-        CREATE INDEX IF NOT EXISTS idx_template_reviews_template ON royalty_split_template_reviews(templateId);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_proposal ON governance_executions(proposalId);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_status ON governance_executions(status);
+        CREATE INDEX IF NOT EXISTS idx_governance_executions_executedAt ON governance_executions(executedAt);
+      `,
+    },
       `,
     },
   ];

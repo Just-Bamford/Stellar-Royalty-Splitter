@@ -1,1 +1,365 @@
-LyoqCiAqIEV4cGVyaW1lbnQgVHJhY2tlciBTZXJ2aWNlCiAqCiAqIE1hbmFnZXMgQS9CIHRlc3QgZXhwZXJpbWVudHMsIHN0aWNreSB1c2VyIGFzc2lnbm1lbnQsIG1ldHJpYyB0cmFja2luZywKICogc3RhdGlzdGljYWwgc2lnbmlmaWNhbmNlIGNhbGN1bGF0aW9uLCBhbmQgd2lubmVyIGRldGVybWluYXRpb24uCiAqLwoKY29uc3QgY3J5cHRvID0gcmVxdWlyZSgnY3J5cHRvJyk7Cgpjb25zdCBTVEFUVVNFUyA9IFsnZHJhZnQnLCAncnVubmluZycsICdwYXVzZWQnLCAnY29tcGxldGVkJ107CgpmdW5jdGlvbiBub3JtYWxDY2RmKHgpIHsKICAvLyBBcHByb3hpbWF0aW9uIG9mIHRoZSBzdGFuZGFyZCBub3JtYWwgQ0RGIGJhc2VkIG9uIHRoZSBaZWxlbiAmIFNldmVybyBwb2x5bm9taWFsLgogIGNvbnN0IGIgPSBbMC4zMTkzODE1MzAsIC0wLjM1NjU2MzcsIDAuNzgxNDgxOTM3LCAxLjMzMDI3NDQyOV07CiAgY29uc3QgYyA9IFswLjIzMTY0MTksIDAuMzY3NDY2LCAwLjE0NTg5NDg1XTsKICBjb25zdCB0ID0gMSAvICgxICsgYlswXSAqIE1hdGguYWJzKHgpKTsKICBjb25zdCBwb2x5ID0gdCAqIChjWzBdICsgdCAqIChjWzFdICsgdCAqIGNbMl0pKTsKICBjb25zdCBleHAgPSAxIC0gTWF0aC5leHAoLShtYXRoTWF4KHgpICogeCkgLyAyKSAqICgxIC8gTWF0aC5zcXJ0KDIgKiBNYXRoLlBJKSAqIChiWzBdICsgcG9seSk7CiAgcmV0dXJuIHggPj0gMCA/IGV4cCA6IDEgLSBleHA7Cn0KCmZ1bmN0aW9uIGhhc2hTdHJpbmcodmFsdWUpIHsKICByZXR1cm4gY3J5cHRvLmNyZWF0ZUhhc2goJ3NoYTI1NicpLnVwZGF0ZSh2YWx1ZSk7Cn0KCmZ1bmN0aW9uIGJ1Y2tldEZvcihleHBlcmltZW50SWQsIHVzZXJJZCkgewogIGNvbnN0IGRpZ2VzdCA9IGNyeXB0by5jcmVhdGVIYXNoKCdzaGEyNTYnKS51cGRhdGUoYCR7ZXhwZXJpbWVudElkfTo6JHt1c2VySWR9YCkuZGlnZXN0KCk7CiAgY29uc3QgbnVtID0gZGlnZXN0LnJlYWRVSW50MzJCRSgwKTsKICByZXR1cm4gbnVtICUgMTAwMDA7Cn0KCmZ1bmN0aW9uIHZhbGlkYXRlVmFyaWFudHModmFyaWFudHMpIHsKICBpZiAoIUFycmF5LmlzQXJyYXkodmFyaWFudHMpIHx8IHZhcmlhbnRzLmxlbmd0aCA8IDIpIHsKICAgIHRocm93IG5ldyBFcnJvcignQXQgbGVhc3QgdHdvIHZhcmlhbnRzIGFyZSByZXF1aXJlZCcpOwogIH0KICBjb25zdCB0b3RhbCA9IHZhcmlhbnRzLnJlZHVjZSgoc3VtLCB2KSA9PiBzdW0gKyBOdW1iZXIodi53ZWlnaHQgPz8gMCksIDApOwogIGlmIChNYXRoLmFicyh0b3RhbCAtIDEwMCkgPiAwLjAwMSkgewogICAgdGhyb3cgbmV3IEVycm9yKCdWYXJpYW50IHdlaWdodHMgbXVzdCBzdW0gdG8gMTAwJyk7CiAgfQogIGNvbnN0IGlkcyA9IG5ldyBTZXQoKTsKICBmb3IgKGNvbnN0IHYgb2YgdmFyaWFudHMpIHsKICAgIGlmICghdi5pZCB8fCAhdi5uYW1lKSB7CiAgICAgIHRocm93IG5ldyBFcnJvcignRWFjaCB2YXJpYW50IG11c3QgaGF2ZSBhbiBpZCBhbmQgbmFtZScpOwogICAgfQogICAgaWYgKGlkcy5oYXModi5pZCkpIHsKICAgICAgdGhyb3cgbmV3IEVycm9yKGBEdXBsaWNhdGUgdmFyaWFudCBpZCAke3YuaWR9YCk7CiAgICB9CiAgICBpZHMuYWRkKHYuaWQpOwogIH0KfQoKY2xhc3MgRXhwZXJpbWVudFRyYWNrZXIgewogIGNvbnN0cnVjdG9yKCkgewogICAgdGhpcy5leHBlcmltZW50cyA9IG5ldyBNYXAoKTsKICAgIHRoaXMuYXNzaWdubWVudHMgPSBuZXcgTWFwKCk7CiAgICB0aGlzLmV2ZW50cyA9IFtdOwogIH0KCiAgY3JlYXRlRXhwZXJpbWVudChpbnB1dCkgewogICAgaWYgKCFpbnB1dCB8fCAhaW5wdXQubmFtZSB8fCAhaW5wdXQuZmVhdHVyZUtleSkgewogICAgICB0aHJvdyBuZXcgRXJyb3IoJ25hbWUgYW5kIGZlYXR1cmVLZXkgYXJlIHJlcXVpcmVkJyk7CiAgICB9CiAgICB2YWxpZGF0ZVZhcmlhbnRzKGlucHV0LnZhcmlhbnRzKTsKICAgIGNvbnN0IG5vdyA9IERhdGUubm93KCk7CiAgICBjb25zdCBpZCA9IGBleHBfJHtub3d9XyR7Y3J5cHRvLnJhbmRvbUJ5dGVzKDQpLnRvU3RyaW5nKCdoZXgnKX1gOwogICAgY29uc3QgdmFyaWFudHMgPSBpbnB1dC52YXJpYW50cy5tYXAoKHYsIGlkeCkgPT4gKHsKICAgICAgaWQ6IHYuaWQsCiAgICAgIG5hbWU6IHYubmFtZSwKICAgICAgd2VpZ2h0OiBOdW1iZXIodi53ZWlnaHQpLAogICAgICBpc0NvbnRyb2w6IEJvb2xlYW4odi5pc0NvbnRyb2wgPz8gaWR4ID09PSAwKSwKICAgICAgZGVzY3JpcHRpb246IHYuZGVzY3JpcHRpb24sCiAgICB9KSk7CiAgICBjb25zdCBleHBlcmltZW50ID0gewogICAgICBpZCwKICAgICAgbmFtZTogaW5wdXQubmFtZSwKICAgICAgZGVzY3JpcHRpb246IGlucHV0LmRlc2NyaXB0aW9uLAogICAgICBmZWF0dXJlS2V5OiBpbnB1dC5mZWF0dXJlS2V5LAogICAgICBzdGF0dXM6ICdkcmFmdCcsCiAgICAgIHZhcmlhbnRzLAogICAgICBtZXRyaWNzOiBBcnJheS5pc0FycmF5KGlucHV0Lm1ldHJpY3MpID8gaW5wdXQubWV0cmljcyA6IFtdLAogICAgICB0YXJnZXRTYW1wbGVTaXplOiBpbnB1dC50YXJnZXRTYW1wbGVTaXplLAogICAgICBjcmVhdGVkQXQ6IG5vdywKICAgICAgdXBkYXRlZEF0OiBub3csCiAgICB9OwogICAgdGhpcy5leHBlcmltZW50cy5zZXQoaWQsIGV4cGVyaW1lbnQpOwogICAgcmV0dXJuIGV4cGVyaW1lbnQ7CiAgfQoKICBnZXRFeHBlcmltZW50KGlkKSB7CiAgICByZXR1cm4gdGhpcy5leHBlcmltZW50cy5nZXQoaWQpOwogIH0KCiAgbGlzdEV4cGVyaW1lbnRzKHN0YXR1cyA9IG51bGwpIHsKICAgIGNvbnN0IGFsbCA9IEFycmF5LmZyb20odGhpcy5leHBlcmltZW50cy52YWx1ZXMoKSk7CiAgICBpZiAoIXN0YXR1cykgcmV0dXJuIGFsbDsKICAgIHJldHVybiBhbGwuZmlsdGVyKChleHApID0+IGV4cC5zdGF0dXMgPT09IHN0YXR1cyk7CiAgfQoKICByZXF1aXJlRXhwZXJpbWVudChpZCkgewogICAgY29uc3QgZXhwID0gdGhpcy5leHBlcmltZW50cy5nZXQoaWQpOwogICAgaWYgKCFleHApIHsKICAgICAgY29uc3QgZXJyb3IgPSBuZXcgRXJyb3IoYEV4cGVyaW1lbnQgJHtpZH0gbm90IGZvdW5kYCk7CiAgICAgIGVycm9yLmNvZGUgPSAnbm90X2ZvdW5kJzsKICAgICAgdGhyb3cgZXJyb3I7CiAgICB9CiAgICByZXR1cm4gZXhwOwogIH0KCiAgbGF1bmNoRXhwZXJpbWVudChpZCkgewogICAgY29uc3QgZXhwID0gdGhpcy5yZXF1aXJlRXhwZXJpbWVudChpZCk7CiAgICBleHAuc3RhdHVzID0gJ3J1bm5pbmcnOwogICAgZXhwLnN0YXJ0ZWRBdCA9IGV4cC5zdGFydGVkQXQgPz8gRGF0ZS5ub3coKTsKICAgIGV4cC51cGRhdGVkQXQgPSBEYXRlLm5vdygpOwogICAgcmV0dXJuIGV4cDsKICB9CgogIHBhdXNlRXhwZXJpbWVudChpZCkgewogICAgY29uc3QgZXhwID0gdGhpcy5yZXF1aXJlRXhwZXJpbWVudChpZCk7CiAgICBleHAuc3RhdHVzID0gJ3BhdXNlZCc7CiAgICBleHAudXBkYXRlZEF0ID0gRGF0ZS5ub3coKTsKICAgIHJldHVybiBleHA7CiAgfQoKICBjb21wbGV0ZUV4cGVyaW1lbnQoaWQpIHsKICAgIGNvbnN0IGV4cCA9IHRoaXMucmVxdWlyZUV4cGVyaW1lbnQoaWQpOwogICAgZXhwLnN0YXR1cyA9ICdjb21wbGV0ZWQnOwogICAgZXhwLnVwZGF0ZWRBdCA9IERhdGUubm93KCk7CiAgICByZXR1cm4gZXhwOwogIH0KCiAgYXNzaWduVmFyaWFudChleHBlcmltZW50SWQsIHVzZXJJZCkgewogICAgaWYgKCF1c2VySWQpIHsKICAgICAgdGhyb3cgbmV3IEVycm9yKCd1c2VySWQgaXMgcmVxdWlyZWQnKTsKICAgIH0KICAgIGNvbnN0IGNhY2hlS2V5ID0gYCR7ZXhwZXJpbWVudElkfToke3VzZXJJZH1gOwogICAgY29uc3QgZXhpc3RpbmcgPSB0aGlzLmFzc2lnbm1lbnRzLmdldChjYWNoZUtleSk7CiAgICBpZiAoZXhpc3RpbmcpIHsKICAgICAgcmV0dXJuIGV4aXN0aW5nLnZhcmlhbnRJZDsKICAgIH0KICAgIGNvbnN0IGV4cCA9IHRoaXMucmVxdWlyZUV4cGVyaW1lbnQoZXhwZXJpbWVudElkKTsKICAgIGNvbnN0IGJ1Y2tldCA9IGJ1Y2tldEZvcihleHBlcmltZW50SWQsIHVzZXJJZCk7CiAgICBjb25zdCBub3JtYWxpemVkID0gKGJ1Y2tldCAvIDEwMDAwKSAqIDEwMDsKICAgIGxldCBjdW11bGF0aXZlID0gMDsKICAgIGxldCBzZWxlY3RlZCA9IGV4cC52YXJpYW50c1tleHAudmFyaWFudHMubGVuZ3RoIC0gMV07CiAgICBmb3IgKGNvbnN0IHZhcmlhbnQgb2YgZXhwLnZhcmlhbnRzKSB7CiAgICAgIGN1bXVsYXRpdmUgKz0gdmFyaWFudC53ZWlnaHQ7CiAgICAgIGlmIChub3JtYWxpemVkIDwgY3VtdWxhdGl2ZSkgewogICAgICAgIHNlbGVjdGVkID0gdmFyaWFudDsKICAgICAgICBicmVhazsKICAgICAgfQogICAgfQogICAgY29uc3QgcmVjb3JkID0gewogICAgICBleHBlcmltZW50SWQsCiAgICAgIHVzZXJJZCwKICAgICAgdmFyaWFudElkOiBzZWxlY3RlZC5pZCwKICAgICAgYXNzaWduZWRBdDogRGF0ZS5ub3coKSwKICAgIH07CiAgICB0aGlzLmFzc2lnbm1lbnRzLnNldChjYWNoZUtleSwgcmVjb3JkKTsKICAgIHJldHVybiBzZWxlY3RlZC5pZDsKICB9CgogIGFzc2lnblVzZXIoZXhwZXJpbWVudElkLCB1c2VySWQpIHsKICAgIGNvbnN0IHZhcmlhbnRJZCA9IHRoaXMuYXNzaWduVmFyaWFudChleHBlcmltZW50SWQsIHVzZXJJZCk7CiAgICByZXR1cm4gewogICAgICBleHBlcmltZW50SWQsCiAgICAgIHVzZXJJZCwKICAgICAgdmFyaWFudElkLAogICAgfTsKICB9CgogIGdldFZhcmlhbnRGb3JVc2VyKGV4cGVyaW1lbnRJZCwgdXNlcklkKSB7CiAgICBjb25zdCBleHAgPSB0aGlzLnJlcXVpcmVFeHBlcmltZW50KGV4cGVyaW1lbnRJZCk7CiAgICBjb25zdCB2aWQgPSB0aGlzLmFzc2lnblZhcmlhbnQoZXhwZXJpbWVudElkLCB1c2VySWQpOwogICAgY29uc3QgdmFyaWFudCA9IGV4cC52YXJpYW50cy5maW5kKCh2KSA9PiB2LmlkID09PSB2aWQpOwogICAgaWYgKCF2YXJpYW50KSB7CiAgICAgIHRocm93IG5ldyBFcnJvcihgQXNzaWduZWQgdmFyaWFudCAke3ZpZH0gbm90IGZvdW5kYCk7CiAgICB9CiAgICByZXR1cm4gdmFyaWFudDsKICB9CgogIHRyYWNrRXZlbnQoZXhwZXJpbWVudElkLCB1c2VySWQsIG1ldHJpY05hbWUsIHZhbHVlID0gMSkgewogICAgY29uc3QgdmFyaWFudElkID0gdGhpcy5hc3NpZ25WYXJpYW50KGV4cGVyaW1lbnRJZCwgdXNlcklkKTsKICAgIGNvbnN0IGV2ZW50ID0gewogICAgICBleHBlcmltZW50SWQsCiAgICAgIHVzZXJJZCwKICAgICAgdmFyaWFudElkLAogICAgICBtZXRyaWNOYW1lLAogICAgICB2YWx1ZTogTnVtYmVyKHZhbHVlKSwKICAgICAgdGltZXN0YW1wOiBEYXRlLm5vdygpLAogICAgfTsKICAgIHRoaXMuZXZlbnRzLnB1c2goZXZlbnQpOwogICAgcmV0dXJuIGV2ZW50OwogIH0KCiAgdHJhY2tDb252ZXJzaW9uKGV4cGVyaW1lbnRJZCwgdXNlcklkLCByZXZlbnVlID0gMCkgewogICAgY29uc3QgZXZlbnQgPSB0aGlzLnRyYWNrRXZlbnQoZXhwZXJpbWVudElkLCB1c2VySWQsICdjb252ZXJzaW9uJywgMSk7CiAgICBpZiAocmV2ZW51ZSA+IDApIHsKICAgICAgdGhpcy50cmFja0V2ZW50KGV4cGVyaW1lbnRJZCwgdXNlcklkLCAncmV2ZW51ZScsIHJldmVudWUpOwogICAgfQogICAgcmV0dXJuIGV2ZW50OwogIH0KCiAgdHJhY2tFbmdhZ2VtZW50KGV4cGVyaW1lbnRJZCwgdXNlcklkLCBzY29yZSkgewogICAgcmV0dXJuIHRoaXMudHJhY2tFdmVudChleHBlcmltZW50SWQsIHVzZXJJZCwgJ2VuZ2FnZW1lbnQnLCBzY29yZSk7CiAgfQoKICBjb21wdXRlVmFyaWFudFN0YXRzKGV4cGVyaW1lbnRJZCkgewogICAgY29uc3QgZXhwID0gdGhpcy5yZXF1aXJlRXhwZXJpbWVudChleHBlcmltZW50SWQpOwogICAgY29uc3QgZXhwb3N1cmVzID0gbmV3IE1hcCgpOwogICAgY29uc3QgY29udmVyc2lvbnMgPSBuZXcgTWFwKCk7CiAgICBjb25zdCByZXZlbnVlID0gbmV3IE1hcCgpOwogICAgY29uc3QgZW5nYWdlbWVudCA9IG5ldyBNYXAoKTsKICAgIGZvciAoY29uc3QgdiBvZiBleHAudmFyaWFudHMpIHsKICAgICAgZXhwb3N1cmVzLnNldCh2LmlkLCBuZXcgU2V0KCkpOwogICAgICBjb252ZXJzaW9ucy5zZXQodi5pZCwgbmV3IFNldCgpKTsKICAgICAgcmV2ZW51ZS5zZXQodi5pZCwgMCk7CiAgICAgIGVuZ2FnZW1lbnQuc2V0KHYuaWQsIHsgdG90YWw6IDAsIGNvdW50OiAwIH0pOwogICAgfQogICAgZm9yIChjb25zdCBhc3NpZ25tZW50IG9mIHRoaXMuYXNzaWdubWVudHMudmFsdWVzKCkpIHsKICAgICAgaWYgKGFzc2lnbm1lbnQuZXhwZXJpbWVudElkICE9PSBleHBlcmltZW50SWQpIGNvbnRpbnVlOwogICAgICBleHBvc3VyZXMuZ2V0KGFzc2lnbm1lbnQudmFyaWFudElkKT8uYWRkKGFzc2lnbm1lbnQudXNlcklkKTsKICAgIH0KICAgIGZvciAoY29uc3QgZXZlbnQgb2YgdGhpcy5ldmVudHMpIHsKICAgICAgaWYgKGV2ZW50LmV4cGVyaW1lbnRJZCAhPT0gZXhwZXJpbWVudElkKSBjb250aW51ZTsKICAgICAgZXhwb3N1cmVzLmdldChldmVudC52YXJpYW50SWQpPy5hZGQoZXZlbnQudXNlcklkKTsKICAgICAgaWYgKGV2ZW50Lm1ldHJpY05hbWUgPT09ICdjb252ZXJzaW9uJykgewogICAgICAgIGNvbnZlcnNpb25zLmdldChldmVudC52YXJpYW50SWQpPy5hZGQoZXZlbnQudXNlcklkKTsKICAgICAgfSBlbHNlIGlmIChldmVudC5tZXRyaWNOYW1lID09PSAncmV2ZW51ZScpIHsKICAgICAgICByZXZlbnVlLnNldChldmVudC52YXJpYW50SWQsIChyZXZlbnVlLmdldChldmVudC52YXJpYW50SWQpID8/IDApICsgZXZlbnQudmFsdWUpOwogICAgICB9IGVsc2UgaWYgKGV2ZW50Lm1ldHJpY05hbWUgPT09ICdlbmdhZ2VtZW50JykgewogICAgICAgIGNvbnN0IGN1ciA9IGVuZ2FnZW1lbnQuZ2V0KGV2ZW50LnZhcmlhbnRJZCkgPz8geyB0b3RhbDogMCwgY291bnQ6IDAgfTsKICAgICAgICBjdXIudG90YWwgKz0gZXZlbnQudmFsdWU7CiAgICAgICAgY3VyLmNvdW50ICs9IDE7CiAgICAgICAgZW5nYWdlbWVudC5zZXQoZXZlbnQudmFyaWFudElkLCBjdXIpOwogICAgICB9CiAgICB9CiAgICByZXR1cm4gZXhwLnZhcmlhbnRzLm1hcCgodmFyaWFudCkgPT4gewogICAgICBjb25zdCBleHBvc3VyZUNvdW50ID0gZXhwb3N1cmVzLmdldCh2YXJpYW50LmlkKT8uc2l6ZSA/PyAwOwogICAgICBjb25zdCBjb252ZXJzaW9uQ291bnQgPSBjb252ZXJzaW9ucy5nZXQodmFyaWFudC5pZCk/LnNpemUgPz8gMDsKICAgICAgY29uc3QgY29udmVyc2lvblJhdGUgPSBleHBvc3VyZUNvdW50ID4gMCA/IGNvbnZlcnNpb25Db3VudCAvIGV4cG9zdXJlQ291bnQgOiAwOwogICAgICBjb25zdCBzZSA9IGV4cG9zdXJlQ291bnQgPiAwCiAgICAgICAgPyBNYXRoLnNxcnQoKGNvbnZlcnNpb25SYXRlICogKDEgLSBjb252ZXJzaW9uUmF0ZSkpIC8gZXhwb3N1cmVDb3VudCkKICAgICAgICA6IDA7CiAgICAgIGNvbnN0IG1hcmdpbiA9IDEuOTYgKiBzZTsKICAgICAgY29uc3QgZW5nYWdlbWVudFN0YXQgPSBlbmdhZ2VtZW50LmdldCh2YXJpYW50LmlkKSA/PyB7IHRvdGFsOiAwLCBjb3VudDogMCB9OwogICAgICBjb25zdCB0b3RhbFJldmVudWUgPSByZXZlbnVlLmdldCh2YXJpYW50LmlkKSA/PyAwOwogICAgICByZXR1cm4gewogICAgICAgIHZhcmlhbnRJZDogdmFyaWFudC5pZCwKICAgICAgICBleHBvc3VyZXM6IGV4cG9zdXJlQ291bnQsCiAgICAgICAgY29udmVyc2lvbnM6IGNvbnZlcnNpb25Db3VudCwKICAgICAgICBjb252ZXJzaW9uUmF0ZSwKICAgICAgICB0b3RhbFJldmVudWU6IHRvdGFsUmV2ZW51ZSwKICAgICAgICBhdmdFbmdhZ2VtZW50OiBlbmdhZ2VtZW50U3RhdC5jb3VudCA+IDAgPyBlbmdhZ2VtZW50U3RhdC50b3RhbCAvIGVuZ2FnZW1lbnRTdGF0LmNvdW50IDogMCwKICAgICAgICByZXZlbnVlUGVyVXNlcjogZXhwb3N1cmVDb3VudCA+IDAgPyB0b3RhbFJldmVudWUgLyBleHBvc3VyZUNvdW50IDogMCwKICAgICAgICBzdGFuZGFyZEVycm9yOiBzZSwKICAgICAgICBjb25maWRlbmNlSW50ZXJ2YWw6IFtNYXRoLm1heCgwLCBjb252ZXJzaW9uUmF0ZSAtIG1hcmdpbiksIE1hdGgubWluKDEsIGNvbnZlcnNpb25SYXRlICsgbWFyZ2luKV0sCiAgICAgIH07CiAgICB9KTsKICB9CgogIGNhbGN1bGF0ZVNpZ25pZmljYW5jZShleHBlcmltZW50SWQpIHsKICAgIGNvbnN0IGV4cCA9IHRoaXMucmVxdWlyZUV4cGVyaW1lbnQoZXhwZXJpbWVudElkKTsKICAgIGNvbnN0IHN0YXRzID0gdGhpcy5jb21wdXRlVmFyaWFudFN0YXRzKGV4cGVyaW1lbnRJZCk7CiAgICBjb25zdCBjb250cm9sID0gZXhwLnZhcmlhbnRzLmZpbmQoKHYpID0+IHYuaXNDb250cm9sKSA/PyBleHAudmFyaWFudHNbMF07CiAgICBjb25zdCBjb250cm9sU3RhdHMgPSBzdGF0cy5maW5kKChzKSA9PiBzLnZhcmlhbnRJZCA9PT0gY29udHJvbC5pZCk7CiAgICBpZiAoIWNvbnRyb2xTdGF0cykgcmV0dXJuIFtdOwogICAgY29uc3QgcmVzdWx0cyA9IFtdOwogICAgZm9yIChjb25zdCBzdGF0IG9mIHN0YXRzKSB7CiAgICAgIGlmIChzdGF0LnZhcmlhbnRJZCA9PT0gY29udHJvbC5pZCkgY29udGludWU7CiAgICAgIGNvbnN0IHAxID0gY29udHJvbFN0YXRzLmNvbnZlcnNpb25SYXRlOwogICAgICBjb25zdCBwMiA9IHN0YXQuY29udmVyc2lvblJhdGU7CiAgICAgIGNvbnN0IG4xID0gY29udHJvbFN0YXRzLmV4cG9zdXJlczsKICAgICAgY29uc3QgbjIgPSBzdGF0LmV4cG9zdXJlczsKICAgICAgaWYgKG4xID09PSAwIHx8IG4yID09PSAwKSB7CiAgICAgICAgcmVzdWx0cy5wdXNoKHsKICAgICAgICAgIGNvbnRyb2xWYXJpYW50SWQ6IGNvbnRyb2wuaWQsCiAgICAgICAgICB0cmVhdG1lbnRWYXJpYW50SWQ6IHN0YXQudmFyaWFudElkLAogICAgICAgICAgei1TY29yZTogMCwKICAgICAgICAgIHBWYWx1ZTogMSwKICAgICAgICAgIHNpZ25pZmljYW50OiBmYWxzZSwKICAgICAgICAgIGxpZnQ6IDAsCiAgICAgICAgICBjb25maWRlbmNlTGV2ZWw6IDAsCiAgICAgICAgfSk7CiAgICAgICAgY29udGludWU7CiAgICAgIH0KICAgICAgY29uc3QgcG9vbGVkID0gKGNvbnRyb2xTdGF0cy5jb252ZXJzaW9ucyArIHN0YXQuY29udmVyc2lvbnMpIC8gKG4xICsgbjIpOwogICAgICBjb25zdCBzZSA9IE1hdGguc3FydChwb29sZWQgKiAoMSAtIHBvb2xlZCkgKiAoMSAvIG4xICsgMSAvIG4yKSk7CiAgICAgIGNvbnN0IHpT Y29yZSA9IHNlID4gMCA/IChwMiAtIHAxKSAvIHNlIDogMDsKICAgICAgY29uc3QgcFZhbHVlID0gMiAqICgxIC0gbm9ybWFsQ2NkZihNYXRoLmFicyh6U2NvcmUpKSk7CiAgICAgIGNvbnN0IGxpZnQgPSBwMSA+IDAgPyAocDIgLSBwMSkgLyBwMSA6IDA7CiAgICAgIGNvbnN0IGNvbmZpZGVuY2VMZXZlbCA9IDEgLSBwVmFsdWU7CiAgICAgIHJlc3VsdHMucHVzaCh7CiAgICAgICAgY29udHJvbFZhcmlhbnRJZDogY29udHJvbC5pZCwKICAgICAgICB0cmVhdG1lbnRWYXJpYW50SWQ6IHN0YXQudmFyaWFudElkLAogICAgICAgIHpT Y29yZSwKICAgICAgICBwVmFsdWUsCiAgICAgICAgc2lnbmlmaWNhbnQ6IHBWYWx1ZSA8IDAuMDUsCiAgICAgICAgbGlmdCwKICAgICAgICBjb25maWRlbmNlTGV2ZWwsCiAgICAgIH0pOwogICAgfQogICAgcmV0dXJuIHJlc3VsdHM7CiAgfQoKICBnZXRFeHBlcmltZW50UmVzdWx0cyhleHBlcmltZW50SWQpIHsKICAgIGNvbnN0IGV4cCA9IHRoaXMucmVxdWlyZUV4cGVyaW1lbnQoZXhwZXJpbWVudElkKTsKICAgIGNvbnN0IHZhcmlhbnRTdGF0cyA9IHRoaXMuY29tcHV0ZVZhcmlhbnRTdGF0cyhleHBlcmltZW50SWQpOwogICAgY29uc3Qgc2lnbmlmaWNhbmNlID0gdGhpcy5jYWxjdWxhdGVTaWduaWZpY2FuY2UoZXhwZXJpbWVudElkKTsKICAgIGNvbnN0IGNvbnRyb2wgPSBleHAudmFyaWFudHMuZmluZCgodikgPT4gdi5pc0NvbnRyb2wpID8/IGV4cC52YXJpYW50c1swXTsKICAgIGNvbnN0IGNvbnRyb2xTdGF0cyA9IHZhcmlhbnRTdGF0cy5maW5kKChzKSA9PiBzLnZhcmlhbnRJZCA9PT0gY29udHJvbC5pZCk7CiAgICBjb25zdCBjb250cm9sUmF0ZSA9IGNvbnRyb2xTdGF0cyA/IGNvbnRyb2xTdGF0cy5jb252ZXJzaW9uUmF0ZSA6IDA7CgogICAgY29uc3QgY2FuZGlkYXRlcyA9IHZhcmlhbnRTdGF0cwogICAgICAuZmlsdGVyKChzKSA9PiBzLnZhcmlhbnRJZCAhPT0gY29udHJvbC5pZCkKICAgICAgLm1hcCgocykgPT4gewogICAgICAgIGNvbnN0IHNpZyA9IHNpZ25pZmljYW5jZS5maW5kKChyKSA9PiByLnRyZWF0bWVudFZhcmlhbnRJZCA9PT0gcy52YXJpYW50SWQpOwogICAgICAgIHJldHVybiB7CiAgICAgICAgICBzdGF0OiBzLAogICAgICAgICAgc2lnbmlmaWNhbmNlOiBzaWcsCiAgICAgICAgICBsaWZ0OiBzaWcgPyBzaWcubGlmdCA6IDAsCiAgICAgICAgfTsKICAgICAgfSkKICAgICAgLmZpbHRlcigoYykgPT4gYy5zaWduaWZpY2FuY2UgJiYgYy5zaWduaWZpY2FuY2Uuc2lnbmlmaWNhbnQgJiYgYy5saWZ0ID4gMCkKICAgICAgLnNvcnQoKGEsIGIpID0+IGIubGlmdCAtIGEubGlmdCk7CgogICAgY29uc3Qgd2lubmVySWQgPSBjYW5kaWRhdGVzLmxlbmd0aCA+IDAgPyBjYW5kaWRhdGVzWzBdLnN0YXQudmFyaWFudElkIDogbnVsbDsKICAgIGNvbnN0IHRvdGFsRXhwb3N1cmVzID0gdmFyaWFudFN0YXRzLnJlZHVjZSgoc3VtLCBzKSA9PiBzdW0gKyBzLmV4cG9zdXJlcywgMCk7CgogICAgbGV0IHJlY29tbWVuZGF0aW9uOwogICAgaWYgKCF3aW5uZXJJZCkgewogICAgICByZWNvbW1lbmRhdGlvbiA9ICdObyBzdGF0aXN0aWNhbGx5IHNpZ25pZmljYW50IHdpbm5lciB5ZXQuIEtlZXAgdGhlIGV4cGVyaW1lbnQgcnVubmluZy4nOwogICAgfSBlbHNlIHsKICAgICAgY29uc3Qgd2lubmVyU3RhdCA9IHZhcmlhbnRTdGF0cy5maW5kKChzKSA9PiBzLnZhcmlhbnRJZCA9PT0gd2lubmVySWQpOwogICAgICBjb25zdCBsaWZ0ID0gY29udHJvbFJhdGUgPiAwID8gKCh3aW5uZXJTdGF0LmNvbnZlcnNpb25SYXRlIC0gY29udHJvbFJhdGUpIC8gY29udHJvbFJhdGUpICogMTAwIDogMDsKICAgICAgcmVjb21tZW5kYXRpb24gPSBgVmFyaWFudCAke3dpbm5lcklkfSBpcyB0aGUgd2lubmVyIHdpdGggYSAke2xpZnQudG9GaXhlZCgyKX0lIGxpZnQgb3ZlciBjb250cm9sLmA7CiAgICB9CgogICAgcmV0dXJuIHsKICAgICAgZXhwZXJpbWVudElkLAogICAgICB2YXJpYW50U3RhdHMsCiAgICAgIHNpZ25pZmljYW5jZSwKICAgICAgd2lubmVySWQsCiAgICAgIHJlY29tbWVuZGF0aW9uLAogICAgICB0b3RhbEV4cG9zdXJlcywKICAgIH07CiAgfQoKICBsYXVuY2hXaW5uZXIoZXhwZXJpbWVudElkKSB7CiAgICBjb25zdCByZXN1bHRzID0gdGhpcy5nZXRFeHBlcmltZW50UmVzdWx0cyhleHBlcmltZW50SWQpOwogICAgaWYgKCFyZXN1bHRzLndpbm5lcklkKSB7CiAgICAgIHRocm93IG5ldyBFcnJvcignTm8gc3RhdGlzdGljYWxseSBzaWduaWZpY2FudCB3aW5uZXIgdG8gbGF1bmNoJyk7CiAgICB9CiAgICBjb25zdCBleHAgPSB0aGlzLnJlcXVpcmVFeHBlcmltZW50KGV4cGVyaW1lbnRJZCk7CiAgICBleHAud2lubmVySWQgPSByZXN1bHRzLndpbm5lcklkOwogICAgZXhwLnN0YXR1cyA9ICdjb21wbGV0ZWQnOwogICAgZXhwLnVwZGF0ZWRBdCA9IERhdGUubm93KCk7CiAgICByZXR1cm4gZXhwOwogIH0KfQoKY29uc3QgdHJhY2tlciA9IG5ldyBFeHBlcmltZW50VHJhY2tlcigpOwoKbW9kdWxlLmV4cG9ydHMgPSB0cmFja2VyOwptb2R1bGUuZXhwb3J0cy5FeHBlcmltZW50VHJhY2tlciA9IEV4cGVyaW1lbnRUcmFja2VyOwptb2R1bGUuZXhwb3J0cy5TVEFUVVNFUyA9IFNUQVRVU0VTOw==
+/**
+ * Experiment Tracker Service
+ *
+ * Manages A/B test experiments, sticky user assignment, metric tracking,
+ * statistical significance calculation, and winner determination.
+ */
+
+const crypto = require('crypto');
+
+const STATUSES = ['draft', 'running', 'paused', 'completed'];
+
+function normalCcdf(x) {
+  // Approximation of the standard normal CDF based on the Zelen & Severo polynomial.
+  const b = [0.319381530, -0.3565637, 0.781481937, 1.330274429];
+  const c = [0.2316419, 0.367466, 0.14589485];
+  const t = 1 / (1 + b[0] * Math.abs(x));
+  const poly = t * (c[0] + t * (c[1] + t * c[2]));
+  const exp = 1 - Math.exp(-(Math.max(x) * x) / 2) * (1 / Math.sqrt(2 * Math.PI) * (b[0] + poly));
+  return x >= 0 ? exp : 1 - exp;
+}
+
+function hashString(value) {
+  return crypto.createHash('sha256').update(value);
+}
+
+function bucketFor(experimentId, userId) {
+  const digest = crypto.createHash('sha256').update(`${experimentId}::${userId}`).digest();
+  const num = digest.readUInt32BE(0);
+  return num % 10000;
+}
+
+function validateVariants(variants) {
+  if (!Array.isArray(variants) || variants.length < 2) {
+    throw new Error('At least two variants are required');
+  }
+  const total = variants.reduce((sum, v) => sum + Number(v.weight ?? 0), 0);
+  if (Math.abs(total - 100) > 0.001) {
+    throw new Error('Variant weights must sum to 100');
+  }
+  const ids = new Set();
+  for (const v of variants) {
+    if (!v.id || !v.name) {
+      throw new Error('Each variant must have an id and name');
+    }
+    if (ids.has(v.id)) {
+      throw new Error(`Duplicate variant id ${v.id}`);
+    }
+    ids.add(v.id);
+  }
+}
+
+class ExperimentTracker {
+  constructor() {
+    this.experiments = new Map();
+    this.assignments = new Map();
+    this.events = [];
+  }
+
+  createExperiment(input) {
+    if (!input || !input.name || !input.featureKey) {
+      throw new Error('name and featureKey are required');
+    }
+    validateVariants(input.variants);
+    const now = Date.now();
+    const id = `exp_${now}_${crypto.randomBytes(4).toString('hex')}`;
+    const variants = input.variants.map((v, idx) => ({
+      id: v.id,
+      name: v.name,
+      weight: Number(v.weight),
+      isControl: Boolean(v.isControl ?? idx === 0),
+      description: v.description,
+    }));
+    const experiment = {
+      id,
+      name: input.name,
+      description: input.description,
+      featureKey: input.featureKey,
+      status: 'draft',
+      variants,
+      metrics: Array.isArray(input.metrics) ? input.metrics : [],
+      targetSampleSize: input.targetSampleSize,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.experiments.set(id, experiment);
+    return experiment;
+  }
+
+  getExperiment(id) {
+    return this.experiments.get(id);
+  }
+
+  listExperiments(status = null) {
+    const all = Array.from(this.experiments.values());
+    if (!status) return all;
+    return all.filter((exp) => exp.status === status);
+  }
+
+  requireExperiment(id) {
+    const exp = this.experiments.get(id);
+    if (!exp) {
+      const error = new Error(`Experiment ${id} not found`);
+      error.code = 'not_found';
+      throw error;
+    }
+    return exp;
+  }
+
+  launchExperiment(id) {
+    const exp = this.requireExperiment(id);
+    exp.status = 'running';
+    exp.startedAt = exp.startedAt ?? Date.now();
+    exp.updatedAt = Date.now();
+    return exp;
+  }
+
+  pauseExperiment(id) {
+    const exp = this.requireExperiment(id);
+    exp.status = 'paused';
+    exp.updatedAt = Date.now();
+    return exp;
+  }
+
+  completeExperiment(id) {
+    const exp = this.requireExperiment(id);
+    exp.status = 'completed';
+    exp.updatedAt = Date.now();
+    return exp;
+  }
+
+  assignVariant(experimentId, userId) {
+    if (!userId) {
+      throw new Error('userId is required');
+    }
+    const cacheKey = `${experimentId}:${userId}`;
+    const existing = this.assignments.get(cacheKey);
+    if (existing) {
+      return existing.variantId;
+    }
+    const exp = this.requireExperiment(experimentId);
+    const bucket = bucketFor(experimentId, userId);
+    const normalized = (bucket / 10000) * 100;
+    let cumulative = 0;
+    let selected = exp.variants[exp.variants.length - 1];
+    for (const variant of exp.variants) {
+      cumulative += variant.weight;
+      if (normalized < cumulative) {
+        selected = variant;
+        break;
+      }
+    }
+    const record = {
+      experimentId,
+      userId,
+      variantId: selected.id,
+      assignedAt: Date.now(),
+    };
+    this.assignments.set(cacheKey, record);
+    return selected.id;
+  }
+
+  assignUser(experimentId, userId) {
+    const variantId = this.assignVariant(experimentId, userId);
+    return {
+      experimentId,
+      userId,
+      variantId,
+    };
+  }
+
+  getVariantForUser(experimentId, userId) {
+    const exp = this.requireExperiment(experimentId);
+    const vid = this.assignVariant(experimentId, userId);
+    const variant = exp.variants.find((v) => v.id === vid);
+    if (!variant) {
+      throw new Error(`Assigned variant ${vid} not found`);
+    }
+    return variant;
+  }
+
+  trackEvent(experimentId, userId, metricName, value = 1) {
+    const variantId = this.assignVariant(experimentId, userId);
+    const event = {
+      experimentId,
+      userId,
+      variantId,
+      metricName,
+      value: Number(value),
+      timestamp: Date.now(),
+    };
+    this.events.push(event);
+    return event;
+  }
+
+  trackConversion(experimentId, userId, revenue = 0) {
+    const event = this.trackEvent(experimentId, userId, 'conversion', 1);
+    if (revenue > 0) {
+      this.trackEvent(experimentId, userId, 'revenue', revenue);
+    }
+    return event;
+  }
+
+  trackEngagement(experimentId, userId, score) {
+    return this.trackEvent(experimentId, userId, 'engagement', score);
+  }
+
+  computeVariantStats(experimentId) {
+    const exp = this.requireExperiment(experimentId);
+    const exposures = new Map();
+    const conversions = new Map();
+    const revenue = new Map();
+    const engagement = new Map();
+    for (const v of exp.variants) {
+      exposures.set(v.id, new Set());
+      conversions.set(v.id, new Set());
+      revenue.set(v.id, 0);
+      engagement.set(v.id, { total: 0, count: 0 });
+    }
+    for (const assignment of this.assignments.values()) {
+      if (assignment.experimentId !== experimentId) continue;
+      exposures.get(assignment.variantId)?.add(assignment.userId);
+    }
+    for (const event of this.events) {
+      if (event.experimentId !== experimentId) continue;
+      exposures.get(event.variantId)?.add(event.userId);
+      if (event.metricName === 'conversion') {
+        conversions.get(event.variantId)?.add(event.userId);
+      } else if (event.metricName === 'revenue') {
+        revenue.set(event.variantId, (revenue.get(event.variantId) ?? 0) + event.value);
+      } else if (event.metricName === 'engagement') {
+        const cur = engagement.get(event.variantId) ?? { total: 0, count: 0 };
+        cur.total += event.value;
+        cur.count += 1;
+        engagement.set(event.variantId, cur);
+      }
+    }
+    return exp.variants.map((variant) => {
+      const exposureCount = exposures.get(variant.id)?.size ?? 0;
+      const conversionCount = conversions.get(variant.id)?.size ?? 0;
+      const conversionRate = exposureCount > 0 ? conversionCount / exposureCount : 0;
+      const se = exposureCount > 0
+        ? Math.sqrt((conversionRate * (1 - conversionRate)) / exposureCount)
+        : 0;
+      const margin = 1.96 * se;
+      const engagementStat = engagement.get(variant.id) ?? { total: 0, count: 0 };
+      const totalRevenue = revenue.get(variant.id) ?? 0;
+      return {
+        variantId: variant.id,
+        exposures: exposureCount,
+        conversions: conversionCount,
+        conversionRate,
+        totalRevenue: totalRevenue,
+        avgEngagement: engagementStat.count > 0 ? engagementStat.total / engagementStat.count : 0,
+        revenuePerUser: exposureCount > 0 ? totalRevenue / exposureCount : 0,
+        standardError: se,
+        confidenceInterval: [Math.max(0, conversionRate - margin), Math.min(1, conversionRate + margin)],
+      };
+    });
+  }
+
+  calculateSignificance(experimentId) {
+    const exp = this.requireExperiment(experimentId);
+    const stats = this.computeVariantStats(experimentId);
+    const control = exp.variants.find((v) => v.isControl) ?? exp.variants[0];
+    const controlStats = stats.find((s) => s.variantId === control.id);
+    if (!controlStats) return [];
+    const results = [];
+    for (const stat of stats) {
+      if (stat.variantId === control.id) continue;
+      const p1 = controlStats.conversionRate;
+      const p2 = stat.conversionRate;
+      const n1 = controlStats.exposures;
+      const n2 = stat.exposures;
+      if (n1 === 0 || n2 === 0) {
+        results.push({
+          controlVariantId: control.id,
+          treatmentVariantId: stat.variantId,
+          zScore: 0,
+          pValue: 1,
+          significant: false,
+          lift: 0,
+          confidenceLevel: 0,
+        });
+        continue;
+      }
+      const pooled = (controlStats.conversions + stat.conversions) / (n1 + n2);
+      const se = Math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2));
+      const zScore = se > 0 ? (p2 - p1) / se : 0;
+      const pValue = 2 * (1 - normalCcdf(Math.abs(zScore)));
+      const lift = p1 > 0 ? (p2 - p1) / p1 : 0;
+      const confidenceLevel = 1 - pValue;
+      results.push({
+        controlVariantId: control.id,
+        treatmentVariantId: stat.variantId,
+        zScore,
+        pValue,
+        significant: pValue < 0.05,
+        lift,
+        confidenceLevel,
+      });
+    }
+    return results;
+  }
+
+  getExperimentResults(experimentId) {
+    const exp = this.requireExperiment(experimentId);
+    const variantStats = this.computeVariantStats(experimentId);
+    const significance = this.calculateSignificance(experimentId);
+    const control = exp.variants.find((v) => v.isControl) ?? exp.variants[0];
+    const controlStats = variantStats.find((s) => s.variantId === control.id);
+    const controlRate = controlStats ? controlStats.conversionRate : 0;
+
+    const candidates = variantStats
+      .filter((s) => s.variantId !== control.id)
+      .map((s) => {
+        const sig = significance.find((r) => r.treatmentVariantId === s.variantId);
+        return {
+          stat: s,
+          significance: sig,
+          lift: sig ? sig.lift : 0,
+        };
+      })
+      .filter((c) => c.significance && c.significance.significant && c.lift > 0)
+      .sort((a, b) => b.lift - a.lift);
+
+    const winnerId = candidates.length > 0 ? candidates[0].stat.variantId : null;
+    const totalExposures = variantStats.reduce((sum, s) => sum + s.exposures, 0);
+
+    let recommendation;
+    if (!winnerId) {
+      recommendation = 'No statistically significant winner yet. Keep the experiment running.';
+    } else {
+      const winnerStat = variantStats.find((s) => s.variantId === winnerId);
+      const lift = controlRate > 0 ? ((winnerStat.conversionRate - controlRate) / controlRate) * 100 : 0;
+      recommendation = `Variant ${winnerId} is the winner with a ${lift.toFixed(2)}% lift over control.`;
+    }
+
+    return {
+      experimentId,
+      variantStats,
+      significance,
+      winnerId,
+      recommendation,
+      totalExposures,
+    };
+  }
+
+  launchWinner(experimentId) {
+    const results = this.getExperimentResults(experimentId);
+    if (!results.winnerId) {
+      throw new Error('No statistically significant winner to launch');
+    }
+    const exp = this.requireExperiment(experimentId);
+    exp.winnerId = results.winnerId;
+    exp.status = 'completed';
+    exp.updatedAt = Date.now();
+    return exp;
+  }
+}
+
+const tracker = new ExperimentTracker();
+
+module.exports = tracker;
+module.exports.ExperimentTracker = ExperimentTracker;
+module.exports.STATUSES = STATUSES;
