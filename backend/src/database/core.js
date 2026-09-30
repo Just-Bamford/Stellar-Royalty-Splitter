@@ -811,7 +811,7 @@ export function initializeDatabase() {
       `,
     },
     {
-      // #984: Performance — Query optimization and database indexing strategy
+      // #984: Performance ÔÇö Query optimization and database indexing strategy
       version: 23,
       sql: `
         -- Foreign key indexes
@@ -857,79 +857,111 @@ export function initializeDatabase() {
       `,
     },
     {
-      // Advanced RBAC: normalized multi-role assignments, temporary grants, immutable change history.
+      // #991: distribution schedules, batch execution tracking
       version: 24,
       sql: `
-        CREATE TABLE IF NOT EXISTS user_roles (
-          userId INTEGER NOT NULL,
-          role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'accountant', 'viewer', 'approver')),
-          assignedByUserId INTEGER,
-          assignedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (userId, role),
-          FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY(assignedByUserId) REFERENCES users(id) ON DELETE SET NULL
-        );
-        CREATE TABLE IF NOT EXISTS temporary_permissions (
+        CREATE TABLE IF NOT EXISTS distribution_schedules (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          userId INTEGER NOT NULL,
-          permission TEXT NOT NULL,
-          grantedByUserId INTEGER,
-          grantedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          expiresAt DATETIME NOT NULL,
-          revokedAt DATETIME,
-          revokedByUserId INTEGER,
-          FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY(grantedByUserId) REFERENCES users(id) ON DELETE SET NULL,
-          FOREIGN KEY(revokedByUserId) REFERENCES users(id) ON DELETE SET NULL
+          contractId TEXT NOT NULL,
+          walletAddress TEXT NOT NULL,
+          tokenId TEXT NOT NULL,
+          frequency TEXT NOT NULL CHECK(frequency IN ('weekly', 'biweekly', 'monthly')),
+          dayOfWeek INTEGER CHECK(dayOfWeek BETWEEN 0 AND 6),
+          dayOfMonth INTEGER CHECK(dayOfMonth BETWEEN 1 AND 28),
+          hourOfDay INTEGER NOT NULL DEFAULT 0 CHECK(hourOfDay BETWEEN 0 AND 23),
+          minuteOfHour INTEGER NOT NULL DEFAULT 0 CHECK(minuteOfHour BETWEEN 0 AND 59),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          nextRunAt DATETIME,
+          lastRunAt DATETIME,
+          lastRunStatus TEXT CHECK(lastRunStatus IN ('success', 'failed', 'partial') OR lastRunStatus IS NULL),
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX IF NOT EXISTS idx_temporary_permissions_active ON temporary_permissions(userId, expiresAt) WHERE revokedAt IS NULL;
-        CREATE TABLE IF NOT EXISTS rbac_audit_events (
+        CREATE TABLE IF NOT EXISTS batch_executions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          actorUserId INTEGER,
-          affectedUserId INTEGER NOT NULL,
-          action TEXT NOT NULL,
-          previousState TEXT,
-          newState TEXT,
-          expiresAt DATETIME,
-          revertedAuditId INTEGER,
-          requestId TEXT,
-          timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(actorUserId) REFERENCES users(id) ON DELETE SET NULL,
-          FOREIGN KEY(affectedUserId) REFERENCES users(id) ON DELETE RESTRICT,
-          FOREIGN KEY(revertedAuditId) REFERENCES rbac_audit_events(id) ON DELETE RESTRICT
+          scheduleId INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+          totalItems INTEGER NOT NULL DEFAULT 0,
+          successCount INTEGER NOT NULL DEFAULT 0,
+          failureCount INTEGER NOT NULL DEFAULT 0,
+          startedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME,
+          errorMessage TEXT,
+          FOREIGN KEY(scheduleId) REFERENCES distribution_schedules(id) ON DELETE SET NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_rbac_audit_affected ON rbac_audit_events(affectedUserId, timestamp DESC);
+        CREATE TABLE IF NOT EXISTS batch_execution_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batchExecutionId INTEGER NOT NULL,
+          transactionId INTEGER,
+          contractId TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'skipped')),
+          xdr TEXT,
+          errorMessage TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(batchExecutionId) REFERENCES batch_executions(id) ON DELETE CASCADE,
+          FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_distribution_schedules_contractId ON distribution_schedules(contractId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_schedules_enabled_next ON distribution_schedules(enabled, nextRunAt);
+        CREATE INDEX IF NOT EXISTS idx_batch_executions_scheduleId ON batch_executions(scheduleId);
+        CREATE INDEX IF NOT EXISTS idx_batch_execution_items_batchId ON batch_execution_items(batchExecutionId);
       `,
     },
     {
-      // #995: Decentralized governance on Snapshot
-      version: 27,
+      // #993: contract backup and disaster recovery
+      version: 25,
       sql: `
-        CREATE TABLE IF NOT EXISTS governance_votes (
+        CREATE TABLE IF NOT EXISTS contract_backups (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          proposalId TEXT NOT NULL,
-          voterAddress TEXT NOT NULL,
-          choice INTEGER NOT NULL,
-          votingPower REAL NOT NULL,
-          votedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          contractId TEXT NOT NULL,
+          snapshotVersion INTEGER NOT NULL DEFAULT 1,
+          ipfsCid TEXT,
+          ipfsGatewayUrl TEXT,
+          sizeBytes INTEGER NOT NULL DEFAULT 0,
+          transactionCount INTEGER NOT NULL DEFAULT 0,
+          collaboratorCount INTEGER NOT NULL DEFAULT 0,
+          secondarySaleCount INTEGER NOT NULL DEFAULT 0,
+          auditLogCount INTEGER NOT NULL DEFAULT 0,
+          weekNumber INTEGER NOT NULL,
+          yearNumber INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'uploading', 'completed', 'failed')),
+          errorMessage TEXT,
+          isRecoveryDrill INTEGER NOT NULL DEFAULT 0,
+          drillSucceeded INTEGER,
+          drillDurationMs INTEGER,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME
         );
-        CREATE INDEX IF NOT EXISTS idx_governance_votes_proposal ON governance_votes(proposalId);
-        CREATE INDEX IF NOT EXISTS idx_governance_votes_voter ON governance_votes(voterAddress);
-        CREATE INDEX IF NOT EXISTS idx_governance_votes_votedAt ON governance_votes(votedAt);
-
-        CREATE TABLE IF NOT EXISTS governance_executions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          proposalId TEXT NOT NULL UNIQUE,
-          executorAddress TEXT NOT NULL,
-          executedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          status TEXT NOT NULL CHECK(status IN ('pending', 'success', 'failed')),
-          txHash TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_governance_executions_proposal ON governance_executions(proposalId);
-        CREATE INDEX IF NOT EXISTS idx_governance_executions_status ON governance_executions(status);
-        CREATE INDEX IF NOT EXISTS idx_governance_executions_executedAt ON governance_executions(executedAt);
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_contractId ON contract_backups(contractId);
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_week ON contract_backups(contractId, yearNumber, weekNumber);
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_status ON contract_backups(status);
       `,
     },
+    {
+      // #1066: Event sourcing and CQRS — append-only domain event store
+      version: 26,
+      sql: `
+        CREATE TABLE IF NOT EXISTS domain_events (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          eventId    TEXT    NOT NULL UNIQUE,
+          eventType  TEXT    NOT NULL,
+          aggregateType TEXT NOT NULL,
+          aggregateId   TEXT NOT NULL,
+          contractId    TEXT,
+          actor         TEXT,
+          payload    TEXT    NOT NULL DEFAULT '{}',
+          metadata   TEXT    NOT NULL DEFAULT '{}',
+          version    INTEGER NOT NULL DEFAULT 1,
+          occurredAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_domain_events_aggregateId
+          ON domain_events(aggregateType, aggregateId, occurredAt ASC);
+        CREATE INDEX IF NOT EXISTS idx_domain_events_contractId
+          ON domain_events(contractId, occurredAt ASC);
+        CREATE INDEX IF NOT EXISTS idx_domain_events_type
+          ON domain_events(eventType, occurredAt ASC);
+        CREATE INDEX IF NOT EXISTS idx_domain_events_occurredAt
+          ON domain_events(occurredAt ASC);
       `,
     },
     {

@@ -114,6 +114,7 @@ import { identityRouter } from "./routes/identity.js";
 import { backupRouter } from "./routes/backup.js";
 import { startDistributionScheduler } from "./services/distribution-scheduler.js";
 import { startBackupScheduler } from "./services/contract-backup.js";
+import { eventsRouter, commandsRouter } from "./routes/events.js";
 import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
 import { rightsRouter } from "./routes/rights-management.js";
 import { treasuryRouter } from "./routes/treasury/index.js";
@@ -582,6 +583,11 @@ app.use("/api/v1/identity", identityRouter);
 // Contract backup and disaster recovery (#993)
 app.use("/api/v1/backup", writeLimiter);
 app.use("/api/v1/backup", backupRouter);
+
+// Event sourcing and CQRS (#1066)
+app.use("/api/v1/events", eventsRouter);
+app.use("/api/v1/commands", writeLimiter);
+app.use("/api/v1/commands", commandsRouter);
 
 // Rights Management System
 app.use("/api/v1/rights", writeLimiter);
