@@ -901,6 +901,63 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_rbac_audit_affected ON rbac_audit_events(affectedUserId, timestamp DESC);
       `,
     },
+    {
+      // Contract template marketplace: immutable version snapshots, forks and reviews.
+      version: 25,
+      sql: `
+        -- Kept separate from the legacy royalty_split_templates allocation
+        -- presets (#652), whose schema intentionally remains unchanged.
+        CREATE TABLE IF NOT EXISTS contract_templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          type TEXT NOT NULL DEFAULT 'custom' CHECK(type IN ('equal_split', 'tiered', 'progressive', 'custom')),
+          configuration TEXT NOT NULL,
+          visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private', 'public')),
+          version INTEGER NOT NULL DEFAULT 1,
+          rootTemplateId INTEGER,
+          sourceTemplateId INTEGER,
+          sourceVersion INTEGER,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS royalty_split_template_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          templateId INTEGER NOT NULL,
+          version INTEGER NOT NULL,
+          snapshot TEXT NOT NULL,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(templateId, version),
+          FOREIGN KEY(templateId) REFERENCES contract_templates(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS royalty_split_template_reviews (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          templateId INTEGER NOT NULL,
+          walletAddress TEXT NOT NULL,
+          rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+          content TEXT NOT NULL DEFAULT '',
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(templateId, walletAddress),
+          FOREIGN KEY(templateId) REFERENCES contract_templates(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS contract_template_clones (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sourceContractId TEXT,
+          sourceTemplateId INTEGER,
+          sourceTemplateVersion INTEGER,
+          targetContractId TEXT NOT NULL UNIQUE,
+          walletAddress TEXT NOT NULL,
+          configuration TEXT NOT NULL,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(sourceTemplateId) REFERENCES contract_templates(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_contract_template_public_search ON contract_templates(visibility, type, updatedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_template_versions_template ON royalty_split_template_versions(templateId, version DESC);
+        CREATE INDEX IF NOT EXISTS idx_template_reviews_template ON royalty_split_template_reviews(templateId);
+      `,
+    },
   ];
 
   for (const migration of migrations) {
