@@ -2,6 +2,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import logger from "../logger.js";
+import { registerFieldEncryptor } from "../middleware/field-encryptor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "..", "audit.db");
@@ -12,6 +13,126 @@ db.pragma("synchronous = NORMAL"); // safe with WAL, much faster
 db.pragma("cache_size = -64000"); // 64MB page cache
 db.pragma("foreign_keys = ON"); // enforce FK constraints
 db.pragma("temp_store = MEMORY"); // temp tables in memory
+registerFieldEncryptor(db);
+
+const PAYOUT_AMOUNT_FIELD = "distribution_payouts.amountReceived";
+
+function migrateEncryptedPayouts() {
+  const current = db.prepare("SELECT type FROM sqlite_master WHERE name = 'distribution_payouts'").get();
+  if (current?.type === "table") {
+    db.exec("ALTER TABLE distribution_payouts RENAME TO distribution_payouts_encrypted");
+  } else if (!current) {
+    db.exec(`
+      CREATE TABLE distribution_payouts_encrypted (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transactionId INTEGER NOT NULL,
+        contractId TEXT NOT NULL DEFAULT '',
+        collaboratorAddress TEXT NOT NULL,
+        amountReceived TEXT NOT NULL,
+        amountReceivedHash TEXT,
+        FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+      )
+    `);
+  }
+
+  const columns = db.prepare("PRAGMA table_info(distribution_payouts_encrypted)").all();
+  if (!columns.some(({ name }) => name === "amountReceivedHash")) {
+    db.exec("ALTER TABLE distribution_payouts_encrypted ADD COLUMN amountReceivedHash TEXT");
+  }
+
+  db.prepare(`
+    UPDATE distribution_payouts_encrypted
+      SET amountReceivedHash = field_blind_index(
+        amountReceived,
+        COALESCE(NULLIF(contractId, ''), (SELECT contractId FROM transactions WHERE id = transactionId)),
+        ?
+      )
+    WHERE amountReceivedHash IS NULL
+  `).run(PAYOUT_AMOUNT_FIELD);
+
+  const archive = db.prepare("SELECT type FROM sqlite_master WHERE name = 'contract_event_archive'").get();
+  if (archive?.type === "table") {
+    db.prepare(`
+      UPDATE contract_event_archive
+      SET payoutsJson = encrypt_field(payoutsJson, contractId, 'contract_event_archive.payoutsJson')
+      WHERE payoutsJson NOT LIKE 'enc:v1:%'
+    `).run();
+  }
+  db.prepare(`
+    UPDATE distribution_payouts_encrypted
+      SET amountReceived = encrypt_field(
+        amountReceived,
+        COALESCE(NULLIF(contractId, ''), (SELECT contractId FROM transactions WHERE id = transactionId)),
+        ?
+      )
+    WHERE amountReceived NOT LIKE 'enc:v1:%'
+  `).run(PAYOUT_AMOUNT_FIELD);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_distribution_payouts_amount_hash
+      ON distribution_payouts_encrypted(amountReceivedHash);
+
+    DROP VIEW IF EXISTS distribution_payouts;
+    CREATE VIEW distribution_payouts AS
+        SELECT dp.id, dp.transactionId, dp.contractId, dp.collaboratorAddress,
+          decrypt_field(
+            dp.amountReceived,
+            COALESCE(NULLIF(dp.contractId, ''), t.contractId),
+            '${PAYOUT_AMOUNT_FIELD}'
+          ) AS amountReceived
+        FROM distribution_payouts_encrypted AS dp
+        LEFT JOIN transactions AS t ON t.id = dp.transactionId;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_insert;
+    CREATE TRIGGER distribution_payouts_insert
+    INSTEAD OF INSERT ON distribution_payouts
+    BEGIN
+      INSERT INTO distribution_payouts_encrypted
+        (id, transactionId, contractId, collaboratorAddress, amountReceived, amountReceivedHash)
+      VALUES (
+        NEW.id, NEW.transactionId, COALESCE(NEW.contractId, ''), NEW.collaboratorAddress,
+          encrypt_field(
+            NEW.amountReceived,
+            COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+            '${PAYOUT_AMOUNT_FIELD}'
+          ),
+          field_blind_index(
+            NEW.amountReceived,
+            COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+            '${PAYOUT_AMOUNT_FIELD}'
+          )
+      );
+    END;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_update;
+    CREATE TRIGGER distribution_payouts_update
+    INSTEAD OF UPDATE ON distribution_payouts
+    BEGIN
+      UPDATE distribution_payouts_encrypted
+      SET transactionId = NEW.transactionId,
+          contractId = NEW.contractId,
+          collaboratorAddress = NEW.collaboratorAddress,
+            amountReceived = encrypt_field(
+              NEW.amountReceived,
+              COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+              '${PAYOUT_AMOUNT_FIELD}'
+            ),
+            amountReceivedHash = field_blind_index(
+              NEW.amountReceived,
+              COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+              '${PAYOUT_AMOUNT_FIELD}'
+            )
+      WHERE id = OLD.id;
+    END;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_delete;
+    CREATE TRIGGER distribution_payouts_delete
+    INSTEAD OF DELETE ON distribution_payouts
+    BEGIN
+      DELETE FROM distribution_payouts_encrypted WHERE id = OLD.id;
+    END;
+  `);
+}
 
 // Checkpoint the WAL periodically to prevent unbounded growth.
 let _writeCount = 0;
@@ -900,6 +1021,17 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_api_call_events_createdAt ON api_call_events(createdAt);
       `,
     },
+    {
+      // Encrypt payout amounts at rest while preserving the existing read/write interface.
+      version: 25,
+      apply: migrateEncryptedPayouts,
+      beforeApply: () => db.pragma("secure_delete = ON"),
+      afterCommit: () => {
+        db.pragma("wal_checkpoint(TRUNCATE)");
+        db.pragma("secure_delete = OFF");
+      },
+      afterFailure: () => db.pragma("secure_delete = OFF"),
+    },
   ];
 
   for (const migration of migrations) {
@@ -907,11 +1039,19 @@ export function initializeDatabase() {
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
       .get(migration.version);
     if (!current) {
-      const apply = db.transaction(() => {
-        db.exec(migration.sql);
-        db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
-      });
-      apply();
+      migration.beforeApply?.();
+      try {
+        const apply = db.transaction(() => {
+          if (migration.apply) migration.apply();
+          else db.exec(migration.sql);
+          db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
+        });
+        apply();
+        migration.afterCommit?.();
+      } catch (error) {
+        migration.afterFailure?.();
+        throw error;
+      }
     }
   }
 }

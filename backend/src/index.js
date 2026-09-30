@@ -43,6 +43,7 @@ import { metricsRouter } from "./routes/metrics.js";
 import { applicationLogsRouter } from "./routes/application-logs.js";
 import { evaluateLogAlerts, pruneApplicationLogs } from "./database/application-logs.js";
 import { initializeSigningKey } from "./signing-key.js";
+import { initializeKeyManager } from "./services/key-manager.js";
 import { sendError, notFoundHandler, errorHandler } from "./error-response.js";
 import { preferencesRouter } from "./routes/preferences.js";
 import { templatesRouter } from "./routes/templates.js";
@@ -115,6 +116,7 @@ import { treasuryRouter } from "./routes/treasury/index.js";
 
 
 // Initialize database on startup
+await initializeKeyManager({ scheduleRotation: true });
 initializeDatabase();
 initializeSigningKey();
 
