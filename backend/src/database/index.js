@@ -34,14 +34,27 @@ export {
   MAX_RETRY_COUNT,
 } from "./transactions.js";
 
-// Webhooks (#295)
+// Webhooks (#295, advanced system #1059)
 export {
   registerWebhook,
+  getWebhookById,
   listWebhooks,
+  listWebhooksForEvent,
+  updateWebhookEvents,
+  rotateWebhookSecret,
   deleteWebhook,
   updateWebhookRetryState,
+  updateWebhookRetryStateWithPayload,
   getWebhooksDueForRetry,
   resetWebhookRetryCount,
+  moveToDlq,
+  serializeEvents,
+  parseEvents,
+  recordDelivery,
+  updateDelivery,
+  listDeliveries,
+  countDeliveries,
+  getDeliveryStats,
 } from "./webhooks.js";
 
 // Audit logging
