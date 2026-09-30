@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getTrafficShaper } from "../middleware/traffic-shaper.js";
 import {
   getMigrationVersion,
   recordHealthSnapshot,
@@ -14,6 +15,7 @@ import {
   getHealthMetrics,
 } from "../database/health-monitor.js";
 
+import { getCapacityPlanner } from "../services/capacity-planner.js";
 import {
   getConfiguredContractId,
   getNetworkLabel,
@@ -186,6 +188,37 @@ healthRouter.get("/", async (_req, res, next) => {
     }
 
     res.json(body);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/health/traffic
+ * Returns current traffic shaping state: per-endpoint token buckets,
+ * queue depths, and priority classes. Used by operators to observe
+ * backpressure and prioritization behavior.
+ */
+healthRouter.get("/traffic", async (_req, res, next) => {
+  try {
+    const shaper = getTrafficShaper();
+    const snapshot = shaper ? shaper.getSnapshot() : { enabled: false };
+    res.json({ ok: true, data: snapshot });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/health/capacity
+ * Returns capacity planning report: peak load, current utilization,
+ * alert status (>80% capacity), and scale recommendation.
+ */
+healthRouter.get("/capacity", async (_req, res, next) => {
+  try {
+    const planner = getCapacityPlanner();
+    const report = planner ? planner.getReport() : { enabled: false };
+    res.json({ ok: true, data: report });
   } catch (err) {
     next(err);
   }

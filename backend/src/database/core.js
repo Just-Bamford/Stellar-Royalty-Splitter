@@ -857,8 +857,52 @@ export function initializeDatabase() {
       `,
     },
     {
+      // #996: Partner API analytics and metering
+      version: 24,
+      sql: `
+        CREATE TABLE IF NOT EXISTS partner_api_keys (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          keyId TEXT NOT NULL UNIQUE,
+          keyHash TEXT NOT NULL UNIQUE,
+          partnerId TEXT NOT NULL,
+          partnerName TEXT NOT NULL,
+          tier TEXT NOT NULL CHECK(tier IN ('free', 'pro', 'enterprise')),
+          dailyCallLimit INTEGER,
+          monthlyCallLimit INTEGER,
+          monthlyPriceCents INTEGER DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'revoked')),
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          expiresAt DATETIME,
+          lastUsedAt DATETIME,
+          revokedAt DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_keyHash ON partner_api_keys(keyHash);
+        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_partnerId ON partner_api_keys(partnerId);
+        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_tier ON partner_api_keys(tier);
+        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_status ON partner_api_keys(status);
+
+        CREATE TABLE IF NOT EXISTS api_call_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          keyId TEXT NOT NULL,
+          partnerId TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          method TEXT NOT NULL,
+          statusCode INTEGER NOT NULL,
+          durationMs INTEGER,
+          rateLimited INTEGER NOT NULL DEFAULT 0,
+          bucketDay TEXT NOT NULL,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_call_events_keyId ON api_call_events(keyId);
+        CREATE INDEX IF NOT EXISTS idx_api_call_events_partnerId ON api_call_events(partnerId);
+        CREATE INDEX IF NOT EXISTS idx_api_call_events_bucketDay ON api_call_events(bucketDay);
+        CREATE INDEX IF NOT EXISTS idx_api_call_events_endpoint ON api_call_events(endpoint);
+        CREATE INDEX IF NOT EXISTS idx_api_call_events_createdAt ON api_call_events(createdAt);
+      `,
+    },
+    {
       // #995: Decentralized governance on Snapshot
-      version: 26,
+      version: 27,
       sql: `
         CREATE TABLE IF NOT EXISTS governance_votes (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -883,6 +927,8 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_governance_executions_proposal ON governance_executions(proposalId);
         CREATE INDEX IF NOT EXISTS idx_governance_executions_status ON governance_executions(status);
         CREATE INDEX IF NOT EXISTS idx_governance_executions_executedAt ON governance_executions(executedAt);
+      `,
+    },
       `,
     },
   ];
