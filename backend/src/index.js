@@ -56,6 +56,8 @@ import { tiersRouter } from "./routes/tiers.js";
 import { pluginsRouter } from "./routes/plugins.js";
 import { loadAllPlugins, startHotReload } from "./plugins/plugin-loader.js";
 import { attachRole } from "./middleware/rbac.js";
+import { attachRbacIdentity } from "./middleware/rbac-check.js";
+import { permissionsRouter } from "./routes/permissions.js";
 import { csvImportRouter } from "./routes/csv-import.js";
 import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
@@ -353,6 +355,7 @@ app.use("/api/v1", (_req, res, next) => {
 
 // Attach RBAC role to every request (#572)
 app.use(attachRole);
+app.use(attachRbacIdentity);
 
 // Enforce Content-Type: application/json on POST requests
 app.use((req, res, next) => {
@@ -552,6 +555,7 @@ const adminLimiter = rateLimit({
 });
 app.use("/admin", adminLimiter);
 app.use("/admin/audit-trail", auditTrailRouter);
+app.use("/admin/permissions", permissionsRouter);
 app.use("/admin", adminRouter);
 app.use("/admin/api-keys", adminLimiter);
 app.use("/admin/api-keys", adminApiKeysRouter);
