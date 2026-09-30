@@ -769,7 +769,150 @@ export const api = {
       message,
       data,
     }),
+
+  // Carbon tracking and offsets (#1064)
+  getCarbonFootprint: (walletAddress: string, params?: { start?: string; end?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.start) search.set("start", params.start);
+    if (params?.end) search.set("end", params.end);
+    const query = search.toString();
+    return get<{ success: boolean; data: CarbonFootprint }>(
+      `/v1/carbon/footprint/${walletAddress}${query ? `?${query}` : ""}`,
+    );
+  },
+
+  getCarbonProject: (contractId: string, params?: { start?: string; end?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.start) search.set("start", params.start);
+    if (params?.end) search.set("end", params.end);
+    const query = search.toString();
+    return get<{ success: boolean; data: CarbonProjectFootprint }>(
+      `/v1/carbon/project/${contractId}${query ? `?${query}` : ""}`,
+    );
+  },
+
+  recordCarbonEmission: (body: {
+    contractId: string;
+    walletAddress: string;
+    txHash?: string;
+    transactionId?: number;
+    operationCount?: number;
+  }) => post<{ success: boolean; emissionId: number; gramsCo2: number }>("/v1/carbon/record", body),
+
+  purchaseCarbonOffsets: (body: {
+    walletAddress: string;
+    contractId?: string;
+    tonnes?: number;
+    amountUsdCents?: number;
+    project?: string;
+  }) => post<{ success: boolean; data: CarbonOffsetPurchase }>("/v1/carbon/offsets", body),
+
+  getCarbonOffsets: (walletAddress: string, limit = 50, offset = 0) =>
+    get<{
+      success: boolean;
+      data: CarbonOffsetRecord[];
+      pagination: { total: number; limit: number; offset: number };
+    }>(`/v1/carbon/offsets/${walletAddress}?limit=${limit}&offset=${offset}`),
+
+  getCarbonSettings: (walletAddress: string) =>
+    get<{ success: boolean; data: CarbonSettings }>("/v1/carbon/settings/" + walletAddress),
+
+  saveCarbonSettings: (
+    walletAddress: string,
+    body: { autoOffsetEnabled: boolean; offsetPercentage: number },
+  ) => post<{ success: boolean; data: CarbonSettings }>(`/v1/carbon/settings/${walletAddress}`, body),
+
+  getCarbonProjects: () =>
+    get<{ success: boolean; data: CarbonProject[] }>("/v1/carbon/projects"),
+
+  getCarbonShare: (walletAddress: string) =>
+    get<{ success: boolean; data: CarbonSharePayload }>(`/v1/carbon/share/${walletAddress}`),
 };
+
+export interface CarbonDayEntry {
+  date: string;
+  txCount: number;
+  grams: number;
+}
+
+export interface CarbonFootprint {
+  walletAddress: string;
+  txCount: number;
+  totalGrams: number;
+  totalKg: number;
+  offsetGrams: number;
+  offsetTonnes: number;
+  offsetPurchases: number;
+  offsetUsdCents: number;
+  netGrams: number;
+  offsetCoveragePercent: number;
+  byDay: CarbonDayEntry[];
+}
+
+export interface CarbonProjectFootprint {
+  contractId: string;
+  txCount: number;
+  totalGrams: number;
+  totalKg: number;
+  contributorCount: number;
+  offsetTonnes: number;
+  offsetPurchases: number;
+  offsetContributors: number;
+  byDay: CarbonDayEntry[];
+}
+
+export interface CarbonOffsetPurchase {
+  offsetId: number;
+  walletAddress: string;
+  tonnes: number;
+  amountUsdCents: number;
+  provider: string;
+  project: string;
+  status: string;
+}
+
+export interface CarbonOffsetRecord {
+  id: number;
+  walletAddress: string;
+  contractId: string | null;
+  tonnes: number;
+  amountUsdCents: number;
+  provider: string;
+  project: string;
+  status: string;
+  autoPurchase: number;
+  txHash: string | null;
+  createdAt: string;
+}
+
+export interface CarbonSettings {
+  walletAddress: string;
+  autoOffsetEnabled: boolean;
+  offsetPercentage: number;
+}
+
+export interface CarbonProject {
+  id: string;
+  name: string;
+  type: "forest" | "ocean";
+  location: string;
+  description: string;
+}
+
+export interface CarbonSharePayload {
+  text: string;
+  stats: {
+    totalKg: number;
+    txCount: number;
+    offsetCoveragePercent: number;
+    netGrams: number;
+  };
+  shareUrls: {
+    x: string;
+    facebook: string;
+    linkedin: string;
+  };
+}
 
 export interface ContributorTier {
   walletAddress: string;

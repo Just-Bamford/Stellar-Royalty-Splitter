@@ -168,6 +168,47 @@ export const transactionConfirmSchema = z.object({
   status: z.enum(["pending", "confirmed", "failed"]).optional(),
 });
 
+// ─── Carbon tracking schemas (#1064) ─────────────────────────────────────────
+
+export const carbonRecordSchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  txHash: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, "txHash must be 64 hexadecimal characters")
+    .optional(),
+  transactionId: z.number().int().positive().optional(),
+  operationCount: z.number().int().min(1).max(1000).optional().default(1),
+});
+
+export const CARBON_OFFSET_PROJECTS = [
+  "forest",
+  "ocean",
+  "mixed",
+  "amazon-reforestation",
+  "congo-basin-conservation",
+  "pacific-blue-carbon",
+  "kelp-restoration",
+];
+
+export const carbonOffsetSchema = z
+  .object({
+    walletAddress: stellarAddress,
+    contractId: contractAddress.optional(),
+    tonnes: z.number().finite().positive("tonnes must be positive").optional(),
+    amountUsdCents: z.number().int().positive("amountUsdCents must be positive").optional(),
+    project: z.enum(CARBON_OFFSET_PROJECTS).optional().default("mixed"),
+    provider: z.string().min(1).max(64).optional(),
+  })
+  .refine((d) => d.tonnes != null || d.amountUsdCents != null, {
+    message: "Provide tonnes or amountUsdCents",
+  });
+
+export const carbonSettingsSchema = z.object({
+  autoOffsetEnabled: z.boolean(),
+  offsetPercentage: z.number().finite().min(0).max(100),
+});
+
 // ÔöÇÔöÇÔöÇ Dispute / ticket schemas (#607) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 export const DISPUTE_CATEGORIES = ["wrong_amount", "missing_payment", "other"];

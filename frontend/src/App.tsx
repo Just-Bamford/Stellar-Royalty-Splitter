@@ -30,6 +30,7 @@ import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
 import { DisputeDashboard } from "./components/DisputeDashboard";
+import { ImpactDashboard } from "./components/ImpactDashboard";
 import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
 import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
 import { ContractTimeline } from "./components/ContractTimeline";
@@ -470,6 +471,19 @@ export default function App() {
         return withErrorBoundary(
           <DisputeDashboard walletAddress={walletAddress} />,
           "Dispute Dashboard",
+        );
+      case "impact":
+        return withErrorBoundary(
+          contractId ? (
+            <div className="page-section">
+              <ImpactDashboard contractId={contractId} walletAddress={walletAddress} />
+            </div>
+          ) : (
+            <div className="page-empty">
+              <p>Please select a contract first</p>
+            </div>
+          ),
+          "Environmental Impact",
         );
       case "earnings":
         return withErrorBoundary(
