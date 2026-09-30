@@ -13,6 +13,7 @@ const CONTRACT_B = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
 const CONTRACT_C = "CDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const buildMock = jest.fn();
+const buildAtomicMock = jest.fn();
 
 class MockBatchTransactionBuilder {
   constructor(callerAddress) {
@@ -36,6 +37,8 @@ await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
 
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
+  vecToScVal: jest.fn((items) => items),
+  buildTx: buildAtomicMock,
   BatchTransactionBuilder: MockBatchTransactionBuilder,
   pollHorizonTransaction: jest.fn(),
   buildTx: jest.fn(),
@@ -277,5 +280,33 @@ describe("POST /api/v1/batch-distribute — integration", () => {
       .send({ walletAddress: WALLET, operations: [] });
 
     expect(res.status).toBe(400);
+  });
+
+  test("builds one atomic batch_distribute invocation for selected tokens", async () => {
+    buildAtomicMock.mockResolvedValue("ATOMIC_BATCH_XDR");
+
+    const res = await request(app)
+      .post("/api/v1/batch-distribute/tokens")
+      .send({ contractId: CONTRACT_A, walletAddress: WALLET, tokens: [TOKEN, CONTRACT_B] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.xdr).toBe("ATOMIC_BATCH_XDR");
+    expect(buildAtomicMock).toHaveBeenCalledWith(
+      WALLET,
+      CONTRACT_A,
+      "batch_distribute",
+      [[TOKEN, CONTRACT_B]],
+    );
+    expect(res.body.estimate).toMatchObject({ claimCount: 2, batchingRecommended: true });
+  });
+
+  test("rejects duplicate tokens before building an atomic batch", async () => {
+    const res = await request(app)
+      .post("/api/v1/batch-distribute/tokens")
+      .send({ contractId: CONTRACT_A, walletAddress: WALLET, tokens: [TOKEN, TOKEN] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unique/i);
+    expect(buildAtomicMock).not.toHaveBeenCalled();
   });
 });

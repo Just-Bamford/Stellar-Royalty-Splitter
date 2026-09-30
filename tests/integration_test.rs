@@ -4432,7 +4432,27 @@ fn test_batch_distribute_fails_on_zero_balance() {
     mint(&env, &token1, &contract_id, 1000);
     // token2 has zero balance
 
-    let result = client.try_batch_distribute(&vec![&env, token1, token2]);
+    let result = client.try_batch_distribute(&vec![&env, token1.clone(), token2]);
+    assert_eq!(result, Err(Ok(ContractError::NoBalance.into())));
+    assert_eq!(
+        TokenClient::new(&env, &token1).balance(&admin),
+        0,
+        "a failed batch must roll back payouts from earlier selected tokens"
+    );
+}
+
+/// Empty batches are rejected rather than being reported as a successful,
+/// no-op distribution.
+#[test]
+fn test_batch_distribute_rejects_empty_batch() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_contract_id, client) = setup(&env);
+    let admin = Address::generate(&env);
+
+    client.initialize(&vec![&env, admin], &vec![&env, 10_000_u32]);
+
+    let result = client.try_batch_distribute(&Vec::new(&env));
     assert_eq!(result, Err(Ok(ContractError::NoBalance.into())));
 }
 

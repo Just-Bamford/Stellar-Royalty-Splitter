@@ -2052,7 +2052,11 @@ impl RoyaltySplitter {
             .instance()
             .get(&StorageKey::Ext(ExtKey::StreamCount))
             .unwrap_or(0);
-        token::Client::new(&env, &token).transfer(&payer, &env.current_contract_address(), &initial_deposit);
+        token::Client::new(&env, &token).transfer(
+            &payer,
+            &env.current_contract_address(),
+            &initial_deposit,
+        );
         let stream = Stream {
             id: stream_id,
             token,
@@ -2096,7 +2100,8 @@ impl RoyaltySplitter {
         if accrued <= 0 {
             return Err(ContractError::NoBalance);
         }
-        let balance = token::Client::new(&env, &stream.token).balance(&env.current_contract_address());
+        let balance =
+            token::Client::new(&env, &stream.token).balance(&env.current_contract_address());
         let amount = accrued.min(balance);
         if amount <= 0 {
             return Err(ContractError::InsufficientBalance);
@@ -2316,6 +2321,11 @@ impl RoyaltySplitter {
 
         Self::check_admin_auth(&env, auth::msg::BATCH_DISTRIBUTE_ADMIN);
 
+        // An empty invocation has no useful effect and must not be reported
+        // as a completed batch to clients.
+        if tokens.is_empty() {
+            return Err(ContractError::NoBalance);
+        }
         if tokens.len() > MAX_BATCH_TOKENS {
             return Err(ContractError::TooManyBatchTokens);
         }
@@ -2353,6 +2363,22 @@ impl RoyaltySplitter {
             return Err(ContractError::InvalidShareTotal);
         }
 
+        // Validate every selected token before changing any distribution
+        // bookkeeping or transferring funds. In particular, the anomaly
+        // safeguard used to return `Ok(())` from inside the processing loop;
+        // that could leave earlier tokens in the same batch distributed. An
+        // error rolls back this entire Soroban invocation, giving callers the
+        // all-or-nothing semantics promised by batch_distribute.
+        for token in tokens.iter() {
+            let amount = token::Client::new(&env, &token).balance(&env.current_contract_address());
+            if Self::trip_anomaly_pause_if_exceeded(&env, &token, amount) {
+                return Err(ContractError::EmergencyContractPaused);
+            }
+            if amount == 0 {
+                return Err(ContractError::NoBalance);
+            }
+        }
+
         let n = recipients_to_use.len();
 
         // ── Checks-Effects-Interactions (CEI) Pattern ─────────────────────────
@@ -2375,14 +2401,6 @@ impl RoyaltySplitter {
         for token in tokens.iter() {
             let token_client = token::Client::new(&env, &token);
             let amount = token_client.balance(&env.current_contract_address());
-
-            if Self::trip_anomaly_pause_if_exceeded(&env, &token, amount) {
-                return Ok(());
-            }
-
-            if amount == 0 {
-                return Err(ContractError::NoBalance);
-            }
 
             let (forwards, local_amount) = Self::linked_forwards(&env, amount)?; // #932
             let payouts = Self::local_payouts(&env, local_amount, &recipients_to_use)?;

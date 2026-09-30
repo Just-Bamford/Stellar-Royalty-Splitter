@@ -19,6 +19,7 @@ import { Settings } from "./components/Settings";
 import WalletConnect from "./components/WalletConnect";
 import InitializeForm from "./components/InitializeForm";
 import DistributeForm from "./components/DistributeForm";
+import BatchClaiming from "./components/BatchClaiming";
 import { TransactionHistory } from "./components/TransactionHistory";
 import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
@@ -444,6 +445,10 @@ export default function App() {
                 contractId={contractId}
                 walletAddress={walletAddress}
                 onSuccess={() => {}}
+              />
+              <BatchClaiming
+                contractId={contractId}
+                walletAddress={walletAddress}
               />
             </div>
           ) : (
