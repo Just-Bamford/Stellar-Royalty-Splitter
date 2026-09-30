@@ -207,6 +207,10 @@ app.use(capacityPlanner.middleware());
 // Security headers
 app.use(helmet());
 
+// Interactive API explorer (Swagger UI) and OpenAPI 3.0 spec (#api-docs).
+// Mounted before rate limiting so the explorer assets are always reachable.
+app.use("/api/docs", apiDocsRouter);
+
 // Distributed tracing ÔÇö creates per-request OTel spans, injects X-Trace-Id and X-Correlation-Id
 app.use(tracingMiddleware);
 // #766: gzip/deflate compress responses over 1KB (analytics payloads, CSV/JSON

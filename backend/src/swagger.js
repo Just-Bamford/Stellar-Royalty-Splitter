@@ -12,12 +12,26 @@ export const openApiSpec = {
     description:
       "HTTP API for managing royalty distribution smart contracts on the Stellar/Soroban network.",
     contact: { url: "https://github.com/Just-Bamford/Stellar-Royalty-Splitter" },
+    license: { name: "MIT", url: "https://opensource.org/licenses/MIT" },
+    termsOfService: "https://github.com/Just-Bamford/Stellar-Royalty-Splitter/blob/main/TERMS.md",
+  },
+  externalDocs: {
+    description: "Full API reference and integration guide",
+    url: "/docs/api-reference.md",
   },
   servers: [
     { url: "/api/v1", description: "Current version (v1)" },
     { url: "/api", description: "Legacy (deprecated) — redirects to /api/v1 with HTTP 308" },
     { url: "/admin", description: "Admin operations — unversioned, mounted outside /api/v1" },
   ],
+  security: [{ ApiKeyAuth: [] }],
+  "x-rate-limits": {
+    anonymous: { window: "60s", max: 60, description: "Unauthenticated requests, per IP" },
+    authenticated: { window: "60s", max: 600, description: "Requests bearing a valid x-api-key" },
+    admin: { window: "60s", max: 1200, description: "Requests bearing an admin-role x-api-key" },
+    headers: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    exceededStatus: 429,
+  },
   tags: [
     { name: "Version", description: "API version discovery" },
     { name: "Health", description: "Operational health probes" },
@@ -58,6 +72,14 @@ export const openApiSpec = {
         scheme: "bearer",
         description: "Admin bearer token (ADMIN_ROTATE_TOKEN) for key-rotation and user management.",
       },
+      SandboxApiKey: {
+        type: "apiKey",
+        in: "header",
+        name: "x-api-key",
+        description:
+          "Sandbox test key for the interactive explorer. This is a test endpoint — no real funds move. " +
+          "Use the value `sandbox-test-key` in Swagger UI's Authorize dialog.",
+      },
     },
     schemas: {
       Error: {
@@ -65,6 +87,14 @@ export const openApiSpec = {
         properties: {
           error: { type: "string", example: "not_found" },
           message: { type: "string", example: "Contract not found" },
+        },
+      },
+      RateLimitError: {
+        type: "object",
+        properties: {
+          error: { type: "string", example: "rate_limit_exceeded" },
+          message: { type: "string", example: "Too many requests" },
+          retryAfter: { type: "integer", example: 30, description: "Seconds until the window resets" },
         },
       },
       StellarAddress: {
