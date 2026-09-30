@@ -55,6 +55,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "forecast", labelKey: "forecast", icon: "📈" },
     { id: "earnings", labelKey: "earnings", icon: "💎" },
     { id: "admin", labelKey: "admin", icon: "👑" },
+    { id: "feature-flags", labelKey: "featureFlags", icon: "🚩" },
     { id: "initialize", labelKey: "initialize", icon: "⚙️" },
     { id: "distribute", labelKey: "distribute", icon: "💰" },
     { id: "secondary", labelKey: "secondary", icon: "🔄" },

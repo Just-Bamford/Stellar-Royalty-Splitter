@@ -38,6 +38,7 @@ import { BulkContributorUpload } from "./components/BulkContributorUpload";
 import { ContributorTaxInfo } from "./components/ContributorTaxInfo";
 import { TaxComplianceReport } from "./components/TaxComplianceReport";
 import { PaymentHoldManager } from "./components/PaymentHoldManager";
+import { FeatureFlagManager } from "./components/FeatureFlagManager";
 import { ContributorOnboardingChecklist } from "./components/ContributorOnboardingChecklist";
 import { MultiContractEarnings } from "./components/MultiContractEarnings";
 import { UserProfile } from "./components/UserProfile";
@@ -496,6 +497,8 @@ export default function App() {
           ),
           "Contributor Suspension",
         );
+      case "feature-flags":
+        return withErrorBoundary(<FeatureFlagManager />, "Feature Flags");
       case "settings":
         return withErrorBoundary(
           <Settings

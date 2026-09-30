@@ -1,4 +1,4 @@
-import { logger } from '../utils/logger.js';
+import logger from '../logger.js';
 import { thorchainIntegration } from './thorchain-integration.js';
 import { stargateIntegration } from './stargate-integration.js';
 
@@ -8,15 +8,15 @@ const DEFAULT_SLIPPAGE = Number(process.env.CROSS_CHAIN_SLIPPAGE ?? 0.005);
 
 function toBigInt(value) {
   if (typeof value === 'bigint') return value;
-  if (value == null || value === '') return 0N;
+  if (value == null || value === '') return 0n;
   return BigInt(String(value));
 }
 
 function computeEffectiveRate(quote) {
-  const in = toBigInt(quote.inputAmount);
+  const input = toBigInt(quote.inputAmount);
   const out = toBigInt(quote.outputAmount);
-  if (in <= 0N) return 0N;
-  return (out * 1000000000000000000n) / in;
+  if (input <= 0n) return 0n;
+  return (out * 1000000000000000000n) / input;
 }
 
 function applySlippage(amount, slippage) {
@@ -81,12 +81,12 @@ export class CrossChainRouter {
       return [{ quote: sorted[0], amount: total }];
     }
     const weights = sorted.slice(0, parts).map((q) => computeEffectiveRate(q));
-    const weightSum = weights.reduce((a, b) => a + b, 0N);
-    if (weightSum === 0N) {
+    const weightSum = weights.reduce((a, b) => a + b, 0n);
+    if (weightSum === 0n) {
       return [{ quote: sorted[0], amount: total }];
     }
     const plan = [];
-    let allocated = 0N;
+    let allocated = 0n;
     for (let i = 0; i < parts; i++) {
       const isLast = i === parts - 1;
       const amount = isLast
@@ -95,7 +95,7 @@ export class CrossChainRouter {
       allocated += amount;
       plan.push({ quote: sorted[i], amount });
     }
-    return plan.filter((p) => p.amount > 0Nn);
+    return plan.filter((p) => p.amount > 0n);
   }
 
   async route(params) {
@@ -108,7 +108,7 @@ export class CrossChainRouter {
     } = params;
     if (!amount) throw new Error('amount is required');
     const total = toBigInt(amount);
-    if (total <= 0Nn) throw new Error('amount must be > 0');
+    if (total <= 0n) throw new Error('amount must be > 0');
 
     const quotes = await this.getQuotes({ thorchainParams, stargateParams });
     if (quotes.length === 0) {
@@ -123,7 +123,7 @@ export class CrossChainRouter {
         const splitOut = split.reduce((acc, p) => {
           const ratio = computeEffectiveRate(p.quote);
           return acc + (p.amount * ratio) / 1000000000000000000n;
-        }, 0N);
+        }, 0n);
         const bestOut = toBigInt(best.outputAmount);
         if (splitOut > bestOut) {
           plan = split;
@@ -138,7 +138,7 @@ export class CrossChainRouter {
       quote: p.quote,
     }));
 
-    const totalOut = executionPlan.reduce((acc, p) => acc + toBigInt(p.minOutput), 0N);
+    const totalOut = executionPlan.reduce((acc, p) => acc + toBigInt(p.minOutput), 0n);
 
     return {
       provider: executionPlan.length > 1 ? 'split' : executionPlan[0].provider,

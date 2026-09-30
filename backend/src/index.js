@@ -56,6 +56,8 @@ import { tiersRouter } from "./routes/tiers.js";
 import { pluginsRouter } from "./routes/plugins.js";
 import { loadAllPlugins, startHotReload } from "./plugins/plugin-loader.js";
 import { attachRole } from "./middleware/rbac.js";
+import { attachFeatureFlags } from "./middleware/feature-flag-resolver.js";
+import { featureFlagsRouter } from "./routes/feature-flags.js";
 import { csvImportRouter } from "./routes/csv-import.js";
 import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
@@ -107,6 +109,7 @@ import { backupRouter } from "./routes/backup.js";
 import { startDistributionScheduler } from "./services/distribution-scheduler.js";
 import { startBackupScheduler } from "./services/contract-backup.js";
 import { rightsRouter } from "./routes/rights-management.js";
+import { crossChainRouter } from "./routes/cross-chain.js";
 
 
 
@@ -354,6 +357,9 @@ app.use("/api/v1", (_req, res, next) => {
 // Attach RBAC role to every request (#572)
 app.use(attachRole);
 
+// Resolve feature flags for every request (#1075)
+app.use(attachFeatureFlags);
+
 // Enforce Content-Type: application/json on POST requests
 app.use((req, res, next) => {
   if (req.method === "POST" && !req.is("application/json")) {
@@ -521,6 +527,9 @@ app.use("/api/v1/batch", batchRouter);
 app.use("/api/v1/cross-chain", writeLimiter);
 app.use("/api/v1/cross-chain", crossChainRouter);
 
+// Advanced feature flags and gradual rollout (#1075)
+app.use("/api/v1/feature-flags", featureFlagsRouter);
+
 // Web3 identity — ENS + Lens (#992)
 app.use("/api/v1/identity", identityRouter);
 
@@ -667,12 +676,6 @@ async function startServer() {
         auditTrailVerifier.stop();
       }
       closeAuditTrail();
-      if (l1WarmingInterval) {
-        clearInterval(l1WarmingInterval);
-      }
-      if (l2WarmingInterval) {
-        clearInterval(l2WarmingInterval);
-      }
     },
   });
 

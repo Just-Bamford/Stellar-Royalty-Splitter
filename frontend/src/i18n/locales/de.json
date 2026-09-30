@@ -91,6 +91,7 @@
     "disputes": "Dispute",
     "earnings": "Einnahmen",
     "suspension": "Sperrung",
+    "featureFlags": "Feature-Flags",
     "settings": "Einstellungen",
     "bulkImport": "Massenimport",
     "taxInfo": "Steuerinfo",

@@ -602,3 +602,70 @@ export const linkRightDisputeSchema = z.object({
   notes: z.string().optional(),
 });
 
+// ── Feature Flags & Gradual Rollout Schemas (#1075) ────────────────────────────
+
+export const FEATURE_FLAG_RULE_TYPES = ["user", "org", "role"];
+export const FEATURE_FLAG_METRIC_TYPES = ["request", "error", "latency"];
+
+export const featureFlagName = z
+  .string()
+  .min(1, "name is required")
+  .max(100, "name must be at most 100 characters")
+  .regex(/^[a-z0-9][a-z0-9._-]*$/i, "name may only contain letters, numbers, dots, dashes and underscores");
+
+export const createFeatureFlagSchema = z.object({
+  name: featureFlagName,
+  description: z.string().max(500, "description must be at most 500 characters").optional().nullable(),
+  enabled: z.boolean().optional().default(false),
+  rolloutPercentage: z.number().int().min(0).max(100).optional().default(100),
+});
+
+export const updateFeatureFlagSchema = z
+  .object({
+    description: z.string().max(500, "description must be at most 500 characters").optional().nullable(),
+    enabled: z.boolean().optional(),
+    rolloutPercentage: z.number().int().min(0).max(100).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field must be provided",
+  });
+
+export const createFeatureFlagRuleSchema = z.object({
+  ruleType: z.enum(FEATURE_FLAG_RULE_TYPES, {
+    errorMap: () => ({ message: `ruleType must be one of: ${FEATURE_FLAG_RULE_TYPES.join(", ")}` }),
+  }),
+  value: z.string().min(1, "value is required").max(200, "value must be at most 200 characters"),
+  enabled: z.boolean().optional().default(true),
+});
+
+export const featureFlagRolloutSchema = z.object({
+  percentage: z.number().int().min(0).max(100),
+});
+
+export const featureFlagMetricSchema = z.object({
+  metricType: z.enum(FEATURE_FLAG_METRIC_TYPES, {
+    errorMap: () => ({ message: `metricType must be one of: ${FEATURE_FLAG_METRIC_TYPES.join(", ")}` }),
+  }),
+  value: z.number().min(0).optional().default(0),
+});
+
+export const featureFlagMonitorSchema = z.object({
+  autoRollback: z.boolean().optional().default(true),
+  maxErrorRate: z.number().min(0).max(1).optional(),
+  maxP95LatencyMs: z.number().min(0).optional(),
+  windowMs: z.number().int().positive().optional(),
+});
+
+export const evaluateFeatureFlagSchema = z.object({
+  names: z.array(z.string()).optional(),
+  context: z
+    .object({
+      walletAddress: z.string().optional().nullable(),
+      userId: z.string().optional().nullable(),
+      orgId: z.string().optional().nullable(),
+      role: z.enum(["viewer", "collaborator", "operator", "admin"]).optional().nullable(),
+    })
+    .optional()
+    .default({}),
+});
+

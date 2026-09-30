@@ -769,7 +769,140 @@ export const api = {
       message,
       data,
     }),
+
+  // Feature flags & gradual rollout (#1075)
+  listFeatureFlags: (includeArchived = false) =>
+    get<{ flags: FeatureFlag[] }>(
+      `/v1/feature-flags?includeArchived=${includeArchived}`,
+    ),
+
+  getFeatureFlag: (name: string) =>
+    get<FeatureFlag>(`/v1/feature-flags/${encodeURIComponent(name)}`),
+
+  createFeatureFlag: (body: {
+    name: string;
+    description?: string | null;
+    enabled?: boolean;
+    rolloutPercentage?: number;
+  }) => post<FeatureFlag>("/v1/feature-flags", body),
+
+  updateFeatureFlag: (
+    name: string,
+    body: { description?: string | null; enabled?: boolean; rolloutPercentage?: number },
+  ) => patch<FeatureFlag>(`/v1/feature-flags/${encodeURIComponent(name)}`, body),
+
+  archiveFeatureFlag: (name: string) =>
+    del<{ success: boolean; flag: FeatureFlag }>(
+      `/v1/feature-flags/${encodeURIComponent(name)}`,
+    ),
+
+  addFeatureFlagRule: (
+    name: string,
+    body: { ruleType: "user" | "org" | "role"; value: string; enabled?: boolean },
+  ) =>
+    post<FeatureFlagRule>(
+      `/v1/feature-flags/${encodeURIComponent(name)}/rules`,
+      body,
+    ),
+
+  removeFeatureFlagRule: (name: string, ruleId: number) =>
+    del<{ success: boolean }>(
+      `/v1/feature-flags/${encodeURIComponent(name)}/rules/${ruleId}`,
+    ),
+
+  setFeatureFlagRollout: (name: string, percentage: number) =>
+    post<FeatureFlag>(
+      `/v1/feature-flags/${encodeURIComponent(name)}/rollout`,
+      { percentage },
+    ),
+
+  rollbackFeatureFlag: (name: string, reason?: string) =>
+    post<FeatureFlag>(
+      `/v1/feature-flags/${encodeURIComponent(name)}/rollback`,
+      { reason },
+    ),
+
+  getFeatureFlagMetrics: (name: string) =>
+    get<FeatureFlagHealth>(`/v1/feature-flags/${encodeURIComponent(name)}/metrics`),
+
+  recordFeatureFlagMetric: (
+    name: string,
+    body: { metricType: "request" | "error" | "latency"; value?: number },
+  ) => post(`/v1/feature-flags/${encodeURIComponent(name)}/metrics`, body),
+
+  monitorFeatureFlag: (name: string, body?: Record<string, unknown>) =>
+    post<FeatureFlagHealth & { rolledBack: boolean }>(
+      `/v1/feature-flags/${encodeURIComponent(name)}/monitor`,
+      body ?? {},
+    ),
+
+  getFeatureFlagHistory: (name: string) =>
+    get<{ flag: string; history: FeatureFlagHistoryEntry[] }>(
+      `/v1/feature-flags/${encodeURIComponent(name)}/history`,
+    ),
+
+  evaluateFeatureFlags: (body: {
+    names?: string[];
+    context?: { walletAddress?: string; userId?: string; orgId?: string; role?: string };
+  }) =>
+    post<{ context: Record<string, string | null>; flags: Record<string, boolean> }>(
+      "/v1/feature-flags/evaluate",
+      body,
+    ),
 };
+
+export interface FeatureFlagRule {
+  id: number;
+  flagId: number;
+  ruleType: "user" | "org" | "role";
+  value: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface FeatureFlag {
+  id: number;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  killed: boolean;
+  archived: boolean;
+  rolloutPercentage: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rules?: FeatureFlagRule[];
+}
+
+export interface FeatureFlagHistoryEntry {
+  id: number;
+  flagId: number;
+  flagName: string;
+  action: string;
+  changedBy: string | null;
+  oldValue: unknown;
+  newValue: unknown;
+  reason: string | null;
+  timestamp: string;
+}
+
+export interface FeatureFlagHealth {
+  flag: string;
+  healthy: boolean;
+  reasons: string[];
+  thresholds: { maxErrorRate: number; maxP95LatencyMs: number; windowMs: number };
+  metrics: {
+    flag: string;
+    windowMs: number;
+    requests: number;
+    errors: number;
+    errorRate: number;
+    sampleCount: number;
+    avgLatencyMs: number | null;
+    p95LatencyMs: number | null;
+    maxLatencyMs: number | null;
+  };
+}
 
 export interface ContributorTier {
   walletAddress: string;
