@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { TimePoint } from '../../hooks/useChartData';
+import { formatDateTime } from '../../utils/format';
 
 export interface TimeSeriesChartProps {
   data: TimePoint[];
@@ -20,7 +21,7 @@ export interface TimeSeriesChartProps {
 function formatDate(date: string): string {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return date;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return formatDateTime(d, { month: 'short', day: 'numeric' });
 }
 
 export function TimeSeriesChart({
