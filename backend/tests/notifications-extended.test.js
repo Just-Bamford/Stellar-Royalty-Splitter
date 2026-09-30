@@ -70,7 +70,7 @@ jest.unstable_mockModule("../src/database/core.js", () => ({
   db: { prepare: jest.fn(), exec: jest.fn() },
   countWrite: jest.fn(),
   initializeDatabase: jest.fn(),
-  getMigrationVersion: jest.fn(() => 24),
+  getMigrationVersion: jest.fn(() => 25),
   checkpointDatabase: jest.fn(),
   closeDatabase: jest.fn(),
   checkDatabase: jest.fn(),
@@ -86,7 +86,7 @@ jest.unstable_mockModule("../../shared/stellar-address.js", () => ({
 
 jest.unstable_mockModule("../src/database/index.js", () => ({
   initializeDatabase: jest.fn(),
-  getMigrationVersion: jest.fn(() => 24),
+  getMigrationVersion: jest.fn(() => 25),
 }));
 
 jest.unstable_mockModule("../src/websocket.js", () => ({

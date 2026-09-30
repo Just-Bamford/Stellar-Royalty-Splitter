@@ -860,7 +860,7 @@ export function initializeDatabase() {
       // #1046: Advanced notification system with user preferences
       // Expanded notification types, per-type channel/frequency controls,
       // quiet hours, and notification center (archive, search, mark-unread).
-      version: 24,
+      version: 25,
       sql: `
         -- Add archived + channel columns to notifications for #1046
         ALTER TABLE notifications ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
@@ -974,10 +974,8 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_governance_executions_status ON governance_executions(status);
         CREATE INDEX IF NOT EXISTS idx_governance_executions_executedAt ON governance_executions(executedAt);
       `,
-    },
-      `,
-    },
-  ];
+     },
+   ];
 
   for (const migration of migrations) {
     const current = db
