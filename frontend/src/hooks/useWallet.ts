@@ -1,107 +1,110 @@
-import { useCallback, useEffect, useState } from 'react';
-import { walletManager, WalletInfo, WalletSession, WalletType, SignResult } from '../services/waller-manager';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  walletManager,
+  type WalletInfo,
+  type WalletSession,
+  type WalletType,
+} from '../services/wallet-manager';
 
-export interface UseWalletReturn {
-  wallets: WalletInfo[];
-  session: WalletSession | null;
+export interface UseWalletResult {
   address: string | null;
-  isConnected: boolean;
-  isLoading: boolean;
+  connected: boolean;
+  connecting: boolean;
+  walletId: WalletType | null;
+  session: WalletSession | null;
+  wallets: WalletInfo[];
   error: string | null;
   connect: (walletId: WalletType) => Promise<void>;
   disconnect: () => Promise<void>;
   switchWallet: (walletId: WalletType) => Promise<void>;
-  signTransaction: (xdr: string) => Promise<SignResult>;
   clearError: () => void;
-  refreshWallets: () => void;
 }
 
-export function useWallet(): UseWalletReturn {
-  const [session, setSession] = useState<WalletSession | null>(() => walletManager.getActiveSession());
-  const [wallets, setWallets] = useState<WalletInfo[]>(() => walletManager.getAvailableWallets());
-  const [loading, setLoading] = useState(false);
+export const useWallet = (): UseWalletResult => {
+  const [session, setSession] = useState<WalletSession | null>(() => walletManager.getSession());
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = walletManager.onSessionChange((nextSession) => {
-      setSession(nextSession);
+    const unsubscribe = walletManager.subscribe((next) => {
+      setSession(next);
     });
     return unsubscribe;
   }, []);
 
   useEffect(() => {
-    setWallets(walletManager.getAvailableWallets());
-  }, []);
-
-  const refreshWallets = useCallback(() => {
-    setWallets(walletManager.getAvailableWallets());
+    let cancelled = false;
+    walletManager.restoreSession().then((restored) => {
+      if (!cancelled && restored) {
+        setSession(restored);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const connect = useCallback(async (walletId: WalletType) => {
-    setLoading(true);
+    setConnecting(true);
     setError(null);
     try {
-      const newSession = await walletManager.connect(walletId);
-      setSession(newSession);
+      const result = await walletManager.connect(walletId);
+      setSession(walletManager.getSession());
+      return result;
     } catch (err) {
-      setError((err as Error).message);
+      const message = err instanceof Error ? err.message : 'Failed to connect wallet.';
+      setError(message);
       throw err;
     } finally {
-      setLoading(false);
+      setConnecting(false);
     }
   }, []);
 
   const disconnect = useCallback(async () => {
-    setLoading(true);
+    setConnecting(true);
     try {
       await walletManager.disconnect();
       setSession(null);
     } catch (err) {
-      setError((err as Error).message);
+      const message = err instanceof Error ? err.message : 'Failed to disconnect wallet.';
+      setError(message);
     } finally {
-      setLoading(false);
+      setConnecting(false);
     }
   }, []);
 
   const switchWallet = useCallback(async (walletId: WalletType) => {
-    setLoading(true);
+    setConnecting(true);
     setError(null);
     try {
-      const newSession = await walletManager.switchWallet(walletId);
-      setSession(newSession);
+      await walletManager.switchWallet(walletId);
+      setSession(walletManager.getSession());
     } catch (err) {
-      setError((err as Error).message);
+      const message = err instanceof Error ? err.message : 'Failed to switch wallets.';
+      setError(message);
       throw err;
     } finally {
-      setLoading(false);
+      setConnecting(false);
     }
-  }, []);
-
-  const signTransaction = useCallback(async (xdr: string) => {
-    setError(null);
-    const result = await walletManager.signTransaction(xdr);
-    if (!result.signed && result.error) {
-      setError(result.error);
-    }
-    return result;
   }, []);
 
   const clearError = useCallback(() => setError(null), []);
 
+  const wallets = useMemo(() => walletManager.getAvailableWallets(), []);
+
   return {
-    wallets,
-    session,
     address: session?.address ?? null,
-    isConnected: Boolean(session),
-    isLoading: loading,
+    connected: Boolean(session),
+    connecting,
+    walletId: session?.walletId ?? null,
+    session,
+    wallets,
     error,
     connect,
     disconnect,
     switchWallet,
-    signTransaction,
     clearError,
-    refreshWallets,
   };
-}
+};
 
 export default useWallet;

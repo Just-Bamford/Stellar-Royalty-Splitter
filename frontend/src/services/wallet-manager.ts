@@ -1,4 +1,4 @@
-import { connect as connectFreighter, getAddress as getFreighterAddress, isConnected as isFreighterConnected, signTransaction as signFreighterTransaction } from '@freighter/freighter-api';
+import { getProjectId } from './config';
 
 export type WalletType = 'freighter' | 'walletconnect' | 'ledger' | 'trezor';
 
@@ -7,378 +7,298 @@ export interface WalletInfo {
   name: string;
   description: string;
   icon: string;
-  type: WalletType;
-  available: boolean;
+  hardware: boolean;
+  available: () => Promise<boolean>;
 }
 
 export interface WalletSession {
   walletId: WalletType;
   address: string;
+  netword?: string;
   connectedAt: number;
 }
 
-export interface SignResult {
-  signed: boolean;
-  signature?: string;
-  error?: string;
+export interface ConnectResult {
+  address: string;
+  network?: string;
 }
 
 export interface HardwareConfirmation {
   walletId: WalletType;
   message: string;
-  confirm: () => Promise<boolean>;
+  confirm: () => Promise<void>;
+  reject: () => void;
 }
 
-const SESSION_STORAGE_KEY = 'stellar_wallet_session';
+export type HardwareConfirmationHandler = (
+  confirmation: HardwareConfirmation,
+) => Promise<void>;
 
-const WALLET_META: Record<WalletType, { name: string; description: string; icon: string }> = {
-  freighter: {
-    name: 'Freighter',
-    description: 'Connect using the Freighter wallet extension.',
-    icon: '🦁',
-  },
-  walletconnect: {
-    name: 'WalletConnect',
-    description: 'Scan QR code to connect mobile wallet.',
-    icon: '📶',
-  },
-  ledger: {
-    name: 'Ledger',
-    description: 'Connect using your Ledger hardware wallet.',
-    icon: '🔑',
-  },
-  trezor: {
-    name: 'Trezor',
-    description: 'Connect using your Trezor hardware wallet.',
-    icon: '🔿',
-  },
+const SESSION_STORAGE_KEY = 'stellar_wallet_session_v1';
+
+const defaultConfirmationHandler: HardwareConfirmationHandler = async (confirmation) => {
+  // Default behavior: auto-confirm after a short delay so the UI can render.
+  // The WalletSelector / context can override this with a real modal.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await confirmation.confirm();
 };
 
-const hardwareWallets: WalletType[] = ['ledger', 'trezor'];
-
-function isBrowser(): boolean {
-  return typeof window !== 'undefined' && typeof document !== 'undefined';
-}
-
-function getStorage(): Storage | null {
-  if (!isBrowser()) return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export class WalletManager {
-  private activeSession: WalletSession | null = null;
+  private currentSession: WalletSession | null = null;
+  private confirmationHandler: HardwareConfirmationHandler = defaultConfirmationHandler;
   private listeners: Set<(session: WalletSession | null) => void> = new Set();
-  private confirmationHandler: ((confirmation: HardwareConfirmation) => Promise<boolean>) | null = null;
 
   constructor() {
-    this.restoreSession();
+    this.currentSession = this.readSession();
   }
 
-  setConfirmationHandler(
-    handler: (confirmation: HardwareConfirmation) => Promise<boolean>,
-  ): void {
+  setConfirmationHandler(handler: HardwareConfirmationHandler): void {
     this.confirmationHandler = handler;
   }
 
-  getAvailableWallets(): WalletInfo and WalletInfo[] {
-    const ids = Object.keys(WALLET_META) as WalletType[];
-    return ids.map((id) => ({
-      id,
-      ...WALLET_META[id],
-      type: id,
-      available: this.isAvailable(id),
-    }));
-  }
-
-  isAvailable(walletId: WalletType): boolean {
-    if (!isBrowser()) return false;
-    switch (walletId) {
-      case 'freighter':
-        return Boolean(typeof window !== 'undefined' && (window as any).freighter);
-      case 'walletconnect':
-        return true;
-      case 'ledger':
-        return true;
-      case 'trezor':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  getActiveSession(): WalletSession | null {
-    return this.activeSession;
-  }
-
-  onSessionChange(listener: (session: WalletSession | null) => void): () => void {
+  subscribe(listener: (session: WalletSession | null) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  private notifySessionChange(): void {
-    this.listeners.forEach((listener) => listener(this.activeSession));
+  private notify(): void {
+    this.listeners.forEach((l) => l(this.currentSession));
   }
 
-  private persistSession(session: WalletSession | null): void {
-    const storage = getStorage();
-    if (!storage) return;
-    if (!session) {
-      storage.removeItem(SESSION_STORAGE_KEY);
-      return;
-    }
-    storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  getSession(): WalletSession | null {
+    return this.currentSession;
   }
 
-  private restoreSession(): void {
-    const storage = getStorage();
-    if (!storage) return;
-    const raw = storage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as WalletSession;
-      if (parsed && parsed.walletId && parsed.address) {
-        this.activeSession = parsed;
-      }
-    } catch {
-      storage.removeItem(SESSION_STORAGE_KEY);
-    }
+  getAvailableWallets(): WalletInfo[] {
+    return [
+      {
+        id: 'freighter',
+        name: 'Freighter',
+        description: 'Connect using the Freighter wallet extension.',
+        icon: '🚩',
+        hardware: false,
+        available: async () => this.isFreighterAvailable(),
+      },
+      {
+        id: 'walletconnect',
+        name: 'WalletConnect',
+        description: 'Scan QR code to connect a mobile wallet.',
+        icon: '📱',
+        hardware: false,
+        available: async () => this.isWalletConnectAvailable(),
+      },
+      {
+        id: 'ledger',
+        name: 'Ledger',
+        description: 'Connect using your Ledger hardware wallet.',
+        icon: '🔑',
+        hardware: true,
+        available: async () => this.isLedgerAvailable(),
+      },
+      {
+        id: 'trezor',
+        name: 'Trezor',
+        description: 'Connect using your Trezor hardware wallet.',
+        icon: '🔨',
+        hardware: true,
+        available: async () => this.isTrezorAvailable(),
+      },
+    ];
   }
 
-  async connect(walletId: WalletType): Promise<WalletSession> {
-    if (!this.isAvailable(walletId)) {
-      throw new Error(`${WALLET_META[walletId].name} is not available`);
-    }
+  async isFreighterAvailable(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    const anyWindow = window as unknown as {
+      freighter?: unknown;
+      stellar?: { signTransaction?: unknown };
+    };
+    return Boolean(anyWindow.freighter || anyWindow.stellar);
+  }
 
-    let address = '';
+  async isWalletConnectAvailable(): Promise<boolean> {
+    return true;
+  }
+
+  async isLedgerAvailable(): Promise<boolean> {
+    if (typeof navigator === 'undefined') return false;
+    const anyNav = navigator as unknown as { usb?: unknown };
+    return Boolean(anyNav.usb);
+  }
+
+  async isTrezorAvailable(): Promise<boolean> {
+    return this.isLedgerAvailable();
+  }
+
+  async connect(walletId: WalletType): Promise<ConnectResult> {
+    let result: ConnectResult;
     switch (walletId) {
       case 'freighter':
-        address = await this.connectFreighter();
+        result = await this.connectFreighter();
         break;
       case 'walletconnect':
-        address = await this.connectWalletConnect();
+        result = await this.connectWalletConnect();
         break;
       case 'ledger':
-        address = await this.connectHardware('ledger');
+        result = await this.connectHardware('ledger');
         break;
       case 'trezor':
-        address = await this.connectHardware('trezor');
+        result = await this.connectHardware('trezor');
         break;
       default:
-        throw new Error('Unsupported wallet');
+        throw new Error(`Unsupported wallet: ${String(walletId)}`);
     }
 
     const session: WalletSession = {
       walletId,
-      address,
+      address: result.address,
+      network: result.network,
       connectedAt: Date.now(),
     };
-    this.activeSession = session;
-    this.persistSession(session);
-    this.notifySessionChange();
-    return session;
+    this.setSession(session);
+    return result;
   }
 
   async disconnect(): Promise<void> {
-    const session = this.activeSession;
-    if (session) {
+    const session = this.currentSession;
+    if (session?.walletId === 'walletconnect') {
       try {
-        if (session.walletId === 'freighter') {
-          // Freighter has no explicit disconnect; clearing session is sufficient.
+        const module = await import('@walletconnect/standalone');
+        const client = await module.getActiveSession();
+        if (client) {
+          await client.disconnect();
         }
       } catch {
         // ignore disconnect errors
       }
     }
-    this.activeSession = null;
-    this.persistSession(null);
-    this.notifySessionChange();
+    this.setSession(null);
   }
 
-  async switchWallet(walletId: WalletType): Promise<WalletSession> {
+  async switchWallet(walletId: WalletType): Promise<ConnectResult> {
     await this.disconnect();
     return this.connect(walletId);
   }
 
-  async signTransaction(xdr: string): Promise<SignResult> {
-    const session = this.activeSession;
-    if (!session) {
-      return { signed: false, error: 'No active wallet session' };
-    }
-
-    if (hardwareWallets.includes(session.walletId)) {
-      const confirmed = await this.requestHardwareConfirmation(session.walletId, xdr);
-      if (!confirmed) {
-        return { signed: false, error: 'User rejected the transaction on the hardware wallet' };
-      }
-    }
-
-    switch (session.walletId) {
-      case 'freighter':
-        return this.signWithFreighter(xdr, session.address);
-      case 'walletconnect':
-        return this.signWithWalletConnect(xdr, session.address);
-      case 'ledger':
-      case 'trezor':
-        return this.signWithHardware(xdr, session.address);
-      default:
-        return { signed: false, error: 'Unsupported wallet' };
-    }
-  }
-
-  private async connectFreighter(): Promise<string> {
-    const connected = await isFreighterConnected();
-    if (!connected) {
-      await connectFreighter();
-    }
-    const result = await getFreighterAddress();
-    if (!result.address) {
-      throw new Error('Freighter did not return an address');
-    }
-    return result.address;
-  }
-
-  private async connectWalletConnect(): Promise<string> {
-    const module = await import('@walletconnect/walletkit').catch(() => null);
-    if (!module) {
-      throw new Error('WalletConnect is not installed.');
-    }
-    const { WalletKit } = module as any;
-    const kit = new WalletKit({
-      projectId: process.env.REACT_APP_WALLETCONNECT_PROJECT_ID || '',
-      chains: ['stellar:'],
-      methods: ['stellar_signTransaction'],
-    });
-    const accounts = await kit.connect();
-    const address = accounts[0];
-    if (!address) {
-      throw new Error('WalletConnect did not return an address');
-    }
-    (this as any)._walletConnectKit = kit;
-    return address;
-  }
-
-  private async connectHardware(walletId: 'ledger' | 'trezor'): Promise<string> {
-    const confirmed = await this.requestHardwareConfirmation(
-      walletId,
-      'Please connect and unlock your hardware wallet, then confirm the connection.',
-    );
-    if (!confirmed) {
-      throw new Error('Hardware wallet connection was cancelled');
-    }
-
-    if (walletId == 'ledger') {
-      const transportModule = await import('@ledgerhQ/transport-web-usb').catch(() => null);
-      const stellarModule = await import('@ledger-h/stellar').catch(() => null);
-      if (!transportModule || !stellarModule) {
-        throw new Error('Ledger Stellar SDK is not installed.');
-      }
-      const { default: TransportWebUSB } = transportModule as any;
-      const { default: StellarWallet } = stellarModule as any;
-      const transport = await TransportWebUSB.create();
-      const wallet = new StellarWallet(transport);
-      const result = await wallet.getAddress();
-      (this as any)._hardwareTransport = transport;
-      (this as any)._hardwareWallet = wallet;
-      return result.address;
-    }
-
-    const trezorModule = await import('@trezor/connect-web');
-    const { TrezorConnect } = trezorModule as any;
-    const trezor = TrezorConnect.init({
-      manifestEmail: 'support@stellar.org',
-      appUrl: window.location.origin,
-    });
-    const response = await trezor.stellarGetAddress({
-      path: "44'/148'/0'",
-      showDisplay: true,
-    });
-    (this as any)._trezor = trezor;
-    return response.address;
-  }
-
-  private async requestHardwareConfirmation(walletId: WalletType, message: string): Promise<boolean> {
-    if (!this.confirmationHandler) {
-      return true;
-    }
-    return this.confirmationHandler({
-      walletId,
-      message,
-      confirm: async () => true,
-    });
-  }
-
-  private async signWithFreighter(xdr: string, address: string): Promise<SignResult> {
+  async restoreSession(): Promise<WalletSession | null> {
+    const stored = this.readSession();
+    if (!stored) return null;
     try {
-      const result = await signFreighterTransaction(xdr, {
-        address: address,
-        networkPassphrase: 'Test SETWORK Network ; September 2015',
-      } as any);
-      return { signed: true, signature: result };
-    } catch (err) {
-      return { signed: false, error: (err as Error).message };
-    }
-  }
-
-  private async signWithWalletConnect(xdr: string, address: string): Promise<SignResult> {
-    const kit = (this as any)._walletConnectKit;
-    if (!kit) {
-      return { signed: false, error: 'WalletConnect session is not active' };
-    }
-    try {
-      const result = await kit.signTransaction({
-        topic: '',
-        chainId: 'stellar',
-        request: {
-          method: 'stellar_signTransaction',
-          params: { xdr, address },
-        },
-      });
-      return { signed: true, signature: result };
-    } catch (err) {
-      return { signed: false, error: (err as Error).message };
-    }
-  }
-
-  private async signWithHardware(xdr: string, address: string): Promise<SignResult> {
-    try {
-      const wallet = (this as any)._hardwareWallet;
-      if (wallet) {
-        const result = await wallet.signTransaction(xdr, { address });
-        return { signed: true, signature: result };
-      }
-      const trezor = (this as any)._trezor;
-      if (trezor) {
-        const result = await trezor.stellarWalletSignTx({
-          path: "44'/148'/0'",
-          transaction: xdr,
-        });
-        return { signed: true, signature: result };
-      }
-      return { signed: false, error: 'Hardware wallet is not connected' };
-    } catch (err) {
-      return { signed: false, error: (err as Error).message };
-    }
-  }
-
-  async reconnect(): Promise<WalletSession | null> {
-    const session = this.activeSession;
-    if (!session) return null;
-    try {
-      return await this.connect(session.walletId);
+      await this.connect(stored.walletId);
+      return this.currentSession;
     } catch {
-      await this.disconnect();
+      this.setSession(null);
+      return null;
+    }
+  }
+
+  private async connectFreighter(): Promise<ConnectResult> {
+    if (!(await this.isFreighterAvailable())) {
+      throw new Error('Freighter is not installed.');
+    }
+    const module = await import('@freighter/api');
+    const api = module.default ?? module;
+    const access = await api.requestAccess();
+    if (!access || access.error) {
+      throw new Error(access?.error || 'User rejected Freighter access.');
+    }
+    const address = access.publicKey || access.address;
+    if (!address) throw new Error('Freighter did not return an address.');
+    const networkResp = await api.getNetwork().catch(() => null);
+    return { address, network: networkResp?.network };
+  }
+
+  private async connectWalletConnect(): Promise<ConnectResult> {
+    const module = await import('@walletconnect/standalone');
+    const projectId = getProjectId();
+    if (!projectId) {
+      throw new Error('WalletConnect project ID is not configured.');
+    }
+    const { StandalondSignClient } = module;
+    const client = await StandaloneSignClient.init({
+      projectId,
+      metadata: {
+        name: 'Stellar Wallet',
+        description: 'Connect to Stellar dApp',
+        url: typeof window !== 'undefined' ? window.location.origin : 'https://stellar',
+        icons: [],
+      },
+      chainId: 'stellar',
+    });
+    const session = await client.connect();
+    const address = session.namespaces?.stellar?.accounts?.[0];
+    if (!address) throw new Error('WalletConnect did not return an account.');
+    return { address: address.split(':').pop() as string, network: 'stellar' };
+  }
+
+  private async connectHardware(walletId: 'ledger' | 'trezor'): Promise<ConnectResult> {
+    const available =
+      walletId === 'ledger'
+        ? await this.isLedgerAvailable()
+        : await this.isTrezorAvailable();
+    if (!available) {
+      throw new Error(`${walletId} is not connected. Please plug in the device.`);
+    }
+
+    const confirmation: HardwareConfirmation = {
+      walletId,
+      message: `Confirm connection on your ${walletId === 'ledger' ? 'Ledger' : 'Trezor'} device.`,
+      confirm: async () => {
+        // The device itself confirms the action; this resolves once the UI has acknowledged.
+      },
+      reject: () => {
+        throw new Error(`${walletId} connection rejected by user.`);
+      },
+    };
+    await this.confirmationHandler(confirmation);
+
+    const address = await this.requestHardwareAddress(walletId);
+    return { address: address, network: 'stellar' };
+  }
+
+  private async requestHardwareAddress(walletId: 'ledger' | 'trezor'): Promise<string> {
+    // The address is retrieved from the device via the browser USB bridge.
+    // We delegate to the wallet-specific SDK if available on the window.
+    const anyWindow = window as unknown as {
+      stellarLedger?: { getPublicKey: () => Promise<string> };
+      stellarTrezor?: { getPublicKey: () => Promise<string> };
+    };
+    if (walletId === 'ledger' && anyWindow.stellarLedger) {
+      return anyWindow.stellarLedger.getPublicKey();
+    }
+    if (walletId === 'trezor' && anyWindow.stellarTrezor) {
+      return anyWindow.stellarTrezor.getPublicKey();
+    }
+    throw new Error(
+      `${walletId} bridge is not available. Ensure the device bridge is installed.`,
+    );
+  }
+
+  private setSession(session: WalletSession | null): void {
+    this.currentSession = session;
+    if (typeof window !== 'undefined') {
+      if (session) {
+        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+      } else {
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    }
+    this.notify();
+  }
+
+  private readSession(): WalletSession | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as WalletSession;
+      if (!parsed.walletId || !parsed.address) return null;
+      return parsed;
+    } catch {
       return null;
     }
   }
 }
 
 export const walletManager = new WalletManager();
+
 export default walletManager;
