@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -13,10 +13,7 @@ import type { TimePoint } from '../../hooks/useChartData';
 export interface EarningsChartProps {
   data: TimePoint[];
   height?: number;
-}
-
-function formatCurrency(value: number): string {
-  return `\$$Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })`;
+  currency?: string;
 }
 
 function formatDate(date: string): string {
@@ -25,10 +22,10 @@ function formatDate(date: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function EarningsChart({ data, height = 280 }: EarningsChartProps) {
+export function EarningsChart({ data, height = 280, currency = 'USD' }: EarningsChartProps) {
   const [active, setActive] = useState<boolean>(true);
-
-  const gradientId = useMemo(() => `earnings-gradient-${Math.random().toString(36).slice(2, 9)}`, []);
+  const rawId = useId();
+  const gradientId = `earnings-grad-${rawId.replace(/[^a-zA-Z0-9-_]/g, '')}`;
 
   if (!data || data.length === 0) {
     return (
@@ -44,11 +41,11 @@ export default function EarningsChart({ data, height = 280 }: EarningsChartProps
         <AreaChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
-              <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+              <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4} />
+              <stop offset="95%" stopColor="#2563eb" stopOpacity={0.0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDash="3" vertical={} stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis
             dataKey="date"
             tickLine={false}
@@ -60,8 +57,8 @@ export default function EarningsChart({ data, height = 280 }: EarningsChartProps
           <YAxis
             tickLine={false}
             axisLine={false}
-            tickFormatter={(value: number) => formatCompactCurrency(value)}
             width={56}
+            tickFormatter={(v) => formatCompactCurrency(v, currency)}
             tick={{ fill: '#64748b', fontSize: 11 }}
           />
           <Tooltip
@@ -70,11 +67,10 @@ export default function EarningsChart({ data, height = 280 }: EarningsChartProps
               border: '1px solid #e2e8f0',
               fontSize: 12,
             }}
-            formatter={(value: number, name, props: any) => [
-              formatCurrency(value),
+            formatter={(value: number, _name: any, props: any) => [
+              formatCompactCurrency(value, currency),
               formatDate(props?.payload?.date ?? ''),
-            ]
-            }
+            ]}
             labelFormatter={(value: string) => formatDate(value)}
           />
           <Area
@@ -83,9 +79,9 @@ export default function EarningsChart({ data, height = 280 }: EarningsChartProps
             name="Earnings"
             stroke="#2563eb"
             strokeWidth={2}
-            fill={`url(${gradientId})`}
+            fill={`url(#${gradientId})`}
             animationDuration={600}
-            hide{!active}
+            hide={!active}
             dot={false}
             activeDot={{ r: 4, strokeWidth: 2 }}
           />
@@ -105,9 +101,13 @@ export default function EarningsChart({ data, height = 280 }: EarningsChartProps
   );
 }
 
-function formatCompactCurrency(value: number): string {
+function formatCompactCurrency(value: number, currency: string = 'USD'): string {
+  const prefix = currency === 'USD' || currency === '$' ? '$' : `${currency} `;
   if (Math.abs(value) >= 1000) {
-    return `\$$${(value / 1000).toFixed(1)}k`;
+    return `${prefix}${(value / 1000).toFixed(1)}k`;
   }
-  return `\$${value}`;
+  return `${prefix}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
+
+export { EarningsChart as EarningsAreaChart };
+export default EarningsChart;
