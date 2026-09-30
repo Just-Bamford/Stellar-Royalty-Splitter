@@ -521,6 +521,78 @@ export const openApiSpec = {
         responses: { 201: { description: "Webhook registered" } },
       },
     },
+    "/webhooks/{contractId}": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "List registered webhooks for a contract (#1059)",
+        parameters: [{ in: "path", name: "contractId", required: true, schema: { $ref: "#/components/schemas/ContractId" } }],
+        responses: { 200: { description: "Webhook list with event subscriptions" } },
+      },
+    },
+    "/webhooks/events": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "List supported webhook event names (#1059)",
+        responses: { 200: { description: "Supported event names" } },
+      },
+    },
+    "/webhooks/{contractId}/deliveries": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "Paginated webhook delivery history (#1059)",
+        parameters: [
+          { in: "path", name: "contractId", required: true, schema: { $ref: "#/components/schemas/ContractId" } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { in: "query", name: "offset", schema: { type: "integer", minimum: 0 } },
+          { in: "query", name: "webhookId", schema: { type: "integer" } },
+          { in: "query", name: "event", schema: { type: "string" } },
+          { in: "query", name: "status", schema: { type: "string", enum: ["pending", "delivered", "failed", "exhausted"] } },
+        ],
+        responses: { 200: { description: "Delivery history" } },
+      },
+    },
+    "/webhooks/{contractId}/delivery-stats": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "Aggregate webhook delivery stats for the status dashboard (#1059)",
+        parameters: [{ in: "path", name: "contractId", required: true, schema: { $ref: "#/components/schemas/ContractId" } }],
+        responses: { 200: { description: "Delivery stats" } },
+      },
+    },
+    "/webhooks/{contractId}/emit": {
+      post: {
+        tags: ["Webhooks"],
+        summary: "Emit an event to all subscribed webhooks (#1059)",
+        parameters: [{ in: "path", name: "contractId", required: true, schema: { $ref: "#/components/schemas/ContractId" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["event"],
+                properties: {
+                  event: { type: "string", enum: ["distribution.completed", "distribute.confirmed", "dispute.created", "dispute.resolved", "governance.vote.started", "governance.vote.ended", "contract.status.changed"] },
+                  data: { type: "object" },
+                },
+              },
+            },
+          },
+        },
+        responses: { 202: { description: "Event emission accepted" } },
+      },
+    },
+    "/webhooks/{contractId}/{webhookId}/test": {
+      post: {
+        tags: ["Webhooks"],
+        summary: "Manually send a signed test ping to a webhook (#1059)",
+        parameters: [
+          { in: "path", name: "contractId", required: true, schema: { $ref: "#/components/schemas/ContractId" } },
+          { in: "path", name: "webhookId", required: true, schema: { type: "integer" } },
+        ],
+        responses: { 200: { description: "Test delivery result" } },
+      },
+    },
 
     // ── Contract state (added for #695) ─────────────────────────────────────
 

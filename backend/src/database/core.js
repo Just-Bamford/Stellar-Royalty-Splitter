@@ -900,6 +900,40 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_api_call_events_createdAt ON api_call_events(createdAt);
       `,
     },
+    {
+      // #1059: Advanced webhook system — delivery history for the status
+      // dashboard. Per-webhook event subscriptions + HMAC secrets live on
+      // the `webhooks` table and are added idempotently by
+      // ensureAdvancedWebhookColumns() below (ALTER TABLE has no
+      // IF NOT EXISTS, so a plain migration would break on databases
+      // where the columns already exist).
+      version: 25,
+      sql: `
+        CREATE TABLE IF NOT EXISTS webhook_deliveries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          webhook_id INTEGER,
+          contract_id TEXT NOT NULL,
+          event TEXT NOT NULL,
+          url TEXT NOT NULL,
+          payload TEXT,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK(status IN ('pending', 'delivered', 'failed', 'exhausted')),
+          http_status INTEGER,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          error TEXT,
+          duration_ms INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id
+          ON webhook_deliveries(webhook_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_contract
+          ON webhook_deliveries(contract_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event
+          ON webhook_deliveries(event, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status
+          ON webhook_deliveries(status, created_at DESC);
+      `,
+    },
   ];
 
   for (const migration of migrations) {
@@ -913,6 +947,45 @@ export function initializeDatabase() {
       });
       apply();
     }
+  }
+
+  ensureAdvancedWebhookColumns();
+}
+
+/**
+ * Idempotently add advanced-webhook columns (#1059) to the `webhooks`
+ * table: `events` (JSON array of subscribed event names, NULL = all),
+ * `secret` (per-webhook HMAC-SHA256 signing secret), plus the retry-state
+ * columns (`retry_count`, `next_retry_time`, `payload`) used by
+ * webhook-delivery.js / retry-failed-webhooks.js which predate this
+ * migration chain and were never added to it. Runs on every startup so
+ * fresh and long-lived databases converge to the same shape.
+ */
+export function ensureAdvancedWebhookColumns() {
+  try {
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'webhooks'")
+      .get();
+    if (!table) return;
+    const columns = new Set(
+      db.prepare("PRAGMA table_info(webhooks)").all().map((col) => col.name)
+    );
+    const missing = {
+      retry_count: "ALTER TABLE webhooks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+      next_retry_time: "ALTER TABLE webhooks ADD COLUMN next_retry_time DATETIME",
+      payload: "ALTER TABLE webhooks ADD COLUMN payload TEXT",
+      events: "ALTER TABLE webhooks ADD COLUMN events TEXT",
+      secret: "ALTER TABLE webhooks ADD COLUMN secret TEXT",
+    };
+    for (const [column, ddl] of Object.entries(missing)) {
+      if (!columns.has(column)) {
+        db.exec(ddl);
+      }
+    }
+  } catch (err) {
+    logger.error("Failed to ensure advanced webhook columns", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
