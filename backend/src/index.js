@@ -100,6 +100,7 @@ import { zkPrivacyRouter } from "./routes/zk-privacy.js";
 import { stripeRouter } from "./routes/payments/stripe.js";
 import { collaborativeEditorRouter } from "./routes/collaborative-editor.js";
 import { vestingRouter } from "./routes/vesting.js";
+import { tokenomicsRouter } from "./routes/tokenomics.js";
 import { oracleRouter } from "./routes/oracle.js";
 import { auditEnhancedRouter } from "./routes/audit-enhanced.js";
 import { swapAggregatorRouter } from "./routes/swap-aggregator.js";
@@ -424,6 +425,9 @@ app.use("/api/v1/analytics/forecast-model", forecastModelRouter);
 app.use("/api/v1", analyticsRouter);
 // Collaborator performance benchmarking (#952)
 app.use("/api/v1/analytics/benchmarking", benchmarkingRouter);
+// Advanced token economics & vesting analytics (#1062)
+app.use("/api/v1/tokenomics", readLimiter);
+app.use("/api/v1/tokenomics", tokenomicsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
 app.use(livenessRouter);
