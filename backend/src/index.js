@@ -89,6 +89,7 @@ import { raribleRouter } from "./routes/marketplaces/rarible.js";
 import { smsPreferencesRouter } from "./routes/notifications/sms.js";
 import { taxReportsRouter } from "./routes/tax/reports.js";
 import { complianceRouter } from "./routes/compliance.js";
+import { fraudAlertsRouter } from "./routes/security/fraud-alerts.js";
 import { emailTemplatesRouter } from "./routes/communications/email-templates.js";
 import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
@@ -479,6 +480,10 @@ app.use("/api/v1/transactions", transactionFinalityRouter);
 
 // Compliance and regulatory reporting (#997)
 app.use("/api/v1/compliance", complianceRouter);
+
+// Advanced fraud detection and anomaly scoring (#1042)
+app.use("/api/v1/security/fraud-alerts", readLimiter);
+app.use("/api/v1/security/fraud-alerts", fraudAlertsRouter);
 
 // OpenSea marketplace webhook integration (#928)
 app.use("/api/v1/marketplaces/opensea", writeLimiter);
