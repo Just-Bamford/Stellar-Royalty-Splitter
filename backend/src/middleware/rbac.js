@@ -25,14 +25,14 @@ function hashApiKey(key) {
  * Checks `x-api-key` header against the api_keys table.
  * Returns null when no valid key is present.
  */
-function resolveRole(req) {
+function resolveUser(req) {
   const apiKey = req.headers["x-api-key"];
   if (!apiKey) return null;
 
   const hashed = hashApiKey(String(apiKey));
   const row = db
     .prepare(
-      `SELECT u.role FROM api_keys ak
+      `SELECT u.id, u.walletAddress, u.role FROM api_keys ak
        JOIN users u ON u.id = ak.userId
        WHERE ak.keyHash = ?
          AND (ak.expiresAt IS NULL OR ak.expiresAt > CURRENT_TIMESTAMP)
@@ -40,14 +40,15 @@ function resolveRole(req) {
     )
     .get(hashed);
 
-  return row?.role ?? null;
+  return row ?? null;
 }
 
 /**
  * Attach req.role to every request (non-blocking — does not reject).
  */
 export function attachRole(req, _res, next) {
-  req.role = resolveRole(req) ?? "viewer";
+  req.user = resolveUser(req);
+  req.role = req.user?.role ?? "viewer";
   next();
 }
 

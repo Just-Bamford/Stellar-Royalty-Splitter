@@ -857,47 +857,48 @@ export function initializeDatabase() {
       `,
     },
     {
-      // #996: Partner API analytics and metering
+      // Advanced RBAC: normalized multi-role assignments, temporary grants, immutable change history.
       version: 24,
       sql: `
-        CREATE TABLE IF NOT EXISTS partner_api_keys (
+        CREATE TABLE IF NOT EXISTS user_roles (
+          userId INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'accountant', 'viewer', 'approver')),
+          assignedByUserId INTEGER,
+          assignedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (userId, role),
+          FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY(assignedByUserId) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS temporary_permissions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          keyId TEXT NOT NULL UNIQUE,
-          keyHash TEXT NOT NULL UNIQUE,
-          partnerId TEXT NOT NULL,
-          partnerName TEXT NOT NULL,
-          tier TEXT NOT NULL CHECK(tier IN ('free', 'pro', 'enterprise')),
-          dailyCallLimit INTEGER,
-          monthlyCallLimit INTEGER,
-          monthlyPriceCents INTEGER DEFAULT 0,
-          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'revoked')),
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          userId INTEGER NOT NULL,
+          permission TEXT NOT NULL,
+          grantedByUserId INTEGER,
+          grantedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expiresAt DATETIME NOT NULL,
+          revokedAt DATETIME,
+          revokedByUserId INTEGER,
+          FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY(grantedByUserId) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY(revokedByUserId) REFERENCES users(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_temporary_permissions_active ON temporary_permissions(userId, expiresAt) WHERE revokedAt IS NULL;
+        CREATE TABLE IF NOT EXISTS rbac_audit_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          actorUserId INTEGER,
+          affectedUserId INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          previousState TEXT,
+          newState TEXT,
           expiresAt DATETIME,
-          lastUsedAt DATETIME,
-          revokedAt DATETIME
+          revertedAuditId INTEGER,
+          requestId TEXT,
+          timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(actorUserId) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY(affectedUserId) REFERENCES users(id) ON DELETE RESTRICT,
+          FOREIGN KEY(revertedAuditId) REFERENCES rbac_audit_events(id) ON DELETE RESTRICT
         );
-        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_keyHash ON partner_api_keys(keyHash);
-        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_partnerId ON partner_api_keys(partnerId);
-        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_tier ON partner_api_keys(tier);
-        CREATE INDEX IF NOT EXISTS idx_partner_api_keys_status ON partner_api_keys(status);
-
-        CREATE TABLE IF NOT EXISTS api_call_events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          keyId TEXT NOT NULL,
-          partnerId TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          method TEXT NOT NULL,
-          statusCode INTEGER NOT NULL,
-          durationMs INTEGER,
-          rateLimited INTEGER NOT NULL DEFAULT 0,
-          bucketDay TEXT NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_api_call_events_keyId ON api_call_events(keyId);
-        CREATE INDEX IF NOT EXISTS idx_api_call_events_partnerId ON api_call_events(partnerId);
-        CREATE INDEX IF NOT EXISTS idx_api_call_events_bucketDay ON api_call_events(bucketDay);
-        CREATE INDEX IF NOT EXISTS idx_api_call_events_endpoint ON api_call_events(endpoint);
-        CREATE INDEX IF NOT EXISTS idx_api_call_events_createdAt ON api_call_events(createdAt);
+        CREATE INDEX IF NOT EXISTS idx_rbac_audit_affected ON rbac_audit_events(affectedUserId, timestamp DESC);
       `,
     },
   ];
