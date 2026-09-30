@@ -264,6 +264,17 @@ export {
 // Reusable royalty split templates (#652)
 export { createTemplate, listTemplates, getTemplateById, deleteTemplate } from "./templates.js";
 
+// Versioned contract templates and clone provenance
+export {
+  createContractTemplate,
+  getContractTemplate,
+  listContractTemplates,
+  updateContractTemplate,
+  listContractTemplateVersions,
+  addContractTemplateReview,
+  recordContractTemplateClone,
+} from "./contract-templates.js";
+
 // Contributor metrics (#600)
 export {
   getCachedMetrics,
