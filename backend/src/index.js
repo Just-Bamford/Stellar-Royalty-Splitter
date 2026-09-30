@@ -100,6 +100,7 @@ import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
 import { searchRouter } from "./routes/search.js";
 import { zkPrivacyRouter } from "./routes/zk-privacy.js";
+import snapshotRouter from "./routes/governance/snapshot.js";
 import { stripeRouter } from "./routes/payments/stripe.js";
 import { collaborativeEditorRouter } from "./routes/collaborative-editor.js";
 import { vestingRouter } from "./routes/vesting.js";
@@ -544,6 +545,10 @@ app.use("/api/v1/search", searchRouter);
 // Zero-knowledge proof privacy system (#972)
 app.use("/api/v1/zk-privacy", zkPrivacyRouter);
 
+<<<<<<< HEAD
+// Decentralized governance on Snapshot (#995)
+app.use("/api/v1/governance", snapshotRouter);
+=======
 // Batch payment scheduling (#991)
 app.use("/api/v1/schedules", writeLimiter);
 app.use("/api/v1/batch", writeLimiter);
@@ -565,10 +570,14 @@ app.use("/api/v1/backup", backupRouter);
 app.use("/api/v1/rights", writeLimiter);
 app.use("/api/v1/rights", rightsRouter);
 
+<<<<<<< HEAD
+>>>>>>> upstream/dev
+=======
 // DAO Treasury Management (#1076)
 app.use("/api/v1/treasury", writeLimiter);
 app.use("/api/v1/treasury", treasuryRouter);
 
+>>>>>>> upstream/dev
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;
