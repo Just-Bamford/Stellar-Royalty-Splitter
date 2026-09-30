@@ -116,7 +116,6 @@ import { treasuryRouter } from "./routes/treasury/index.js";
 import { createTrafficShaper } from "./middleware/traffic-shaper.js";
 import { CapacityPlanner } from "./services/capacity-planner.js";
 import { crossChainRouter } from "./routes/cross-chain.js";
->>>>>>> upstream/dev
 
 // Initialize database on startup
 initializeDatabase();
