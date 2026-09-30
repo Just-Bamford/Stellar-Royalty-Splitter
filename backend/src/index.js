@@ -100,6 +100,12 @@ import { vestingRouter } from "./routes/vesting.js";
 import { oracleRouter } from "./routes/oracle.js";
 import { auditEnhancedRouter } from "./routes/audit-enhanced.js";
 import { swapAggregatorRouter } from "./routes/swap-aggregator.js";
+import { schedulesRouter, batchRouter } from "./routes/schedules.js";
+import { identityRouter } from "./routes/identity.js";
+import { backupRouter } from "./routes/backup.js";
+import { startDistributionScheduler } from "./services/distribution-scheduler.js";
+import { startBackupScheduler } from "./services/contract-backup.js";
+import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -108,6 +114,10 @@ initializeSigningKey();
 // Connect the distributed (Redis) cache layer when REDIS_URL is configured.
 // No-op when unset; never throws (#926).
 initRedisCache();
+
+// Start advanced multi-layer cache warming (#970)
+const l1WarmingInterval = startL1WarmingScheduler();
+const l2WarmingInterval = startL2WarmingScheduler();
 
 // Load plugins from backend/plugins/ and start hot-reload watcher (#998).
 // loadAllPlugins() is async but we don't await it at module level — a
