@@ -5506,9 +5506,7 @@ impl RoyaltySplitter {
                     return Err(ContractError::CollaboratorNotFound);
                 }
             }
-            GovProposalAction::AllocateBudget(_, _, amount)
-                if *amount <= 0 =>
-            {
+            GovProposalAction::AllocateBudget(_, _, amount) if *amount <= 0 => {
                 return Err(ContractError::AmountNotPositive);
             }
             _ => {}
