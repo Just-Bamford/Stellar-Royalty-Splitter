@@ -13,7 +13,7 @@ const DEFAULT_THRESHOLDS = {
   errorRatePercent: 1,
 };
 
-const ALERT_COOLOWN = 300 * 1000; // 5 minutes
+const ALERT_COOLDOWN = 300 * 1000; // 5 minutes
 
 class AlertingService {
   constructor(options = {}) {
@@ -155,7 +155,7 @@ class AlertingService {
   async sendSlack(alert) {
     await this.slack.chat.postMessage({
       channel: this.channels.slack.channel,
-      text: `*${alert.severity.toUpperCase()}* ${alert.message}\n`${alert.type}`,
+      text: `*${alert.severity.toUpperCase()}* ${alert.message}\n${alert.type}`,
     });
   }
 

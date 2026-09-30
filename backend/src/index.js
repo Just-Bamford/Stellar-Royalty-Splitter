@@ -95,6 +95,7 @@ import { raribleRouter } from "./routes/marketplaces/rarible.js";
 import { smsPreferencesRouter } from "./routes/notifications/sms.js";
 import { taxReportsRouter } from "./routes/tax/reports.js";
 import { complianceRouter } from "./routes/compliance.js";
+import { fraudAlertsRouter } from "./routes/security/fraud-alerts.js";
 import { emailTemplatesRouter } from "./routes/communications/email-templates.js";
 import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
@@ -112,10 +113,12 @@ import { identityRouter } from "./routes/identity.js";
 import { backupRouter } from "./routes/backup.js";
 import { startDistributionScheduler } from "./services/distribution-scheduler.js";
 import { startBackupScheduler } from "./services/contract-backup.js";
+import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
 import { rightsRouter } from "./routes/rights-management.js";
 import { treasuryRouter } from "./routes/treasury/index.js";
-
-
+import { createTrafficShaper } from "./middleware/traffic-shaper.js";
+import { CapacityPlanner } from "./services/capacity-planner.js";
+import { crossChainRouter } from "./routes/cross-chain.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -123,12 +126,16 @@ initializeSigningKey();
 
 // Advanced API rate limiting and traffic shaping (#traffic-shaping).
 // Token-bucket per endpoint, endpoint prioritization, and backpressure.
-const trafficShaper = createTrafficShaperMiddleware();
-const capacityPlanner = createCapacityPlanner();
+const trafficShaper = createTrafficShaper();
+const capacityPlanner = new CapacityPlanner();
 
 // Connect the distributed (Redis) cache layer when REDIS_URL is configured.
 // No-op when unset; never throws (#926).
 initRedisCache();
+
+// Start advanced multi-layer cache warming (#970)
+const l1WarmingInterval = startL1WarmingScheduler();
+const l2WarmingInterval = startL2WarmingScheduler();
 
 // Load plugins from backend/plugins/ and start hot-reload watcher (#998).
 // loadAllPlugins() is async but we don't await it at module level — a
@@ -525,6 +532,10 @@ app.use("/api/v1/transactions", transactionFinalityRouter);
 
 // Compliance and regulatory reporting (#997)
 app.use("/api/v1/compliance", complianceRouter);
+
+// Advanced fraud detection and anomaly scoring (#1042)
+app.use("/api/v1/security/fraud-alerts", readLimiter);
+app.use("/api/v1/security/fraud-alerts", fraudAlertsRouter);
 
 // OpenSea marketplace webhook integration (#928)
 app.use("/api/v1/marketplaces/opensea", writeLimiter);

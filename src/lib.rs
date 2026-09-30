@@ -2166,7 +2166,7 @@ impl RoyaltySplitter {
             &stream.recipient,
             &amount,
         );
-        stream.accrued_amount = accrued - amount;
+        stream.accrued_amount = accrued.saturating_sub(amount);
         stream.last_accrual = env.ledger().timestamp();
         storage::persistent_set(&env, &StorageKey::Ext(ExtKey::Stream(stream_id)), &stream);
         env.events().publish(
@@ -5574,10 +5574,8 @@ impl RoyaltySplitter {
                     return Err(ContractError::CollaboratorNotFound);
                 }
             }
-            GovProposalAction::AllocateBudget(_, _, amount) => {
-                if *amount <= 0 {
-                    return Err(ContractError::AmountNotPositive);
-                }
+            GovProposalAction::AllocateBudget(_, _, amount) if *amount <= 0 => {
+                return Err(ContractError::AmountNotPositive);
             }
             _ => {}
         }
