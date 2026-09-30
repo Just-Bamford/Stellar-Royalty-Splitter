@@ -28,6 +28,7 @@ export const openApiSpec = {
     { name: "Ranking", description: "Contributor performance rankings (#586)" },
     { name: "History", description: "Transaction history and audit log" },
     { name: "Webhooks", description: "Distribution completion webhooks" },
+    { name: "Carbon", description: "Environmental impact tracking and carbon offsets (#1064)" },
     { name: "Admin", description: "Admin operations (requires auth)" },
     { name: "Communications", description: "Contributor communication history (#612)" },
     { name: "CSV Import", description: "Bulk collaborator import from CSV" },
@@ -519,6 +520,57 @@ export const openApiSpec = {
           },
         },
         responses: { 201: { description: "Webhook registered" } },
+      },
+    },
+
+    // ── Carbon tracking (#1064) ────────────────────────────────────────────
+
+    "/carbon/footprint/{walletAddress}": {
+      get: {
+        tags: ["Carbon"],
+        summary: "Personal carbon footprint with offsets and daily series",
+        parameters: [{ in: "path", name: "walletAddress", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Footprint summary" } },
+      },
+    },
+    "/carbon/project/{contractId}": {
+      get: {
+        tags: ["Carbon"],
+        summary: "Project-wide carbon impact for a contract",
+        parameters: [{ in: "path", name: "contractId", required: true, schema: { $ref: "#/components/schemas/ContractId" } }],
+        responses: { 200: { description: "Project footprint" } },
+      },
+    },
+    "/carbon/offsets": {
+      post: {
+        tags: ["Carbon"],
+        summary: "Purchase carbon offsets",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["walletAddress"],
+                properties: {
+                  walletAddress: { type: "string" },
+                  contractId: { $ref: "#/components/schemas/ContractId" },
+                  tonnes: { type: "number" },
+                  amountUsdCents: { type: "integer" },
+                  project: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: "Offset purchase recorded" } },
+      },
+    },
+    "/carbon/projects": {
+      get: {
+        tags: ["Carbon"],
+        summary: "Forest/ocean offset project catalog",
+        responses: { 200: { description: "Project catalog" } },
       },
     },
 

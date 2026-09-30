@@ -60,6 +60,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "secondary", labelKey: "secondary", icon: "🔄" },
     { id: "health", labelKey: "health", icon: "🏥" },
     { id: "disputes", labelKey: "disputes", icon: "⚖️" },
+    { id: "impact", labelKey: "impact", icon: "🌱" },
     { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
     { id: "tax-info", labelKey: "taxInfo", icon: "📋" },
     { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },

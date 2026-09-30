@@ -34,6 +34,35 @@ const router = express.Router();
 const VALID_HISTORY_TYPES = ["distribute", "initialize"];
 
 /**
+ * Record the carbon footprint of a confirmed transaction and trigger
+ * opted-in auto-offset purchases (#1064). Dynamic import keeps this route
+ * decoupled from the carbon tracker; failures propagate to the caller's
+ * .catch() so confirmation responses are never affected.
+ */
+async function recordCarbonFootprint(transaction) {
+  const { recordTransactionFootprint, runAutoOffset } = await import(
+    "../services/carbon-tracker.js"
+  );
+  recordTransactionFootprint({
+    contractId: transaction.contractId,
+    walletAddress: transaction.initiatorAddress,
+    txHash: transaction.txHash,
+    transactionId: transaction.id,
+    operationCount: 1 + (transaction.payouts?.length ?? 0),
+  });
+  if (transaction.type === "distribute" || transaction.type === "secondary_distribute") {
+    await runAutoOffset({
+      contractId: transaction.contractId,
+      payouts: (transaction.payouts ?? []).map((payout) => ({
+        address: payout.collaboratorAddress,
+        amountStroops: payout.amountReceived,
+      })),
+      txHash: transaction.txHash,
+    });
+  }
+}
+
+/**
  * GET /api/history/:contractId
  * Get transaction history for a contract.
  * Query params: limit (default 50, max 100), offset (default 0), type (distribute|initialize)
@@ -371,6 +400,16 @@ router.post("/transaction/confirm/:txHash", async (req, res) => {
 
     if (pollResult.status === "confirmed" && confirmed?.type === "distribute") {
       deliverDistributeWebhooks(confirmed);
+    }
+
+    if (pollResult.status === "confirmed" && confirmed) {
+      // Carbon tracking (#1064): record the transaction footprint and run
+      // opted-in auto-offsets. Fail-open — never fail the confirmation.
+      recordCarbonFootprint(confirmed).catch((err) => {
+        logger.warn("Failed to record carbon footprint", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
 
     res.json({

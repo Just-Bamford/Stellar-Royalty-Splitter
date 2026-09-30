@@ -111,6 +111,7 @@ import { startDistributionScheduler } from "./services/distribution-scheduler.js
 import { startBackupScheduler } from "./services/contract-backup.js";
 import { rightsRouter } from "./routes/rights-management.js";
 import { treasuryRouter } from "./routes/treasury/index.js";
+import { carbonRouter } from "./routes/carbon.js";
 
 
 
@@ -552,6 +553,10 @@ app.use("/api/v1/rights", rightsRouter);
 // DAO Treasury Management (#1076)
 app.use("/api/v1/treasury", writeLimiter);
 app.use("/api/v1/treasury", treasuryRouter);
+
+// Environmental impact tracking and carbon offsets (#1064)
+app.use("/api/v1/carbon", writeLimiter);
+app.use("/api/v1", carbonRouter);
 
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
