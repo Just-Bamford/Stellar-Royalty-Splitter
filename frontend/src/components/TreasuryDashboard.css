@@ -1,0 +1,285 @@
+.treasury-dashboard {
+  padding: 1.5rem;
+  color: #e2e8f0;
+}
+
+.treasury-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.treasury-header h2 {
+  margin: 0 0 0.25rem;
+}
+
+.treasury-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.treasury-muted {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.treasury-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid #ef4444;
+  color: #fecaca;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.treasury-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #334155;
+  margin-bottom: 1.25rem;
+}
+
+.treasury-tab {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-size: 0.9rem;
+}
+
+.treasury-tab.active {
+  color: #38bdf8;
+  border-bottom-color: #38bdf8;
+}
+
+.treasury-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.treasury-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.treasury-card-label {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.treasury-card-value {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.treasury-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.88rem;
+}
+
+.treasury-table th,
+.treasury-table td {
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #1e293b;
+}
+
+.treasury-table thead th {
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.treasury-table tr.over-budget {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.negative {
+  color: #f87171;
+}
+
+.treasury-progress {
+  background: #1e293b;
+  border-radius: 999px;
+  height: 8px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.treasury-progress-bar {
+  height: 100%;
+  background: #38bdf8;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.treasury-progress-bar.warning {
+  background: #f59e0b;
+}
+
+.treasury-progress-bar.danger {
+  background: #ef4444;
+}
+
+.treasury-progress-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.treasury-two-column {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.treasury-forecast {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 1rem;
+  font-size: 0.9rem;
+}
+
+.treasury-alerts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.treasury-alerts li {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.1);
+  border-left: 3px solid #94a3b8;
+  font-size: 0.85rem;
+}
+
+.treasury-alerts li.warning {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.treasury-alerts li.critical {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.treasury-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.treasury-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.treasury-form input,
+.treasury-form select {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.5rem;
+  color: #e2e8f0;
+  font-size: 0.88rem;
+}
+
+.treasury-form-wide {
+  grid-column: 1 / -1;
+}
+
+.treasury-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #e2e8f0;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.treasury-btn:hover {
+  background: #334155;
+}
+
+.treasury-btn.primary {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #fff;
+}
+
+.treasury-btn.approve {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
+
+.treasury-btn.reject {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+
+.treasury-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.treasury-status {
+  text-transform: capitalize;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.treasury-status.approved,
+.treasury-status.paid {
+  background: rgba(21, 128, 61, 0.25);
+  color: #86efac;
+}
+
+.treasury-status.pending {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+}
+
+.treasury-status.rejected {
+  background: rgba(185, 28, 28, 0.25);
+  color: #fca5a5;
+}
+
+.treasury-report {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 1rem;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
