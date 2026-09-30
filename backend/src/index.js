@@ -112,7 +112,9 @@ import { startBackupScheduler } from "./services/contract-backup.js";
 import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
 import { rightsRouter } from "./routes/rights-management.js";
 import { treasuryRouter } from "./routes/treasury/index.js";
->>>>>>> upstream/dev
+import { createTrafficShaper } from "./middleware/traffic-shaper.js";
+import { CapacityPlanner } from "./services/capacity-planner.js";
+import { crossChainRouter } from "./routes/cross-chain.js";
 
 // Initialize database on startup
 initializeDatabase();
@@ -120,8 +122,8 @@ initializeSigningKey();
 
 // Advanced API rate limiting and traffic shaping (#traffic-shaping).
 // Token-bucket per endpoint, endpoint prioritization, and backpressure.
-const trafficShaper = createTrafficShaperMiddleware();
-const capacityPlanner = createCapacityPlanner();
+const trafficShaper = createTrafficShaper();
+const capacityPlanner = new CapacityPlanner();
 
 // Connect the distributed (Redis) cache layer when REDIS_URL is configured.
 // No-op when unset; never throws (#926).
