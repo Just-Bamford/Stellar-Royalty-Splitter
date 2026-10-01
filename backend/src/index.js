@@ -577,6 +577,7 @@ app.use("/api/v1/schedules", writeLimiter);
 app.use("/api/v1/batch", writeLimiter);
 app.use("/api/v1/schedules", schedulesRouter);
 app.use("/api/v1/batch", batchRouter);
+app.use("/api/v1/automation", automationRouter);
 
 // Cross-chain liquidity pool integration (#cross-chain)
 app.use("/api/v1/cross-chain", writeLimiter);
