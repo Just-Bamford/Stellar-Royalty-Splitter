@@ -12,6 +12,20 @@
  * The cache is invalidated whenever a new distribution payout lands for the wallet.
  */
 
+/**
+ * Contributor performance metrics — closes #600.
+ *
+ * Calculates and caches per-contributor metrics:
+ *
+ *   success_rate    — confirmed payouts / total distribution attempts (%)
+ *   avg_payout_time — average hours between distribution initiation and block confirmation
+ *   reliability_score — composite 0–100 score derived from success_rate and
+ *                       payout consistency over time
+ *
+ * Metrics are recomputed on demand and cached in contributor_metrics.
+ * The cache is invalidated whenever a new distribution payout lands for the wallet.
+ */
+
 import { db, countWrite } from "./core.js";
 
 // ─── Query helpers ────────────────────────────────────────────────────────────
@@ -188,6 +202,201 @@ export function recomputeMetrics(walletAddress) {
     trend,
     computedAt: now,
   };
+}
+
+/**
+ * Segment a wallet by earnings tier.
+ *
+ * Tiers are based on total confirmed earnings:
+ *   high   — totalEarned >= 10_000
+ *   medium — totalEarned >= 1_000
+ *   low    — totalEarned <  1_000
+ *
+ * @param {object} metrics - A metrics record (cached or freshly computed)
+ * @returns {"high"|"medium"|"low"}
+ */
+export function segmentByEarnings(metrics) {
+  const earned = Number(metrics?.totalEarned ?? 0);
+  if (earned >= 10_000) return "high";
+  if (earned >= 1_000) return "medium";
+  return "low";
+}
+
+/**
+ * Segment a wallet by activity level based on recency of last payout.
+ *
+ *   active   — last payout within 30 days
+ *   inactive — last payout within 90 days (but older than 30)
+ *   churned  — last payout older than 90 days (or never)
+ *
+ * @param {object} metrics
+ * @param {number} [nowMs=Date.now()]
+ * @returns {"active"|"inactive"|"churned"}
+ */
+export function segmentByActivity(metrics, nowMs = Date.now()) {
+  const last = metrics?.lastPayoutAt ? new Date(metrics.lastPayoutAt).getTime() : null;
+  if (!last || Number.isNaN(last)) return "churned";
+  const days = (nowMs - last) / 86_400_000;
+  if (days <= 30) return "active";
+  if (days <= 90) return "inactive";
+  return "churned";
+}
+
+/**
+ * Segment a wallet by tenure based on first payout date.
+ *
+ *   new         — first payout within 30 days
+ *   established — first payout within 180 days (but older than 30)
+ *   veteran     — first payout older than 180 days
+ *
+ * @param {object} metrics
+ * @param {number} [nowMs=Date.now()]
+ * @returns {"new"|"established"|"veteran"}
+ */
+export function segmentByTenure(metrics, nowMs = Date.now()) {
+  const first = metrics?.firstPayoutAt ? new Date(metrics.firstPayoutAt).getTime() : null;
+  if (!first || Number.isNaN(first)) return "new";
+  const days = (nowMs - first) / 86_400_000;
+  if (days <= 30) return "new";
+  if (days <= 180) return "established";
+  return "veteran";
+}
+
+/**
+ * Segment a wallet by geography. Geography is not tracked in contributor
+ * metrics today, so this returns "unknown" unless a region is supplied on
+ * the metrics record (e.g. via an external enrichment pipeline).
+ *
+ * @param {object} metrics
+ * @returns {string}
+ */
+export function segmentByGeography(metrics) {
+  const region = metrics?.region ?? metrics?.country ?? null;
+  return region ? String(region).toLowerCase() : "unknown";
+}
+
+/**
+ * Compute all segment memberships for a single wallet.
+ *
+ * @param {object} metrics
+ * @param {number} [nowMs=Date.now()]
+ * @returns {{ earnings: string, activity: string, tenure: string, geography: string }}
+ */
+export function computeSegments(metrics, nowMs = Date.now()) {
+  return {
+    earnings: segmentByEarnings(metrics),
+    activity: segmentByActivity(metrics, nowMs),
+    tenure: segmentByTenure(metrics, nowMs),
+    geography: segmentByGeography(metrics),
+  };
+}
+
+/**
+ * Build a segmentation index for all contributors on a contract.
+ *
+ * Returns a map of segment dimension -> segment value -> wallet addresses,
+ * plus the total contributor count.
+ *
+ * @param {string} contractId
+ * @returns {{ total: number, segments: object }}
+ */
+export function getContractSegments(contractId) {
+  const rows = db.prepare(`
+    SELECT cm.walletAddress, cm.successRate, cm.avgPayoutTime, cm.reliabilityScore,
+           cm.totalPayouts, cm.totalEarned, cm.firstPayoutAt, cm.lastPayoutAt, cm.computedAt
+    FROM contributor_metrics cm
+    WHERE cm.walletAddress IN (
+      SELECT DISTINCT dp.collaboratorAddress
+      FROM distribution_payouts dp
+      JOIN transactions t ON dp.transactionId = t.id
+      WHERE t.contractId = ?
+    )
+  `).all(contractId);
+
+  const segments = {
+    earnings: {},
+    activity: {},
+    tenure: {},
+    geography: {},
+  };
+
+  for (const row of rows) {
+    const segs = computeSegments(row);
+    for (const [dim, value] of Object.entries(segs)) {
+      if (!segments[dim][value]) segments[dim][value] = [];
+      segments[dim][value].push(row.walletAddress);
+    }
+  }
+
+  return { total: rows.length, segments };
+}
+
+/**
+ * Return wallet addresses matching a targeting rule.
+ *
+ * Rule shape:
+ *   { earnings?: string, activity?: string, tenure?: string, geography?: string }
+ *
+ * All provided dimensions must match (AND semantics). Omitted dimensions
+ * are treated as wildcards.
+ *
+ * @param {string} contractId
+ * @param {object} rule
+ * @returns {string[]}
+ */
+export function getTargetedWallets(contractId, rule = {}) {
+  const { total, segments } = getContractSegments(contractId);
+  if (total === 0) return [];
+
+  const dims = ["earnings", "activity", "tenure", "geography"];
+  let candidates = null;
+
+  for (const dim of dims) {
+    const wanted = rule?.[dim];
+    if (!wanted) continue;
+    const wallets = segments[dim]?.[wanted] ?? [];
+    if (candidates === null) {
+      candidates = new Set(wallets);
+    } else {
+      const next = new Set();
+      for (const w of wallets) {
+        if (candidates.has(w)) next.add(w);
+      }
+      candidates = next;
+    }
+    if (candidates.size === 0) return [];
+  }
+
+  if (candidates === null) {
+    // No filters — return all wallets
+    const all = new Set();
+    for (const dim of dims) {
+      for (const list of Object.values(segments[dim] ?? {})) {
+        for (const w of list) all.add(w);
+      }
+    }
+    return [...all];
+  }
+
+  return [...candidates];
+}
+
+/**
+ * Return segment sizes for a contract, useful for dashboards.
+ *
+ * @param {string} contractId
+ * @returns {{ total: number, sizes: object }}
+ */
+export function getSegmentSizes(contractId) {
+  const { total, segments } = getContractSegments(contractId);
+  const sizes = {};
+  for (const [dim, buckets] of Object.entries(segments)) {
+    sizes[dim] = {};
+    for (const [value, wallets] of Object.entries(buckets)) {
+      sizes[dim][value] = wallets.length;
+    }
+  }
+  return { total, sizes };
 }
 
 /**

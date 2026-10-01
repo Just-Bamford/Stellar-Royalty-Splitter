@@ -13,10 +13,10 @@ function toBigInt(value) {
 }
 
 function computeEffectiveRate(quote) {
-  const input = toBigInt(quote.inputAmount);
+  const inputAmount = toBigInt(quote.inputAmount);
   const out = toBigInt(quote.outputAmount);
-  if (input <= 0n) return 0n;
-  return (out * 1000000000000000000n) / input;
+  if (inputAmount <= 0n) return 0n;
+  return (out * 1000000000000000000n) / inputAmount;
 }
 
 function applySlippage(amount, slippage) {

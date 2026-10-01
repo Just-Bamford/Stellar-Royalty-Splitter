@@ -8,6 +8,8 @@
  *   node benchmarks/index.js --quick                  # 1/10 iterations
  *   node benchmarks/index.js --label "pr-1234"        # tag the result set
  *   node benchmarks/index.js --dashboard              # dashboard chart data
+ *   node benchmarks/index.js --api-version v2         # benchmark a specific API version
+ *   node benchmarks/index.js --compat                 # include backward-compat layer benchmarks
  *
  * Run via `npm run bench` from backend/.
  */
@@ -17,6 +19,8 @@ import validationScenarios from "./scenarios/validation.bench.js";
 import serializationScenarios from "./scenarios/serialization.bench.js";
 import httpScenarios from "./scenarios/http.bench.js";
 import dashboardScenarios from "./scenarios/dashboard.bench.js";
+import versioningScenarios from "./scenarios/versioning.bench.js";
+import compatScenarios from "./scenarios/compat.bench.js";
 
 const SCENARIOS = [...validationScenarios, ...serializationScenarios, ...httpScenarios];
 
@@ -43,6 +47,12 @@ function parseArgs(argv) {
       case "--dashboard":
         args.dashboard = true;
         break;
+      case "--api-version":
+        args.apiVersion = argv[++i];
+        break;
+      case "--compat":
+        args.compat = true;
+        break;
       case "--help":
       case "-h":
         args.help = true;
@@ -64,6 +74,8 @@ Usage: node benchmarks/index.js [options]
   --repeat <n>      Run the suite n times and keep each scenario's best pass
   --quick           Run 1/10 of the configured iterations
   --dashboard       Include dashboard chart data benchmarks
+  --api-version <v> Only run scenarios for the given API version (v1, v2, v3)
+  --compat          Include backward compatibility layer benchmarks
   -h, --help        Show this message
 
 Groups: validation, serialization, http
@@ -77,13 +89,29 @@ async function main() {
     return;
   }
 
-  const scenarios = args.dashboard
-    ? [...SCENARIOS, ...dashboardScenarios]
-    : SCENARIOS;
+  const VALID_VERSIONS = ["v1", "v2", "v3"];
+  if (args.apiVersion && !VALID_VERSIONS.includes(args.apiVersion)) {
+    throw new Error(
+      `Unknown API version: ${args.apiVersion}. Expected one of: ${VALID_VERSIONS.join(", ")}`
+    );
+  }
+
+  let scenarios = [...SCENARIOS, ...versioningScenarios];
+  if (args.dashboard) {
+    scenarios = [...scenarios, ...dashboardScenarios];
+  }
+  if (args.compat) {
+    scenarios = [...scenarios, ...compatScenarios];
+  }
+  if (args.apiVersion) {
+    scenarios = scenarios.filter((s) => !s.apiVersion || s.apiVersion === args.apiVersion);
+  }
 
   process.stderr.write(
     `Running ${args.filter ? `"${args.filter}" ` : ""}benchmarks` +
-      `${args.quick ? " (quick mode)" : ""}…\n`
+      `${args.quick ? " (quick mode)" : ""}` +
+      `${args.apiVersion ? ` [api=${args.apiVersion}]` : ""}` +
+      `${args.compat ? " [compat]" : ""}…\n`
   );
 
   const results =
@@ -94,7 +122,7 @@ async function main() {
           repeat: args.repeat,
         })
       : await runAll(scenarios, { filter: args.filter, quick: args.quick });
-  const report = buildReport(results, { label: args.label });
+  const report = buildReport(results, { label: args.label, apiVersion: args.apiVersion });
 
   process.stdout.write(`\n${formatTable(results)}\n`);
 
@@ -107,6 +135,13 @@ async function main() {
     process.stderr.write(
       "\nQuick mode uses 1/10 of the iterations — results are indicative only " +
         "and must not be committed as a baseline.\n"
+    );
+  }
+
+  if (args.apiVersion && args.apiVersion !== "v3") {
+    process.stderr.write(
+      `\nNote: API version ${args.apiVersion} is deprecated. ` +
+        "See docs/migration-guide.md for the migration path to v3.\n"
     );
   }
 }

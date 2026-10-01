@@ -2,23 +2,50 @@ import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 
 const mockGetNotifications = jest.fn();
+const mockGetArchivedNotifications = jest.fn();
 const mockGetUnreadNotificationCount = jest.fn();
 const mockMarkNotificationRead = jest.fn();
+const mockMarkNotificationUnread = jest.fn();
 const mockMarkAllNotificationsRead = jest.fn();
+const mockArchiveNotification = jest.fn();
+const mockUnarchiveNotification = jest.fn();
 const mockDeleteNotification = jest.fn();
+const mockSearchNotifications = jest.fn();
+const mockGetNotificationsByType = jest.fn();
 const mockCreateSystemNotification = jest.fn();
 const mockGetNotificationPreference = jest.fn();
 const mockUpsertNotificationPreference = jest.fn();
+const mockShouldSendNotification = jest.fn(() => true);
 
 await jest.unstable_mockModule("../src/database/notifications.js", () => ({
   getNotifications: mockGetNotifications,
+  getArchivedNotifications: mockGetArchivedNotifications,
   getUnreadNotificationCount: mockGetUnreadNotificationCount,
   markNotificationRead: mockMarkNotificationRead,
+  markNotificationUnread: mockMarkNotificationUnread,
   markAllNotificationsRead: mockMarkAllNotificationsRead,
+  archiveNotification: mockArchiveNotification,
+  unarchiveNotification: mockUnarchiveNotification,
   deleteNotification: mockDeleteNotification,
+  searchNotifications: mockSearchNotifications,
+  getNotificationsByType: mockGetNotificationsByType,
   createSystemNotification: mockCreateSystemNotification,
   getNotificationPreference: mockGetNotificationPreference,
   upsertNotificationPreference: mockUpsertNotificationPreference,
+  shouldSendNotification: mockShouldSendNotification,
+  NOTIFICATION_TYPES: [
+    "distribution_confirmed",
+    "distribution_completed",
+    "payment_received",
+    "payment_failed",
+    "dispute_created",
+    "dispute_resolved",
+    "reputation_changed",
+    "governance_proposal",
+    "security_alert",
+    "system",
+    "warning",
+  ],
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({

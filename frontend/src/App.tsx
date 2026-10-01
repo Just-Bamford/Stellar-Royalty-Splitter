@@ -9,6 +9,7 @@ import {
   useKeyboardShortcuts,
   type Shortcut,
 } from "./hooks/useKeyboardShortcuts";
+import MarketplaceIntegration from './components/MarketplaceIntegration';
 import { useWebSocket } from "./hooks/useWebSocket";
 import { analytics } from "./lib/analytics";
 
@@ -19,6 +20,7 @@ import { Settings } from "./components/Settings";
 import WalletConnect from "./components/WalletConnect";
 import InitializeForm from "./components/InitializeForm";
 import DistributeForm from "./components/DistributeForm";
+import BatchClaiming from "./components/BatchClaiming";
 import { TransactionHistory } from "./components/TransactionHistory";
 import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
@@ -30,6 +32,7 @@ import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
 import { DisputeDashboard } from "./components/DisputeDashboard";
+import { WebhookManager } from "./components/WebhookManager";
 import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
 import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
 import { TokenomicsSimulator } from "./components/TokenomicsSimulator";
@@ -246,7 +249,8 @@ export default function App() {
       localStorage.setItem("lastContractId", value);
     }
   }
-
+  
+<MarketplaceIntegration />
   function closeHelp() {
     localStorage.setItem("srs_help_seen", "1");
     setShowHelp(false);
@@ -449,6 +453,10 @@ export default function App() {
                 walletAddress={walletAddress}
                 onSuccess={() => {}}
               />
+              <BatchClaiming
+                contractId={contractId}
+                walletAddress={walletAddress}
+              />
             </div>
           ) : (
             <div className="page-empty">
@@ -474,6 +482,19 @@ export default function App() {
         return withErrorBoundary(
           <DisputeDashboard walletAddress={walletAddress} />,
           "Dispute Dashboard",
+        );
+      case "webhooks":
+        return withErrorBoundary(
+          contractId ? (
+            <div className="page-section">
+              <WebhookManager contractId={contractId} />
+            </div>
+          ) : (
+            <div className="page-empty">
+              <p>Please select a contract first</p>
+            </div>
+          ),
+          "Webhook Integrations",
         );
       case "earnings":
         return withErrorBoundary(

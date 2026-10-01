@@ -20,7 +20,7 @@ import {
 
 const FAST = { maxRetries: 3, delaysMs: [100, 500, 2000] };
 
-function makeServer(script: Array<SendTransactionResult | (() => never)>): {
+function makeServer(script: Array<SendTransactionResult | (() => Promise<never>) | (() => never)>): {
   server: SendTransactionLike;
   sendTransaction: ReturnType<typeof vi.fn>;
 } {
@@ -153,11 +153,11 @@ describe("isTransientSubmissionError", () => {
 });
 
 describe("submitTransactionWithRetry", () => {
-  let sleep: ReturnType<typeof vi.fn>;
+  let sleep: ReturnType<typeof vi.fn> & ((ms: number) => Promise<void>);
 
   beforeEach(() => {
     submissionRetryMetrics.reset();
-    sleep = vi.fn().mockResolvedValue(undefined);
+    sleep = vi.fn().mockResolvedValue(undefined) as ReturnType<typeof vi.fn> & ((ms: number) => Promise<void>);
   });
 
   const o = (extra: Record<string, unknown> = {}) => ({ sleep, ...extra });

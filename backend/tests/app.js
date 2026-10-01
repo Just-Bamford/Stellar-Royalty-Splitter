@@ -11,7 +11,7 @@ import { notFoundHandler, errorHandler } from "../src/error-response.js";
 import { schedulesRouter, batchRouter } from "../src/routes/schedules.js";
 import { identityRouter } from "../src/routes/identity.js";
 import { backupRouter } from "../src/routes/backup.js";
-import { tokenomicsRouter } from "../src/routes/tokenomics.js";
+import { eventsRouter, commandsRouter } from "../src/routes/events.js";
 
 const app = express();
 
@@ -28,7 +28,8 @@ app.use("/api/v1/schedules", schedulesRouter);
 app.use("/api/v1/batch", batchRouter);
 app.use("/api/v1/identity", identityRouter);
 app.use("/api/v1/backup", backupRouter);
-app.use("/api/v1/tokenomics", tokenomicsRouter);
+app.use("/api/v1/events", eventsRouter);
+app.use("/api/v1/commands", commandsRouter);
 
 // Same standard-shape handlers production uses (#662), so tests against
 // this harness exercise the real response format instead of a stand-in.

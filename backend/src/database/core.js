@@ -2,6 +2,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import logger from "../logger.js";
+import { registerFieldEncryptor } from "../middleware/field-encryptor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "..", "audit.db");
@@ -12,6 +13,126 @@ db.pragma("synchronous = NORMAL"); // safe with WAL, much faster
 db.pragma("cache_size = -64000"); // 64MB page cache
 db.pragma("foreign_keys = ON"); // enforce FK constraints
 db.pragma("temp_store = MEMORY"); // temp tables in memory
+registerFieldEncryptor(db);
+
+const PAYOUT_AMOUNT_FIELD = "distribution_payouts.amountReceived";
+
+function migrateEncryptedPayouts() {
+  const current = db.prepare("SELECT type FROM sqlite_master WHERE name = 'distribution_payouts'").get();
+  if (current?.type === "table") {
+    db.exec("ALTER TABLE distribution_payouts RENAME TO distribution_payouts_encrypted");
+  } else if (!current) {
+    db.exec(`
+      CREATE TABLE distribution_payouts_encrypted (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transactionId INTEGER NOT NULL,
+        contractId TEXT NOT NULL DEFAULT '',
+        collaboratorAddress TEXT NOT NULL,
+        amountReceived TEXT NOT NULL,
+        amountReceivedHash TEXT,
+        FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+      )
+    `);
+  }
+
+  const columns = db.prepare("PRAGMA table_info(distribution_payouts_encrypted)").all();
+  if (!columns.some(({ name }) => name === "amountReceivedHash")) {
+    db.exec("ALTER TABLE distribution_payouts_encrypted ADD COLUMN amountReceivedHash TEXT");
+  }
+
+  db.prepare(`
+    UPDATE distribution_payouts_encrypted
+      SET amountReceivedHash = field_blind_index(
+        amountReceived,
+        COALESCE(NULLIF(contractId, ''), (SELECT contractId FROM transactions WHERE id = transactionId)),
+        ?
+      )
+    WHERE amountReceivedHash IS NULL
+  `).run(PAYOUT_AMOUNT_FIELD);
+
+  const archive = db.prepare("SELECT type FROM sqlite_master WHERE name = 'contract_event_archive'").get();
+  if (archive?.type === "table") {
+    db.prepare(`
+      UPDATE contract_event_archive
+      SET payoutsJson = encrypt_field(payoutsJson, contractId, 'contract_event_archive.payoutsJson')
+      WHERE payoutsJson NOT LIKE 'enc:v1:%'
+    `).run();
+  }
+  db.prepare(`
+    UPDATE distribution_payouts_encrypted
+      SET amountReceived = encrypt_field(
+        amountReceived,
+        COALESCE(NULLIF(contractId, ''), (SELECT contractId FROM transactions WHERE id = transactionId)),
+        ?
+      )
+    WHERE amountReceived NOT LIKE 'enc:v1:%'
+  `).run(PAYOUT_AMOUNT_FIELD);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_distribution_payouts_amount_hash
+      ON distribution_payouts_encrypted(amountReceivedHash);
+
+    DROP VIEW IF EXISTS distribution_payouts;
+    CREATE VIEW distribution_payouts AS
+        SELECT dp.id, dp.transactionId, dp.contractId, dp.collaboratorAddress,
+          decrypt_field(
+            dp.amountReceived,
+            COALESCE(NULLIF(dp.contractId, ''), t.contractId),
+            '${PAYOUT_AMOUNT_FIELD}'
+          ) AS amountReceived
+        FROM distribution_payouts_encrypted AS dp
+        LEFT JOIN transactions AS t ON t.id = dp.transactionId;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_insert;
+    CREATE TRIGGER distribution_payouts_insert
+    INSTEAD OF INSERT ON distribution_payouts
+    BEGIN
+      INSERT INTO distribution_payouts_encrypted
+        (id, transactionId, contractId, collaboratorAddress, amountReceived, amountReceivedHash)
+      VALUES (
+        NEW.id, NEW.transactionId, COALESCE(NEW.contractId, ''), NEW.collaboratorAddress,
+          encrypt_field(
+            NEW.amountReceived,
+            COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+            '${PAYOUT_AMOUNT_FIELD}'
+          ),
+          field_blind_index(
+            NEW.amountReceived,
+            COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+            '${PAYOUT_AMOUNT_FIELD}'
+          )
+      );
+    END;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_update;
+    CREATE TRIGGER distribution_payouts_update
+    INSTEAD OF UPDATE ON distribution_payouts
+    BEGIN
+      UPDATE distribution_payouts_encrypted
+      SET transactionId = NEW.transactionId,
+          contractId = NEW.contractId,
+          collaboratorAddress = NEW.collaboratorAddress,
+            amountReceived = encrypt_field(
+              NEW.amountReceived,
+              COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+              '${PAYOUT_AMOUNT_FIELD}'
+            ),
+            amountReceivedHash = field_blind_index(
+              NEW.amountReceived,
+              COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+              '${PAYOUT_AMOUNT_FIELD}'
+            )
+      WHERE id = OLD.id;
+    END;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_delete;
+    CREATE TRIGGER distribution_payouts_delete
+    INSTEAD OF DELETE ON distribution_payouts
+    BEGIN
+      DELETE FROM distribution_payouts_encrypted WHERE id = OLD.id;
+    END;
+  `);
+}
 
 // Checkpoint the WAL periodically to prevent unbounded growth.
 let _writeCount = 0;
@@ -811,7 +932,7 @@ export function initializeDatabase() {
       `,
     },
     {
-      // #984: Performance — Query optimization and database indexing strategy
+      // #984: Performance ÔÇö Query optimization and database indexing strategy
       version: 23,
       sql: `
         -- Foreign key indexes
@@ -854,21 +975,266 @@ export function initializeDatabase() {
           lastRefreshedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_earnings_summary_mv_refreshed ON earnings_summary_mv(lastRefreshedAt);
+        `,
+    },
+    {
+      // #991: distribution schedules, batch execution tracking
+      version: 24,
+      sql: `
+        CREATE TABLE IF NOT EXISTS distribution_schedules (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          walletAddress TEXT NOT NULL,
+          tokenId TEXT NOT NULL,
+          frequency TEXT NOT NULL CHECK(frequency IN ('weekly', 'biweekly', 'monthly')),
+          dayOfWeek INTEGER CHECK(dayOfWeek BETWEEN 0 AND 6),
+          dayOfMonth INTEGER CHECK(dayOfMonth BETWEEN 1 AND 28),
+          hourOfDay INTEGER NOT NULL DEFAULT 0 CHECK(hourOfDay BETWEEN 0 AND 23),
+          minuteOfHour INTEGER NOT NULL DEFAULT 0 CHECK(minuteOfHour BETWEEN 0 AND 59),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          nextRunAt DATETIME,
+          lastRunAt DATETIME,
+          lastRunStatus TEXT CHECK(lastRunStatus IN ('success', 'failed', 'partial') OR lastRunStatus IS NULL),
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS batch_executions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scheduleId INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+          totalItems INTEGER NOT NULL DEFAULT 0,
+          successCount INTEGER NOT NULL DEFAULT 0,
+          failureCount INTEGER NOT NULL DEFAULT 0,
+          startedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME,
+          errorMessage TEXT,
+          FOREIGN KEY(scheduleId) REFERENCES distribution_schedules(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS batch_execution_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batchExecutionId INTEGER NOT NULL,
+          transactionId INTEGER,
+          contractId TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'skipped')),
+          xdr TEXT,
+          errorMessage TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(batchExecutionId) REFERENCES batch_executions(id) ON DELETE CASCADE,
+          FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_distribution_schedules_contractId ON distribution_schedules(contractId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_schedules_enabled_next ON distribution_schedules(enabled, nextRunAt);
+        CREATE INDEX IF NOT EXISTS idx_batch_executions_scheduleId ON batch_executions(scheduleId);
+        CREATE INDEX IF NOT EXISTS idx_batch_execution_items_batchId ON batch_execution_items(batchExecutionId);
       `,
     },
-  ];
+    {
+      // #993: contract backup and disaster recovery
+      version: 25,
+      sql: `
+        CREATE TABLE IF NOT EXISTS contract_backups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          snapshotVersion INTEGER NOT NULL DEFAULT 1,
+          ipfsCid TEXT,
+          ipfsGatewayUrl TEXT,
+          sizeBytes INTEGER NOT NULL DEFAULT 0,
+          transactionCount INTEGER NOT NULL DEFAULT 0,
+          collaboratorCount INTEGER NOT NULL DEFAULT 0,
+          secondarySaleCount INTEGER NOT NULL DEFAULT 0,
+          auditLogCount INTEGER NOT NULL DEFAULT 0,
+          weekNumber INTEGER NOT NULL,
+          yearNumber INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'uploading', 'completed', 'failed')),
+          errorMessage TEXT,
+          isRecoveryDrill INTEGER NOT NULL DEFAULT 0,
+          drillSucceeded INTEGER,
+          drillDurationMs INTEGER,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_contractId ON contract_backups(contractId);
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_week ON contract_backups(contractId, yearNumber, weekNumber);
+         CREATE INDEX IF NOT EXISTS idx_contract_backups_status ON contract_backups(status);
+       `,
+     },
+     {
+       // #1066: Event sourcing and CQRS — append-only domain event store
+       version: 26,
+       sql: `
+         CREATE TABLE IF NOT EXISTS domain_events (
+           id         INTEGER PRIMARY KEY AUTOINCREMENT,
+           eventId    TEXT    NOT NULL UNIQUE,
+           eventType  TEXT    NOT NULL,
+           aggregateType TEXT NOT NULL,
+           aggregateId   TEXT NOT NULL,
+           contractId    TEXT,
+           actor         TEXT,
+           payload    TEXT    NOT NULL DEFAULT '{}',
+           metadata   TEXT    NOT NULL DEFAULT '{}',
+           version    INTEGER NOT NULL DEFAULT 1,
+           occurredAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE INDEX IF NOT EXISTS idx_domain_events_aggregateId
+           ON domain_events(aggregateType, aggregateId, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_contractId
+           ON domain_events(contractId, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_type
+           ON domain_events(eventType, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_occurredAt
+           ON domain_events(occurredAt ASC);
+       `,
+     },
+     {
+       // #1059: Advanced webhook system — delivery history for the status
+       // dashboard. Per-webhook event subscriptions + HMAC secrets live on
+       // the `webhooks` table and are added idempotently by
+       // ensureAdvancedWebhookColumns() below (ALTER TABLE has no
+       // IF NOT EXISTS, so a plain migration would break on databases
+       // where the columns already exist).
+       version: 25,
+       sql: `
+         CREATE TABLE IF NOT EXISTS webhook_deliveries (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           webhook_id INTEGER,
+           contract_id TEXT NOT NULL,
+           event TEXT NOT NULL,
+           url TEXT NOT NULL,
+           payload TEXT,
+           status TEXT NOT NULL DEFAULT 'pending'
+             CHECK(status IN ('pending', 'delivered', 'failed', 'exhausted')),
+           http_status INTEGER,
+           attempts INTEGER NOT NULL DEFAULT 0,
+           error TEXT,
+           duration_ms INTEGER,
+           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id
+           ON webhook_deliveries(webhook_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_contract
+           ON webhook_deliveries(contract_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event
+           ON webhook_deliveries(event, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status
+           ON webhook_deliveries(status, created_at DESC);
+       `,
+     },
+     {
+       // Encrypt payout amounts at rest while preserving the existing read/write interface.
+       version: 25,
+       apply: migrateEncryptedPayouts,
+       beforeApply: () => db.pragma("secure_delete = ON"),
+       afterCommit: () => {
+         db.pragma("wal_checkpoint(TRUNCATE)");
+         db.pragma("secure_delete = OFF");
+       },
+        afterFailure: () => db.pragma("secure_delete = OFF"),
+      },
+      {
+        // #1046: Advanced notification system with user preferences
+        // Expanded notification types, per-type channel/frequency controls,
+        // quiet hours, and notification center (archive, search, mark-unread).
+        version: 27,
+        sql: `
+          -- Add archived + channel columns to notifications for #1046
+          ALTER TABLE notifications ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notifications ADD COLUMN channel TEXT NOT NULL DEFAULT 'in_app';
+          CREATE INDEX IF NOT EXISTS idx_notifications_archived
+            ON notifications(walletAddress, archived, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_notifications_type
+            ON notifications(walletAddress, type, created_at DESC);
+
+          -- Expanded notification preferences (#1046)
+          -- Per-type toggles for the new notification categories
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_dispute_created INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_dispute_resolved INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_reputation_changed INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_governance INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_security_alert INTEGER NOT NULL DEFAULT 1;
+
+          -- Frequency preference: immediate, daily_digest, weekly_digest
+          ALTER TABLE notification_preferences
+            ADD COLUMN frequency TEXT NOT NULL DEFAULT 'immediate'
+            CHECK(frequency IN ('immediate', 'daily_digest', 'weekly_digest'));
+
+          -- Quiet hours: pause notifications between quiet_hours_start and quiet_hours_end (local time)
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_start INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_end INTEGER NOT NULL DEFAULT 0;
+
+          -- Channel preferences stored as JSON for per-type channel routing
+          ALTER TABLE notification_preferences
+            ADD COLUMN channel_preferences TEXT NOT NULL DEFAULT '{}';
+        `,
+      },
+    ];
 
   for (const migration of migrations) {
     const current = db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
       .get(migration.version);
     if (!current) {
-      const apply = db.transaction(() => {
-        db.exec(migration.sql);
-        db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
-      });
-      apply();
+      migration.beforeApply?.();
+      try {
+        const apply = db.transaction(() => {
+          if (migration.apply) migration.apply();
+          else db.exec(migration.sql);
+          db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
+        });
+        apply();
+        migration.afterCommit?.();
+      } catch (error) {
+        migration.afterFailure?.();
+        throw error;
+      }
     }
+  }
+
+  ensureAdvancedWebhookColumns();
+}
+
+/**
+ * Idempotently add advanced-webhook columns (#1059) to the `webhooks`
+ * table: `events` (JSON array of subscribed event names, NULL = all),
+ * `secret` (per-webhook HMAC-SHA256 signing secret), plus the retry-state
+ * columns (`retry_count`, `next_retry_time`, `payload`) used by
+ * webhook-delivery.js / retry-failed-webhooks.js which predate this
+ * migration chain and were never added to it. Runs on every startup so
+ * fresh and long-lived databases converge to the same shape.
+ */
+export function ensureAdvancedWebhookColumns() {
+  try {
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'webhooks'")
+      .get();
+    if (!table) return;
+    const columns = new Set(
+      db.prepare("PRAGMA table_info(webhooks)").all().map((col) => col.name)
+    );
+    const missing = {
+      retry_count: "ALTER TABLE webhooks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+      next_retry_time: "ALTER TABLE webhooks ADD COLUMN next_retry_time DATETIME",
+      payload: "ALTER TABLE webhooks ADD COLUMN payload TEXT",
+      events: "ALTER TABLE webhooks ADD COLUMN events TEXT",
+      secret: "ALTER TABLE webhooks ADD COLUMN secret TEXT",
+    };
+    for (const [column, ddl] of Object.entries(missing)) {
+      if (!columns.has(column)) {
+        db.exec(ddl);
+      }
+    }
+  } catch (err) {
+    logger.error("Failed to ensure advanced webhook columns", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
