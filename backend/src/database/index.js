@@ -24,6 +24,7 @@ export {
   updateTransactionHash,
   updateTransactionStatus,
   addDistributionPayout,
+  findPayoutsByAmount,
   getTransactionCount,
   getTransactionHistory,
   getTransactionHistoryCursor,
@@ -34,14 +35,27 @@ export {
   MAX_RETRY_COUNT,
 } from "./transactions.js";
 
-// Webhooks (#295)
+// Webhooks (#295, advanced system #1059)
 export {
   registerWebhook,
+  getWebhookById,
   listWebhooks,
+  listWebhooksForEvent,
+  updateWebhookEvents,
+  rotateWebhookSecret,
   deleteWebhook,
   updateWebhookRetryState,
+  updateWebhookRetryStateWithPayload,
   getWebhooksDueForRetry,
   resetWebhookRetryCount,
+  moveToDlq,
+  serializeEvents,
+  parseEvents,
+  recordDelivery,
+  updateDelivery,
+  listDeliveries,
+  countDeliveries,
+  getDeliveryStats,
 } from "./webhooks.js";
 
 // Audit logging
@@ -141,17 +155,32 @@ export {
   getAllWalletAddresses,
 } from "./contributor-tax.js";
 
-// Real-time notifications (#594)
+// Real-time notifications (#594, expanded #1046)
 export {
   createNotification,
   getNotifications,
+  getArchivedNotifications,
   getUnreadNotificationCount,
+  getUnreadCountByType,
   markNotificationRead,
+  markNotificationUnread,
   markAllNotificationsRead,
+  archiveNotification,
   deleteNotification,
   getNotificationPreference,
   upsertNotificationPreference,
+  getChannelPreferences,
+  getQuietHours,
+  resolveFrequency,
+  resolveQuietHours,
+  isWithinQuietHours,
+  shouldSendNotification,
   createSystemNotification,
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+  FREQUENCY_OPTIONS,
+  DEFAULT_CHANNEL_PREFERENCES,
+  DEFAULT_QUIET_HOURS,
 } from "./notifications.js";
 
 // Payment hold/release system (#596)
@@ -227,7 +256,7 @@ export {
   getReferralLinkByCode,
   registerReferral,
   activateReferral,
-  getReferralByReferred,
+  getReferralBy Referred,
   getReferralsByReferrer,
   countReferralsByReferrer,
   awardReferralBonus,
@@ -517,6 +546,18 @@ export {
   listBatchExecutionsBySchedule,
   listRecentBatchExecutions,
 } from "./schedules.js";
+
+// Event sourcing and CQRS (#1066)
+export {
+  appendEvent,
+  getAggregateEvents,
+  getContractEvents,
+  countContractEvents,
+  getEventById,
+  getAggregateVersion,
+  EventTypes,
+  AggregateTypes,
+} from "./event-store.js";
 
 // Rights Management System
 export {

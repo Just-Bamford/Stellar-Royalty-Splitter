@@ -152,6 +152,21 @@ export const emailDigestPreferencesSchema = z.object({
   hourOfDay: z.number().int().min(0).max(23).optional(),
 });
 
+export const WEBHOOK_EVENT_NAMES = [
+  "distribution.completed",
+  "distribute.confirmed",
+  "dispute.created",
+  "dispute.resolved",
+  "governance.vote.started",
+  "governance.vote.ended",
+  "contract.status.changed",
+];
+
+export const webhookEventsSchema = z
+  .array(z.enum(WEBHOOK_EVENT_NAMES))
+  .min(1, "events must contain at least one event name")
+  .max(WEBHOOK_EVENT_NAMES.length, "events contains duplicate or unknown entries");
+
 export const webhookRegisterSchema = z.object({
   url: z
     .string()
@@ -159,6 +174,51 @@ export const webhookRegisterSchema = z.object({
     .refine((value) => value.startsWith("https://"), {
       message: "Webhook URL must use HTTPS",
     }),
+  // #1059: optional per-webhook event subscription. Omitted (or empty) =
+  // subscribe to all events (legacy behavior preserved).
+  events: z.array(z.enum(WEBHOOK_EVENT_NAMES)).optional(),
+});
+
+export const webhookEmitSchema = z.object({
+  event: z.enum(WEBHOOK_EVENT_NAMES),
+  data: z.record(z.any()).optional().default({}),
+});
+
+/**
+ * Query params for GET /webhooks/:contractId/deliveries (#1059).
+ * Extends the standard pagination shape with optional delivery filters.
+ * NOTE: a dedicated schema (rather than `paginationSchema`) is required
+ * because validateQuery() replaces req.query with the parsed value and
+ * zod strips unknown keys — using paginationSchema here would silently
+ * drop webhookId/event/status.
+ */
+export const webhookDeliveriesQuerySchema = z.object({
+  limit: z.coerce
+    .number({ invalid_type_error: "limit must be a number" })
+    .int("limit must be an integer")
+    .min(1, "limit must be at least 1")
+    .max(100, "limit must be at most 100")
+    .default(10),
+  offset: z.coerce
+    .number({ invalid_type_error: "offset must be a number" })
+    .int("offset must be an integer")
+    .min(0, "offset must be >= 0")
+    .default(0),
+  webhookId: z.coerce
+    .number({ invalid_type_error: "webhookId must be a number" })
+    .int("webhookId must be an integer")
+    .positive("webhookId must be positive")
+    .optional(),
+  event: z
+    .enum([...WEBHOOK_EVENT_NAMES, "webhook.test"], {
+      errorMap: () => ({ message: "Invalid event filter" }),
+    })
+    .optional(),
+  status: z
+    .enum(["pending", "delivered", "failed", "exhausted"], {
+      errorMap: () => ({ message: "status must be one of: pending, delivered, failed, exhausted" }),
+    })
+    .optional(),
 });
 
 export const transactionConfirmSchema = z.object({
@@ -274,6 +334,19 @@ export const AUDIT_ACTIONS = [
   "quickbooks_connected",
   "quickbooks_distributions_synced",
   "quickbooks_invoice_paid",
+  // Event sourcing (#1066)
+  "ContractInitialized",
+  "DistributionInitiated",
+  "DistributionConfirmed",
+  "DistributionFailed",
+  "SecondarySaleRecorded",
+  "SecondaryRoyaltyDistributed",
+  "DisputeOpened",
+  "DisputeResolved",
+  "DisputeEscalated",
+  "CollaboratorAdded",
+  "CollaboratorStatusChanged",
+  "CommandRejected",
 ];
 
 export function validate(schema) {

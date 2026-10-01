@@ -675,14 +675,33 @@ export const api = {
   markNotificationRead: (id: number) =>
     post<{ success: boolean }>(`/v1/notifications/read/${id}`, {}),
 
+  markNotificationUnread: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unread`, {}),
+
+  archiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/archive`, {}),
+
+  unarchiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unarchive`, {}),
+
   deleteNotification: (id: number) =>
     del<{ success: boolean }>(`/v1/notifications/${id}`),
 
+  searchNotifications: (walletAddress: string, query: string) =>
+    get<{ success: boolean; data: any[]; count: number }>(
+      `/v1/notifications/${walletAddress}/search?q=${encodeURIComponent(query)}`
+    ),
+
+  getNotificationsByType: (walletAddress: string, type: string) =>
+    get<{ success: boolean; data: any[] }>(
+      `/v1/notifications/${walletAddress}/by-type/${type}`
+    ),
+
   getNotificationPreferences: (walletAddress: string) =>
-    get<{ email?: any; sms?: any; inApp?: any; push?: any; [key: string]: any }>(`/v1/preferences/notifications/${walletAddress}`),
+    get<{ success: boolean; data: any }>(`/v1/notifications/preferences/${walletAddress}`),
 
   saveNotificationPreferences: (walletAddress: string, prefs: any) =>
-    post<{ success: boolean }>(`/v1/preferences/notifications/${walletAddress}`, prefs),
+    post<{ success: boolean; data: any }>(`/v1/notifications/preferences`, { walletAddress, ...prefs }),
 
   getHeldTransactions: (contractId: string, _status = "active", _offset = 0) =>
     get<{ success: boolean; data: any[] }>(`/v1/payment-holds/${contractId}`),
@@ -803,12 +822,107 @@ export const api = {
       message,
       data,
     }),
+
+  // Advanced webhook system (#1059) — external integrations with HMAC
+  // signatures, delivery history, and manual testing.
+  getWebhookEvents: () =>
+    get<{ success: boolean; data: string[] }>("/v1/webhooks/events"),
+
+  listWebhooks: (contractId: string) =>
+    get<{ success: boolean; data: WebhookEntry[] }>(
+      `/v1/webhooks/${contractId}`,
+    ),
+
+  registerWebhook: (contractId: string, url: string, events?: string[]) =>
+    post<{ success: boolean; webhookId: number; url: string; events?: string[]; secret?: string }>(
+      `/v1/webhooks/${contractId}`,
+      events ? { url, events } : { url },
+    ),
+
+  deregisterWebhook: (contractId: string, webhookId: number) =>
+    del<{ success: boolean }>(`/v1/webhooks/${contractId}/${webhookId}`),
+
+  testWebhook: (contractId: string, webhookId: number) =>
+    post<{ success: boolean; message?: string; deliveryId?: number | null; error?: string }>(
+      `/v1/webhooks/${contractId}/${webhookId}/test`,
+      {},
+    ),
+
+  rotateWebhookSecret: (contractId: string, webhookId: number) =>
+    post<{ success: boolean; webhookId: number; secret: string }>(
+      `/v1/webhooks/${contractId}/${webhookId}/rotate-secret`,
+      {},
+    ),
+
+  emitWebhookEvent: (contractId: string, event: string, data?: Record<string, unknown>) =>
+    post<{ success: boolean; event: string; delivered: number; failed: number; attempted: number }>(
+      `/v1/webhooks/${contractId}/emit`,
+      { event, data: data ?? {} },
+    ),
+
+  getWebhookDeliveries: (
+    contractId: string,
+    params?: { limit?: number; offset?: number; webhookId?: number; event?: string; status?: string },
+  ) => {
+    const search = new URLSearchParams();
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    if (params?.offset != null) search.set("offset", String(params.offset));
+    if (params?.webhookId != null) search.set("webhookId", String(params.webhookId));
+    if (params?.event) search.set("event", params.event);
+    if (params?.status) search.set("status", params.status);
+    const query = search.toString();
+    return get<{
+      success: boolean;
+      data: WebhookDelivery[];
+      pagination: { total: number; limit: number; offset: number };
+    }>(`/v1/webhooks/${contractId}/deliveries${query ? `?${query}` : ""}`);
+  },
+
+  getWebhookDeliveryStats: (contractId: string) =>
+    get<{ success: boolean; data: WebhookDeliveryStats }>(
+      `/v1/webhooks/${contractId}/delivery-stats`,
+    ),
 };
 
 export interface ContributorTier {
   walletAddress: string;
   tier: "vip" | "regular" | "trial";
   notes?: string | null;
+}
+
+export interface WebhookEntry {
+  id: number;
+  contractId: string;
+  url: string;
+  enabled: number;
+  events: string[];
+  hasSecret: boolean;
+  retryCount: number;
+  nextRetryTime: string | null;
+  createdAt: string;
+}
+
+export interface WebhookDelivery {
+  id: number;
+  webhookId: number | null;
+  contractId: string;
+  event: string;
+  url: string;
+  payload: string | null;
+  status: "pending" | "delivered" | "failed" | "exhausted";
+  httpStatus: number | null;
+  attempts: number;
+  error: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export interface WebhookDeliveryStats {
+  total: number;
+  delivered: number;
+  failed: number;
+  pending: number;
+  exhausted: number;
 }
 
 export interface ContributorStatusEntry {
