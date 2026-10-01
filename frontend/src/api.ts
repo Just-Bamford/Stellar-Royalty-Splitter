@@ -663,6 +663,41 @@ export const api = {
   getMultiContractEarnings: (address: string, _dateRange?: { start?: string; end?: string } | string) =>
     get<any>(`/analytics/multi-contract?address=${address}`),
 
+  // Token economics & vesting analytics (#1062)
+  getTokenEconomicsModel: (config?: unknown, options?: unknown) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/model", {
+      config,
+      options,
+    }),
+
+  simulateTokenDistribution: (
+    config: unknown,
+    scenario?: unknown,
+    options?: unknown,
+  ) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/simulate", {
+      config,
+      scenario,
+      options,
+    }),
+
+  getVestingAnalytics: (schedules: unknown[], options?: unknown) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/vesting", {
+      schedules,
+      options,
+    }),
+
+  simulateVestingSchedule: (
+    schedule: unknown,
+    overrides?: unknown,
+    options?: unknown,
+  ) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/vesting/simulate", {
+      schedule,
+      overrides,
+      options,
+    }),
+
   getNotifications: (walletAddress: string, _limit = 50, _offset = 0) =>
     get<{ success: boolean; data: any[]; unreadCount: number }>(`/v1/notifications/${walletAddress}`),
 

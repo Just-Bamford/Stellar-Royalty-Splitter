@@ -35,6 +35,7 @@ import { DisputeDashboard } from "./components/DisputeDashboard";
 import { WebhookManager } from "./components/WebhookManager";
 import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
 import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
+import { TokenomicsSimulator } from "./components/TokenomicsSimulator";
 import { ContractTimeline } from "./components/ContractTimeline";
 import { ContributorSuspension } from "./components/ContributorSuspension";
 import { BulkContributorUpload } from "./components/BulkContributorUpload";
@@ -413,6 +414,8 @@ export default function App() {
           ),
           "Earnings Forecast",
         );
+      case "tokenomics":
+        return withErrorBoundary(<TokenomicsSimulator />, "Tokenomics Simulator");
       case "timeline":
         return withErrorBoundary(
           contractId ? (
