@@ -92,6 +92,7 @@
     "webhooks": "Webhooks",
     "earnings": "收益",
     "suspension": "暂停",
+    "featureFlags": "功能开关",
     "settings": "设置",
     "bulkImport": "批量导入",
     "taxInfo": "税务信息",

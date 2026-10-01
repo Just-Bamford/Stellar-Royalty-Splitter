@@ -1,4 +1,4 @@
-import { logger } from '../utils/logger.js';
+import logger from '../logger.js';
 import { thorchainIntegration } from './thorchain-integration.js';
 import { stargateIntegration } from './stargate-integration.js';
 

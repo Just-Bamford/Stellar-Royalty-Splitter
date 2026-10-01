@@ -884,6 +884,59 @@ export const api = {
     ),
 };
 
+export interface FeatureFlagRule {
+  id: number;
+  flagId: number;
+  ruleType: "user" | "org" | "role";
+  value: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface FeatureFlag {
+  id: number;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  killed: boolean;
+  archived: boolean;
+  rolloutPercentage: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rules?: FeatureFlagRule[];
+}
+
+export interface FeatureFlagHistoryEntry {
+  id: number;
+  flagId: number;
+  flagName: string;
+  action: string;
+  changedBy: string | null;
+  oldValue: unknown;
+  newValue: unknown;
+  reason: string | null;
+  timestamp: string;
+}
+
+export interface FeatureFlagHealth {
+  flag: string;
+  healthy: boolean;
+  reasons: string[];
+  thresholds: { maxErrorRate: number; maxP95LatencyMs: number; windowMs: number };
+  metrics: {
+    flag: string;
+    windowMs: number;
+    requests: number;
+    errors: number;
+    errorRate: number;
+    sampleCount: number;
+    avgLatencyMs: number | null;
+    p95LatencyMs: number | null;
+    maxLatencyMs: number | null;
+  };
+}
+
 export interface ContributorTier {
   walletAddress: string;
   tier: "vip" | "regular" | "trial";

@@ -1,7 +1,7 @@
 import express from 'express';
 import { crossChainRouter } from '../services/cross-chain-router.js';import { thorchainIntegration } from '../services/thorchain-integration.js';
 import { stargateIntegration } from '../services/stargate-integration.js';
-import { logger } from '../utils/logger.js';
+import logger from '../logger.js';
 
 const router = express.Router();
 
@@ -9,7 +9,7 @@ function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-router.get('health', asyncHandler(async (_req, res) => {
+router.get('/health', asyncHandler(async (_req, res) => {
   const [thor, star] = await Promise.allSettled([
     thorchainIntegration.getPools(),
     stargateIntegration.getChains(),

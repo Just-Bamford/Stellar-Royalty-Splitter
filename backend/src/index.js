@@ -406,6 +406,9 @@ app.use("/api", (_req, res, next) => {
 app.use(attachRole);
 app.use(attachRbacIdentity);
 
+// Resolve feature flags for every request (#1075)
+app.use(attachFeatureFlags);
+
 // Enforce Content-Type: application/json on POST requests
 app.use((req, res, next) => {
   if (req.method === "POST" && !req.is("application/json")) {
@@ -582,6 +585,9 @@ app.use("/api/v1/automation", automationRouter);
 // Cross-chain liquidity pool integration (#cross-chain)
 app.use("/api/v1/cross-chain", writeLimiter);
 app.use("/api/v1/cross-chain", crossChainRouter);
+
+// Advanced feature flags and gradual rollout (#1075)
+app.use("/api/v1/feature-flags", featureFlagsRouter);
 
 // Web3 identity — ENS + Lens (#992)
 app.use("/api/v1/identity", identityRouter);
