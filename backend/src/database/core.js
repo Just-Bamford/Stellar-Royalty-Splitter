@@ -975,7 +975,7 @@ export function initializeDatabase() {
           lastRefreshedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_earnings_summary_mv_refreshed ON earnings_summary_mv(lastRefreshedAt);
-      `,
+        `,
     },
     {
       // #991: distribution schedules, batch execution tracking
@@ -1055,82 +1055,127 @@ export function initializeDatabase() {
         );
         CREATE INDEX IF NOT EXISTS idx_contract_backups_contractId ON contract_backups(contractId);
         CREATE INDEX IF NOT EXISTS idx_contract_backups_week ON contract_backups(contractId, yearNumber, weekNumber);
-        CREATE INDEX IF NOT EXISTS idx_contract_backups_status ON contract_backups(status);
-      `,
-    },
-    {
-      // #1066: Event sourcing and CQRS — append-only domain event store
-      version: 26,
-      sql: `
-        CREATE TABLE IF NOT EXISTS domain_events (
-          id         INTEGER PRIMARY KEY AUTOINCREMENT,
-          eventId    TEXT    NOT NULL UNIQUE,
-          eventType  TEXT    NOT NULL,
-          aggregateType TEXT NOT NULL,
-          aggregateId   TEXT NOT NULL,
-          contractId    TEXT,
-          actor         TEXT,
-          payload    TEXT    NOT NULL DEFAULT '{}',
-          metadata   TEXT    NOT NULL DEFAULT '{}',
-          version    INTEGER NOT NULL DEFAULT 1,
-          occurredAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_domain_events_aggregateId
-          ON domain_events(aggregateType, aggregateId, occurredAt ASC);
-        CREATE INDEX IF NOT EXISTS idx_domain_events_contractId
-          ON domain_events(contractId, occurredAt ASC);
-        CREATE INDEX IF NOT EXISTS idx_domain_events_type
-          ON domain_events(eventType, occurredAt ASC);
-        CREATE INDEX IF NOT EXISTS idx_domain_events_occurredAt
-          ON domain_events(occurredAt ASC);
-      `,
-    },
-    {
-      // #1059: Advanced webhook system — delivery history for the status
-      // dashboard. Per-webhook event subscriptions + HMAC secrets live on
-      // the `webhooks` table and are added idempotently by
-      // ensureAdvancedWebhookColumns() below (ALTER TABLE has no
-      // IF NOT EXISTS, so a plain migration would break on databases
-      // where the columns already exist).
-      version: 25,
-      sql: `
-        CREATE TABLE IF NOT EXISTS webhook_deliveries (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          webhook_id INTEGER,
-          contract_id TEXT NOT NULL,
-          event TEXT NOT NULL,
-          url TEXT NOT NULL,
-          payload TEXT,
-          status TEXT NOT NULL DEFAULT 'pending'
-            CHECK(status IN ('pending', 'delivered', 'failed', 'exhausted')),
-          http_status INTEGER,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          error TEXT,
-          duration_ms INTEGER,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id
-          ON webhook_deliveries(webhook_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_contract
-          ON webhook_deliveries(contract_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event
-          ON webhook_deliveries(event, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status
-          ON webhook_deliveries(status, created_at DESC);
-      `,
-    },
-    {
-      // Encrypt payout amounts at rest while preserving the existing read/write interface.
-      version: 25,
-      apply: migrateEncryptedPayouts,
-      beforeApply: () => db.pragma("secure_delete = ON"),
-      afterCommit: () => {
-        db.pragma("wal_checkpoint(TRUNCATE)");
-        db.pragma("secure_delete = OFF");
+         CREATE INDEX IF NOT EXISTS idx_contract_backups_status ON contract_backups(status);
+       `,
+     },
+     {
+       // #1066: Event sourcing and CQRS — append-only domain event store
+       version: 26,
+       sql: `
+         CREATE TABLE IF NOT EXISTS domain_events (
+           id         INTEGER PRIMARY KEY AUTOINCREMENT,
+           eventId    TEXT    NOT NULL UNIQUE,
+           eventType  TEXT    NOT NULL,
+           aggregateType TEXT NOT NULL,
+           aggregateId   TEXT NOT NULL,
+           contractId    TEXT,
+           actor         TEXT,
+           payload    TEXT    NOT NULL DEFAULT '{}',
+           metadata   TEXT    NOT NULL DEFAULT '{}',
+           version    INTEGER NOT NULL DEFAULT 1,
+           occurredAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE INDEX IF NOT EXISTS idx_domain_events_aggregateId
+           ON domain_events(aggregateType, aggregateId, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_contractId
+           ON domain_events(contractId, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_type
+           ON domain_events(eventType, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_occurredAt
+           ON domain_events(occurredAt ASC);
+       `,
+     },
+     {
+       // #1059: Advanced webhook system — delivery history for the status
+       // dashboard. Per-webhook event subscriptions + HMAC secrets live on
+       // the `webhooks` table and are added idempotently by
+       // ensureAdvancedWebhookColumns() below (ALTER TABLE has no
+       // IF NOT EXISTS, so a plain migration would break on databases
+       // where the columns already exist).
+       version: 25,
+       sql: `
+         CREATE TABLE IF NOT EXISTS webhook_deliveries (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           webhook_id INTEGER,
+           contract_id TEXT NOT NULL,
+           event TEXT NOT NULL,
+           url TEXT NOT NULL,
+           payload TEXT,
+           status TEXT NOT NULL DEFAULT 'pending'
+             CHECK(status IN ('pending', 'delivered', 'failed', 'exhausted')),
+           http_status INTEGER,
+           attempts INTEGER NOT NULL DEFAULT 0,
+           error TEXT,
+           duration_ms INTEGER,
+           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id
+           ON webhook_deliveries(webhook_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_contract
+           ON webhook_deliveries(contract_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event
+           ON webhook_deliveries(event, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status
+           ON webhook_deliveries(status, created_at DESC);
+       `,
+     },
+     {
+       // Encrypt payout amounts at rest while preserving the existing read/write interface.
+       version: 25,
+       apply: migrateEncryptedPayouts,
+       beforeApply: () => db.pragma("secure_delete = ON"),
+       afterCommit: () => {
+         db.pragma("wal_checkpoint(TRUNCATE)");
+         db.pragma("secure_delete = OFF");
+       },
+        afterFailure: () => db.pragma("secure_delete = OFF"),
       },
-      afterFailure: () => db.pragma("secure_delete = OFF"),
-    },
-  ];
+      {
+        // #1046: Advanced notification system with user preferences
+        // Expanded notification types, per-type channel/frequency controls,
+        // quiet hours, and notification center (archive, search, mark-unread).
+        version: 27,
+        sql: `
+          -- Add archived + channel columns to notifications for #1046
+          ALTER TABLE notifications ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notifications ADD COLUMN channel TEXT NOT NULL DEFAULT 'in_app';
+          CREATE INDEX IF NOT EXISTS idx_notifications_archived
+            ON notifications(walletAddress, archived, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_notifications_type
+            ON notifications(walletAddress, type, created_at DESC);
+
+          -- Expanded notification preferences (#1046)
+          -- Per-type toggles for the new notification categories
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_dispute_created INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_dispute_resolved INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_reputation_changed INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_governance INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_security_alert INTEGER NOT NULL DEFAULT 1;
+
+          -- Frequency preference: immediate, daily_digest, weekly_digest
+          ALTER TABLE notification_preferences
+            ADD COLUMN frequency TEXT NOT NULL DEFAULT 'immediate'
+            CHECK(frequency IN ('immediate', 'daily_digest', 'weekly_digest'));
+
+          -- Quiet hours: pause notifications between quiet_hours_start and quiet_hours_end (local time)
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_start INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_end INTEGER NOT NULL DEFAULT 0;
+
+          -- Channel preferences stored as JSON for per-type channel routing
+          ALTER TABLE notification_preferences
+            ADD COLUMN channel_preferences TEXT NOT NULL DEFAULT '{}';
+        `,
+      },
+    ];
 
   for (const migration of migrations) {
     const current = db

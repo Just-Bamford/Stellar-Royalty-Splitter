@@ -675,14 +675,33 @@ export const api = {
   markNotificationRead: (id: number) =>
     post<{ success: boolean }>(`/v1/notifications/read/${id}`, {}),
 
+  markNotificationUnread: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unread`, {}),
+
+  archiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/archive`, {}),
+
+  unarchiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unarchive`, {}),
+
   deleteNotification: (id: number) =>
     del<{ success: boolean }>(`/v1/notifications/${id}`),
 
+  searchNotifications: (walletAddress: string, query: string) =>
+    get<{ success: boolean; data: any[]; count: number }>(
+      `/v1/notifications/${walletAddress}/search?q=${encodeURIComponent(query)}`
+    ),
+
+  getNotificationsByType: (walletAddress: string, type: string) =>
+    get<{ success: boolean; data: any[] }>(
+      `/v1/notifications/${walletAddress}/by-type/${type}`
+    ),
+
   getNotificationPreferences: (walletAddress: string) =>
-    get<{ email?: any; sms?: any; inApp?: any; push?: any; [key: string]: any }>(`/v1/preferences/notifications/${walletAddress}`),
+    get<{ success: boolean; data: any }>(`/v1/notifications/preferences/${walletAddress}`),
 
   saveNotificationPreferences: (walletAddress: string, prefs: any) =>
-    post<{ success: boolean }>(`/v1/preferences/notifications/${walletAddress}`, prefs),
+    post<{ success: boolean; data: any }>(`/v1/notifications/preferences`, { walletAddress, ...prefs }),
 
   getHeldTransactions: (contractId: string, _status = "active", _offset = 0) =>
     get<{ success: boolean; data: any[] }>(`/v1/payment-holds/${contractId}`),

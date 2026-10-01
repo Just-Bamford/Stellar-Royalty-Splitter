@@ -155,17 +155,32 @@ export {
   getAllWalletAddresses,
 } from "./contributor-tax.js";
 
-// Real-time notifications (#594)
+// Real-time notifications (#594, expanded #1046)
 export {
   createNotification,
   getNotifications,
+  getArchivedNotifications,
   getUnreadNotificationCount,
+  getUnreadCountByType,
   markNotificationRead,
+  markNotificationUnread,
   markAllNotificationsRead,
+  archiveNotification,
   deleteNotification,
   getNotificationPreference,
   upsertNotificationPreference,
+  getChannelPreferences,
+  getQuietHours,
+  resolveFrequency,
+  resolveQuietHours,
+  isWithinQuietHours,
+  shouldSendNotification,
   createSystemNotification,
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+  FREQUENCY_OPTIONS,
+  DEFAULT_CHANNEL_PREFERENCES,
+  DEFAULT_QUIET_HOURS,
 } from "./notifications.js";
 
 // Payment hold/release system (#596)

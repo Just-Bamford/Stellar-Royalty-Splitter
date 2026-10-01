@@ -38,6 +38,7 @@ import { startHealthMonitor, stopHealthMonitor } from "./database/health-monitor
 import { createGracefulShutdownHandler, shutdownMiddleware } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { snapshotRouter } from "./routes/snapshots.js";
+import apiDocsRouter from "./routes/api-docs.js";
 import { communicationsRouter } from "./routes/communications.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { applicationLogsRouter } from "./routes/application-logs.js";
@@ -65,6 +66,7 @@ import { csvImportRouter } from "./routes/csv-import.js";
 import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { granularPreferencesRouter } from "./routes/notifications/preferences.js";
 import { salesforceRouter } from "./routes/crm/salesforce.js";
 import { hubspotRouter } from "./routes/crm/hubspot.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
@@ -90,6 +92,7 @@ import { setSecondaryRoyaltyPoolSource } from "./metrics.js";
 import { httpMetricsMiddleware } from "./middleware/http-metrics.js";
 import { responseTimeMiddleware } from "./middleware/response-time.js";
 import { createTrafficShadowMiddleware } from "./middleware/traffic-shadow.js";
+import { deprecationTrackingMiddleware, stopDeprecationTracking } from "./middleware/deprecation-tracking.js";
 import { getPendingRoyaltyPools } from "./database/secondary-royalties.js";
 import { initRedisCache } from "./cache.js";
 import { openseaRouter } from "./routes/marketplaces/opensea.js";
@@ -103,7 +106,7 @@ import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
 import { searchRouter } from "./routes/search.js";
 import { zkPrivacyRouter } from "./routes/zk-privacy.js";
-import snapshotRouter from "./routes/governance/snapshot.js";
+import governanceSnapshotRouter from "./routes/governance/snapshot.js";
 import { stripeRouter } from "./routes/payments/stripe.js";
 import { collaborativeEditorRouter } from "./routes/collaborative-editor.js";
 import { vestingRouter } from "./routes/vesting.js";
@@ -506,6 +509,7 @@ app.use("/api/v1/contributor-tax", contributorTaxRouter);
 
 // Real-time notifications (#594)
 app.use("/api/v1/notifications", notificationsRouter);
+app.use("/api/v1/notifications/preferences", granularPreferencesRouter);
 
 // SMS notification preferences (#927)
 app.use("/api/v1/notifications/sms", smsPreferencesRouter);
@@ -565,10 +569,9 @@ app.use("/api/v1/search", searchRouter);
 // Zero-knowledge proof privacy system (#972)
 app.use("/api/v1/zk-privacy", zkPrivacyRouter);
 
-<<<<<<< HEAD
 // Decentralized governance on Snapshot (#995)
-app.use("/api/v1/governance", snapshotRouter);
-=======
+app.use("/api/v1/governance", governanceSnapshotRouter);
+
 // Batch payment scheduling (#991)
 app.use("/api/v1/schedules", writeLimiter);
 app.use("/api/v1/batch", writeLimiter);
@@ -595,14 +598,9 @@ app.use("/api/v1/commands", commandsRouter);
 app.use("/api/v1/rights", writeLimiter);
 app.use("/api/v1/rights", rightsRouter);
 
-<<<<<<< HEAD
->>>>>>> upstream/dev
-=======
 // DAO Treasury Management (#1076)
 app.use("/api/v1/treasury", writeLimiter);
 app.use("/api/v1/treasury", treasuryRouter);
-
->>>>>>> upstream/dev
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;
