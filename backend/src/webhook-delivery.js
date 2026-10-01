@@ -13,7 +13,7 @@ const WEBHOOK_TIMEOUT_MS = parsePositiveInt(process.env.WEBHOOK_TIMEOUT_MS, 10_0
 const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000];
 const MAX_WEBHOOK_RETRIES = 4;
 
-export async function postWebhook(url, payload) {
+export async function postWebhook(url, payload, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
 
@@ -24,6 +24,7 @@ export async function postWebhook(url, payload) {
         Accept: "application/json",
         "Content-Type": "application/json",
         "User-Agent": "Stellar-Royalty-Splitter/1.0",
+        ...(options.headers ?? {}),
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
@@ -32,6 +33,8 @@ export async function postWebhook(url, payload) {
     if (!response.ok) {
       throw new Error(`Webhook returned HTTP ${response.status}`);
     }
+
+    return response;
   } finally {
     clearTimeout(timer);
   }

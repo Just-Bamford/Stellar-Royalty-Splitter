@@ -152,6 +152,21 @@ export const emailDigestPreferencesSchema = z.object({
   hourOfDay: z.number().int().min(0).max(23).optional(),
 });
 
+export const WEBHOOK_EVENT_NAMES = [
+  "distribution.completed",
+  "distribute.confirmed",
+  "dispute.created",
+  "dispute.resolved",
+  "governance.vote.started",
+  "governance.vote.ended",
+  "contract.status.changed",
+];
+
+export const webhookEventsSchema = z
+  .array(z.enum(WEBHOOK_EVENT_NAMES))
+  .min(1, "events must contain at least one event name")
+  .max(WEBHOOK_EVENT_NAMES.length, "events contains duplicate or unknown entries");
+
 export const webhookRegisterSchema = z.object({
   url: z
     .string()
@@ -159,6 +174,51 @@ export const webhookRegisterSchema = z.object({
     .refine((value) => value.startsWith("https://"), {
       message: "Webhook URL must use HTTPS",
     }),
+  // #1059: optional per-webhook event subscription. Omitted (or empty) =
+  // subscribe to all events (legacy behavior preserved).
+  events: z.array(z.enum(WEBHOOK_EVENT_NAMES)).optional(),
+});
+
+export const webhookEmitSchema = z.object({
+  event: z.enum(WEBHOOK_EVENT_NAMES),
+  data: z.record(z.any()).optional().default({}),
+});
+
+/**
+ * Query params for GET /webhooks/:contractId/deliveries (#1059).
+ * Extends the standard pagination shape with optional delivery filters.
+ * NOTE: a dedicated schema (rather than `paginationSchema`) is required
+ * because validateQuery() replaces req.query with the parsed value and
+ * zod strips unknown keys — using paginationSchema here would silently
+ * drop webhookId/event/status.
+ */
+export const webhookDeliveriesQuerySchema = z.object({
+  limit: z.coerce
+    .number({ invalid_type_error: "limit must be a number" })
+    .int("limit must be an integer")
+    .min(1, "limit must be at least 1")
+    .max(100, "limit must be at most 100")
+    .default(10),
+  offset: z.coerce
+    .number({ invalid_type_error: "offset must be a number" })
+    .int("offset must be an integer")
+    .min(0, "offset must be >= 0")
+    .default(0),
+  webhookId: z.coerce
+    .number({ invalid_type_error: "webhookId must be a number" })
+    .int("webhookId must be an integer")
+    .positive("webhookId must be positive")
+    .optional(),
+  event: z
+    .enum([...WEBHOOK_EVENT_NAMES, "webhook.test"], {
+      errorMap: () => ({ message: "Invalid event filter" }),
+    })
+    .optional(),
+  status: z
+    .enum(["pending", "delivered", "failed", "exhausted"], {
+      errorMap: () => ({ message: "status must be one of: pending, delivered, failed, exhausted" }),
+    })
+    .optional(),
 });
 
 export const transactionConfirmSchema = z.object({
@@ -274,6 +334,19 @@ export const AUDIT_ACTIONS = [
   "quickbooks_connected",
   "quickbooks_distributions_synced",
   "quickbooks_invoice_paid",
+  // Event sourcing (#1066)
+  "ContractInitialized",
+  "DistributionInitiated",
+  "DistributionConfirmed",
+  "DistributionFailed",
+  "SecondarySaleRecorded",
+  "SecondaryRoyaltyDistributed",
+  "DisputeOpened",
+  "DisputeResolved",
+  "DisputeEscalated",
+  "CollaboratorAdded",
+  "CollaboratorStatusChanged",
+  "CommandRejected",
 ];
 
 export function validate(schema) {
@@ -602,70 +675,80 @@ export const linkRightDisputeSchema = z.object({
   notes: z.string().optional(),
 });
 
-// ── Feature Flags & Gradual Rollout Schemas (#1075) ────────────────────────────
+// ── DAO Treasury Management Schemas (#1076) ───────────────────────────────────
 
-export const FEATURE_FLAG_RULE_TYPES = ["user", "org", "role"];
-export const FEATURE_FLAG_METRIC_TYPES = ["request", "error", "latency"];
-
-export const featureFlagName = z
-  .string()
-  .min(1, "name is required")
-  .max(100, "name must be at most 100 characters")
-  .regex(/^[a-z0-9][a-z0-9._-]*$/i, "name may only contain letters, numbers, dots, dashes and underscores");
-
-export const createFeatureFlagSchema = z.object({
-  name: featureFlagName,
-  description: z.string().max(500, "description must be at most 500 characters").optional().nullable(),
-  enabled: z.boolean().optional().default(false),
-  rolloutPercentage: z.number().int().min(0).max(100).optional().default(100),
+export const treasuryCategorySchema = z.object({
+  name: z.string().min(1).max(64),
+  description: z.string().max(500).optional().nullable(),
+  percentage: z.number().min(0).max(100),
 });
 
-export const updateFeatureFlagSchema = z
+export const treasurySetCategoriesSchema = z
   .object({
-    description: z.string().max(500, "description must be at most 500 characters").optional().nullable(),
-    enabled: z.boolean().optional(),
-    rolloutPercentage: z.number().int().min(0).max(100).optional(),
+    categories: z.array(treasuryCategorySchema).min(1).max(50),
   })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field must be provided",
+  .superRefine((d, ctx) => {
+    const total = d.categories.reduce((sum, category) => sum + category.percentage, 0);
+    if (Math.abs(total - 100) > 0.01) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categories"],
+        message: `Category percentages must sum to 100 (got ${Math.round(total * 100) / 100})`,
+      });
+    }
+    const names = d.categories.map((category) => category.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categories"],
+        message: "Duplicate category names are not allowed",
+      });
+    }
   });
 
-export const createFeatureFlagRuleSchema = z.object({
-  ruleType: z.enum(FEATURE_FLAG_RULE_TYPES, {
-    errorMap: () => ({ message: `ruleType must be one of: ${FEATURE_FLAG_RULE_TYPES.join(", ")}` }),
-  }),
-  value: z.string().min(1, "value is required").max(200, "value must be at most 200 characters"),
-  enabled: z.boolean().optional().default(true),
+// Omit `category`/`categoryId` to contribute to the general treasury pool,
+// which is split across categories by their configured percentages.
+export const treasuryAllocationSchema = z.object({
+  category: z.string().min(1).max(64).optional().nullable(),
+  categoryId: z.number().int().positive().optional().nullable(),
+  amount: z.number().finite().positive("Allocation amount must be positive"),
+  period: z.string().min(1).max(32).optional().default("all-time"),
+  note: z.string().max(500).optional().nullable(),
 });
 
-export const featureFlagRolloutSchema = z.object({
-  percentage: z.number().int().min(0).max(100),
+export const treasuryExpenseSchema = z
+  .object({
+    category: z.string().min(1).max(64).optional(),
+    categoryId: z.number().int().positive().optional(),
+    amount: z.number().finite().positive("Expense amount must be positive"),
+    description: z.string().min(1).max(500),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be formatted as YYYY-MM-DD")
+      .optional(),
+    requiresApproval: z.boolean().optional(),
+    receiptCid: z.string().max(256).optional().nullable(),
+    receiptUrl: z.string().url("receiptUrl must be a valid URL").optional().nullable(),
+    receiptName: z.string().max(256).optional().nullable(),
+    receiptHash: z.string().max(256).optional().nullable(),
+  })
+  .refine((d) => d.category != null || d.categoryId != null, {
+    message: "Either category (name) or categoryId is required",
+  });
+
+export const treasuryApprovalSchema = z.object({
+  approver: z.string().min(1).max(128).optional(),
+  notes: z.string().max(500).optional().nullable(),
 });
 
-export const featureFlagMetricSchema = z.object({
-  metricType: z.enum(FEATURE_FLAG_METRIC_TYPES, {
-    errorMap: () => ({ message: `metricType must be one of: ${FEATURE_FLAG_METRIC_TYPES.join(", ")}` }),
-  }),
-  value: z.number().min(0).optional().default(0),
-});
-
-export const featureFlagMonitorSchema = z.object({
-  autoRollback: z.boolean().optional().default(true),
-  maxErrorRate: z.number().min(0).max(1).optional(),
-  maxP95LatencyMs: z.number().min(0).optional(),
-  windowMs: z.number().int().positive().optional(),
-});
-
-export const evaluateFeatureFlagSchema = z.object({
-  names: z.array(z.string()).optional(),
-  context: z
-    .object({
-      walletAddress: z.string().optional().nullable(),
-      userId: z.string().optional().nullable(),
-      orgId: z.string().optional().nullable(),
-      role: z.enum(["viewer", "collaborator", "operator", "admin"]).optional().nullable(),
-    })
-    .optional()
-    .default({}),
-});
+export const treasuryReceiptSchema = z
+  .object({
+    ipfsCid: z.string().min(1).max(256).optional().nullable(),
+    url: z.string().url("url must be a valid URL").optional().nullable(),
+    fileName: z.string().min(1).max(256).optional().nullable(),
+    documentHash: z.string().max(256).optional().nullable(),
+  })
+  .refine((d) => d.ipfsCid != null || d.url != null, {
+    message: "Either ipfsCid or url is required",
+  });
 

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNetwork } from "../context/NetworkContext";
 import { useUIStore } from "../store/uiStore";
 import { NotificationBell } from "./NotificationBell";
+import { LanguageSelector } from "./LanguageSelector";
 import "./Navigation.css";
 
 interface NavigationProps {
@@ -61,6 +62,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "secondary", labelKey: "secondary", icon: "🔄" },
     { id: "health", labelKey: "health", icon: "🏥" },
     { id: "disputes", labelKey: "disputes", icon: "⚖️" },
+    { id: "webhooks", labelKey: "webhooks", icon: "🔔" },
     { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
     { id: "tax-info", labelKey: "taxInfo", icon: "📋" },
     { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },
@@ -142,6 +144,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         </ul>
 
         <div className="nav-wallet" title={connectionLabel}>
+          <LanguageSelector compact />
           {/* Network toggle — issue #231 */}
           <button
             className={`network-toggle network-toggle--${network}`}

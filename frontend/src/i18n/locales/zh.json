@@ -89,6 +89,7 @@
     "admin": "管理",
     "health": "健康度",
     "disputes": "争议",
+    "webhooks": "Webhooks",
     "earnings": "收益",
     "suspension": "暂停",
     "featureFlags": "功能开关",

@@ -325,12 +325,46 @@ export const api = {
     amount?: string | number;
   }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
 
+  buildBatchDistribution: (body: {
+    contractId: string;
+    walletAddress: string;
+    tokens: string[];
+    idempotencyKey?: string;
+  }) => post<{
+    xdr: string;
+    transactionId: number;
+    tokensIncluded: number;
+    estimate: {
+      individualCost: string;
+      batchCost: string;
+      savings: string;
+      savingsPercent: number;
+      source: string;
+    };
+  }>("/batch-distribute/tokens", body),
+
+  estimateBatchDistribution: (tokenCount: number, resourceMaxBatchSize?: number) =>
+    post<{
+      individualCost: string;
+      batchCost: string;
+      savings: string;
+      savingsPercent: number;
+      source: string;
+      optimalBatchSize: number;
+      remaining: number;
+    }>("/batch-distribute/tokens/estimate", { tokenCount, resourceMaxBatchSize }),
+
   getContractVersion: (contractId: string) =>
     get<{ version: string }>(`/contract/version/${contractId}`),
 
   getContractBalance: (contractId: string, tokenId: string) =>
     get<{ balance: string }>(
       `/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`,
+    ),
+
+  getPendingDistributions: (contractId: string) =>
+    get<{ distributions: Array<{ tokenId: string; amount: string; lastUpdated: string; recipientCount: number }> }>(
+      `/contract/pending-distributions/${contractId}`,
     ),
 
   getCollaborators: (contractId: string) =>
@@ -641,14 +675,33 @@ export const api = {
   markNotificationRead: (id: number) =>
     post<{ success: boolean }>(`/v1/notifications/read/${id}`, {}),
 
+  markNotificationUnread: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unread`, {}),
+
+  archiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/archive`, {}),
+
+  unarchiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unarchive`, {}),
+
   deleteNotification: (id: number) =>
     del<{ success: boolean }>(`/v1/notifications/${id}`),
 
+  searchNotifications: (walletAddress: string, query: string) =>
+    get<{ success: boolean; data: any[]; count: number }>(
+      `/v1/notifications/${walletAddress}/search?q=${encodeURIComponent(query)}`
+    ),
+
+  getNotificationsByType: (walletAddress: string, type: string) =>
+    get<{ success: boolean; data: any[] }>(
+      `/v1/notifications/${walletAddress}/by-type/${type}`
+    ),
+
   getNotificationPreferences: (walletAddress: string) =>
-    get<{ email?: any; sms?: any; inApp?: any; push?: any; [key: string]: any }>(`/v1/preferences/notifications/${walletAddress}`),
+    get<{ success: boolean; data: any }>(`/v1/notifications/preferences/${walletAddress}`),
 
   saveNotificationPreferences: (walletAddress: string, prefs: any) =>
-    post<{ success: boolean }>(`/v1/preferences/notifications/${walletAddress}`, prefs),
+    post<{ success: boolean; data: any }>(`/v1/notifications/preferences`, { walletAddress, ...prefs }),
 
   getHeldTransactions: (contractId: string, _status = "active", _offset = 0) =>
     get<{ success: boolean; data: any[] }>(`/v1/payment-holds/${contractId}`),
@@ -770,84 +823,64 @@ export const api = {
       data,
     }),
 
-  // Feature flags & gradual rollout (#1075)
-  listFeatureFlags: (includeArchived = false) =>
-    get<{ flags: FeatureFlag[] }>(
-      `/v1/feature-flags?includeArchived=${includeArchived}`,
+  // Advanced webhook system (#1059) — external integrations with HMAC
+  // signatures, delivery history, and manual testing.
+  getWebhookEvents: () =>
+    get<{ success: boolean; data: string[] }>("/v1/webhooks/events"),
+
+  listWebhooks: (contractId: string) =>
+    get<{ success: boolean; data: WebhookEntry[] }>(
+      `/v1/webhooks/${contractId}`,
     ),
 
-  getFeatureFlag: (name: string) =>
-    get<FeatureFlag>(`/v1/feature-flags/${encodeURIComponent(name)}`),
-
-  createFeatureFlag: (body: {
-    name: string;
-    description?: string | null;
-    enabled?: boolean;
-    rolloutPercentage?: number;
-  }) => post<FeatureFlag>("/v1/feature-flags", body),
-
-  updateFeatureFlag: (
-    name: string,
-    body: { description?: string | null; enabled?: boolean; rolloutPercentage?: number },
-  ) => patch<FeatureFlag>(`/v1/feature-flags/${encodeURIComponent(name)}`, body),
-
-  archiveFeatureFlag: (name: string) =>
-    del<{ success: boolean; flag: FeatureFlag }>(
-      `/v1/feature-flags/${encodeURIComponent(name)}`,
+  registerWebhook: (contractId: string, url: string, events?: string[]) =>
+    post<{ success: boolean; webhookId: number; url: string; events?: string[]; secret?: string }>(
+      `/v1/webhooks/${contractId}`,
+      events ? { url, events } : { url },
     ),
 
-  addFeatureFlagRule: (
-    name: string,
-    body: { ruleType: "user" | "org" | "role"; value: string; enabled?: boolean },
-  ) =>
-    post<FeatureFlagRule>(
-      `/v1/feature-flags/${encodeURIComponent(name)}/rules`,
-      body,
+  deregisterWebhook: (contractId: string, webhookId: number) =>
+    del<{ success: boolean }>(`/v1/webhooks/${contractId}/${webhookId}`),
+
+  testWebhook: (contractId: string, webhookId: number) =>
+    post<{ success: boolean; message?: string; deliveryId?: number | null; error?: string }>(
+      `/v1/webhooks/${contractId}/${webhookId}/test`,
+      {},
     ),
 
-  removeFeatureFlagRule: (name: string, ruleId: number) =>
-    del<{ success: boolean }>(
-      `/v1/feature-flags/${encodeURIComponent(name)}/rules/${ruleId}`,
+  rotateWebhookSecret: (contractId: string, webhookId: number) =>
+    post<{ success: boolean; webhookId: number; secret: string }>(
+      `/v1/webhooks/${contractId}/${webhookId}/rotate-secret`,
+      {},
     ),
 
-  setFeatureFlagRollout: (name: string, percentage: number) =>
-    post<FeatureFlag>(
-      `/v1/feature-flags/${encodeURIComponent(name)}/rollout`,
-      { percentage },
+  emitWebhookEvent: (contractId: string, event: string, data?: Record<string, unknown>) =>
+    post<{ success: boolean; event: string; delivered: number; failed: number; attempted: number }>(
+      `/v1/webhooks/${contractId}/emit`,
+      { event, data: data ?? {} },
     ),
 
-  rollbackFeatureFlag: (name: string, reason?: string) =>
-    post<FeatureFlag>(
-      `/v1/feature-flags/${encodeURIComponent(name)}/rollback`,
-      { reason },
-    ),
+  getWebhookDeliveries: (
+    contractId: string,
+    params?: { limit?: number; offset?: number; webhookId?: number; event?: string; status?: string },
+  ) => {
+    const search = new URLSearchParams();
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    if (params?.offset != null) search.set("offset", String(params.offset));
+    if (params?.webhookId != null) search.set("webhookId", String(params.webhookId));
+    if (params?.event) search.set("event", params.event);
+    if (params?.status) search.set("status", params.status);
+    const query = search.toString();
+    return get<{
+      success: boolean;
+      data: WebhookDelivery[];
+      pagination: { total: number; limit: number; offset: number };
+    }>(`/v1/webhooks/${contractId}/deliveries${query ? `?${query}` : ""}`);
+  },
 
-  getFeatureFlagMetrics: (name: string) =>
-    get<FeatureFlagHealth>(`/v1/feature-flags/${encodeURIComponent(name)}/metrics`),
-
-  recordFeatureFlagMetric: (
-    name: string,
-    body: { metricType: "request" | "error" | "latency"; value?: number },
-  ) => post(`/v1/feature-flags/${encodeURIComponent(name)}/metrics`, body),
-
-  monitorFeatureFlag: (name: string, body?: Record<string, unknown>) =>
-    post<FeatureFlagHealth & { rolledBack: boolean }>(
-      `/v1/feature-flags/${encodeURIComponent(name)}/monitor`,
-      body ?? {},
-    ),
-
-  getFeatureFlagHistory: (name: string) =>
-    get<{ flag: string; history: FeatureFlagHistoryEntry[] }>(
-      `/v1/feature-flags/${encodeURIComponent(name)}/history`,
-    ),
-
-  evaluateFeatureFlags: (body: {
-    names?: string[];
-    context?: { walletAddress?: string; userId?: string; orgId?: string; role?: string };
-  }) =>
-    post<{ context: Record<string, string | null>; flags: Record<string, boolean> }>(
-      "/v1/feature-flags/evaluate",
-      body,
+  getWebhookDeliveryStats: (contractId: string) =>
+    get<{ success: boolean; data: WebhookDeliveryStats }>(
+      `/v1/webhooks/${contractId}/delivery-stats`,
     ),
 };
 
@@ -908,6 +941,41 @@ export interface ContributorTier {
   walletAddress: string;
   tier: "vip" | "regular" | "trial";
   notes?: string | null;
+}
+
+export interface WebhookEntry {
+  id: number;
+  contractId: string;
+  url: string;
+  enabled: number;
+  events: string[];
+  hasSecret: boolean;
+  retryCount: number;
+  nextRetryTime: string | null;
+  createdAt: string;
+}
+
+export interface WebhookDelivery {
+  id: number;
+  webhookId: number | null;
+  contractId: string;
+  event: string;
+  url: string;
+  payload: string | null;
+  status: "pending" | "delivered" | "failed" | "exhausted";
+  httpStatus: number | null;
+  attempts: number;
+  error: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export interface WebhookDeliveryStats {
+  total: number;
+  delivered: number;
+  failed: number;
+  pending: number;
+  exhausted: number;
 }
 
 export interface ContributorStatusEntry {

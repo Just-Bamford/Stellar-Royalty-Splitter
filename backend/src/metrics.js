@@ -22,6 +22,13 @@ const metrics = {
   rpcRetryAttempts: 0,
   rpcRetrySuccesses: 0,
   rpcRetryExhausted: 0,
+  // Traffic shaping & capacity planning (#rate-limiting)
+  trafficShapedTotal: 0,
+  trafficShapingQueuedTotal: 0,
+  trafficShapingRejectedTotal: 0,
+  trafficShapingDegradedTotal: 0,
+  capacityPeakLoadPercent: 0,
+  capacityAlertsTotal: 0,
   // Connection health monitoring (#496)
   connectionHealthTotalChecks: 0,
   connectionHealthTotalFailures: 0,
@@ -99,6 +106,69 @@ const rateLimitHits = new client.Counter({
   name: "stellar_rate_limit_hits_total",
   help: "Total rate limit hits",
   labelNames: ["dimension"],
+  registers: [register],
+});
+
+// ── Traffic shaping & capacity planning metrics ────────────────────────────
+
+const trafficShaped = new client.Counter({
+  name: "stellar_traffic_shaped_total",
+  help: "Requests evaluated by the traffic shaper, by endpoint priority",
+  labelNames: ["priority", "endpoint"],
+  registers: [register],
+});
+
+const trafficShapingQueued = new client.Counter({
+  name: "stellar_traffic_shaping_queued_total",
+  help: "Requests queued for backpressure handling",
+  labelNames: ["priority"],
+  registers: [register],
+});
+
+const trafficShapingRejected = new client.Counter({
+  name: "stellar_traffic_shaping_rejected_total",
+  help: "Requests rejected with 429 due to traffic shaping",
+  labelNames: ["priority", "endpoint"],
+  registers: [register],
+});
+
+const trafficShapingDegraded = new client.Counter({
+  name: "stellar_traffic_shaping_degraded_total",
+  help: "Requests served with degraded (cached) responses under load",
+  labelNames: ["endpoint"],
+  registers: [register],
+});
+
+const trafficShapingQueueDepth = new client.Gauge({
+  name: "stellar_traffic_shaping_queue_depth",
+  help: "Current number of requests waiting in the backpressure queue",
+  labelNames: ["priority"],
+  registers: [register],
+});
+
+const capacityLoadPercent = new client.Gauge({
+  name: "stellar_capacity_load_percent",
+  help: "Current estimated system load as a percentage of capacity",
+  registers: [register],
+});
+
+const capacityPeakLoadPercent = new client.Gauge({
+  name: "stellar_capacity_peak_load_percent",
+  help: "Observed peak system load as a percentage of capacity",
+  registers: [register],
+});
+
+const capacityAlerts = new client.Counter({
+  name: "stellar_capacity_alerts_total",
+  help: "Capacity alerts triggered when load exceeded the configured threshold",
+  labelNames: ["severity"],
+  registers: [register],
+});
+
+const capacityScaleRecommendations = new client.Counter({
+  name: "stellar_capacity_scale_recommendations_total",
+  help: "Scale recommendations emitted by the capacity planner",
+  labelNames: ["direction"],
   registers: [register],
 });
 
@@ -271,6 +341,47 @@ const auditTrailWriteFailures = new client.Counter({
   registers: [register],
 });
 
+// Traffic shaping & capacity planning helpers
+export function recordTrafficShaped(priority, endpoint) {
+  metrics.trafficShapedTotal += 1;
+  trafficShaped.inc({ priority: priority || "standard", endpoint: endpoint || "unknown" });
+}
+
+export function recordTrafficQueued(priority) {
+  metrics.trafficShapingQueuedTotal += 1;
+  trafficShapingQueued.inc({ priority: priority || "standard" });
+}
+
+export function recordTrafficRejected(priority, endpoint) {
+  metrics.trafficShapingRejectedTotal += 1;
+  trafficShapingRejected.inc({ priority: priority || "standard", endpoint: endpoint || "unknown" });
+}
+
+export function recordTrafficDegraded(endpoint) {
+  metrics.trafficShapingDegradedTotal += 1;
+  trafficShapingDegraded.inc({ endpoint: endpoint || "unknown" });
+}
+
+export function setTrafficQueueDepth(priority, depth) {
+  trafficShapingQueueDepth.set({ priority: priority || "standard" }, Number(depth) || 0);
+}
+
+export function setCapacityLoad(percent) {
+  const value = Number.isFinite(percent) ? percent : 0;
+  metrics.capacityPeakLoadPercent = Math.max(metrics.capacityPeakLoadPercent, value);
+  capacityLoadPercent.set(value);
+  capacityPeakLoadPercent.set(metrics.capacityPeakLoadPercent);
+}
+
+export function recordCapacityAlert(severity) {
+  metrics.capacityAlertsTotal += 1;
+  capacityAlerts.inc({ severity: severity || "warning" });
+}
+
+export function recordScaleRecommendation(direction) {
+  capacityScaleRecommendations.inc({ direction: direction || "none" });
+}
+
 // Alerting constants
 const ALERT_WINDOW_MS = 5 * 60 * 1000;
 const ALERT_HISTORY_MS = 60 * 60 * 1000;
@@ -280,6 +391,9 @@ const DEFAULT_MIN_TOTAL = 10;
 const DEFAULT_DEDUPE_WINDOW_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_LATENCY_MS = 5000;
 const DEFAULT_ANOMALY_ZSCORE = 3.5;
+const DEFAULT_P95_LATENCY_THRESHOLD_MS = 500;
+const DEFAULT_ERROR_RATE_ALERT_THRESHOLD = 0.01;
+const DEFAULT_CONTRACT_CALL_FAILURE_WINDOW_MS = 5 * 60 * 1000;
 
 const contractMetrics = new Map();
 const alertRules = new Map();
@@ -375,6 +489,244 @@ function shouldSendAlert(contractId, type, dedupeWindowMs) {
   return true;
 }
 
+// ── Advanced performance monitoring & alerting ─────────────────────────────
+
+// p95 latency per route, tracked in a rolling window so the alert evaluator
+// can fire when p95 exceeds the configured threshold (default 500ms).
+const routeLatencySamples = new Map();
+const ROUTE_LATENCY_WINDOW_SIZE = 200;
+
+// Contract call failure tracking for alerting on any failed contract call.
+const contractCallFailures = new Map();
+
+const p95LatencyAlerts = new client.Counter({
+  name: "stellar_p95_latency_alerts_total",
+  help: "Total alerts triggered because p95 latency exceeded the configured threshold",
+  labelNames: ["route"],
+  registers: [register],
+});
+
+const errorRateAlerts = new client.Counter({
+  name: "stellar_error_rate_alerts_total",
+  help: "Total alerts triggered because error rate exceeded the configured threshold",
+  labelNames: ["route"],
+  registers: [register],
+});
+
+const contractCallFailureAlerts = new client.Counter({
+  name: "stellar_contract_call_failure_alerts_total",
+  help: "Total alerts triggered because a contract call failed",
+  labelNames: ["contractId", "functionName"],
+  registers: [register],
+});
+
+const incidentCounter = new client.Counter({
+  name: "stellar_incidents_total",
+  help: "Total incidents tracked by severity",
+  labelNames: ["severity", "type"],
+  registers: [register],
+});
+
+const incidentMttrSeconds = new client.Histogram({
+  name: "stellar_incident_mttr_seconds",
+  help: "Mean time to recovery (seconds) for resolved incidents",
+  labelNames: ["severity"],
+  buckets: [30, 60, 120, 300, 600, 1800, 3600, 7200, 21600, 86400],
+  registers: [register],
+});
+
+const openIncidents = new client.Gauge({
+  name: "stellar_incidents_open",
+  help: "Number of currently open incidents",
+  registers: [register],
+});
+
+const incidents = new Map();
+let incidentSequence = 0;
+
+function getRouteLatencySamples(route) {
+  if (!routeLatencySamples.has(route)) routeLatencySamples.set(route, []);
+  return routeLatencySamples.get(route);
+}
+
+function getP95ThresholdMs() {
+  const configured = Number(process.env.P95_LATENCY_THRESHOLD_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_P95_LATENCY_THRESHOLD_MS;
+}
+
+function getErrorRateThreshold() {
+  const configured = Number(process.env.ERROR_RATE_THRESHOLD);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_ERROR_RATE_ALERT_THRESHOLD;
+}
+
+function percentile(values, p) {
+  if (!values || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[idx];
+}
+
+/**
+ * Record a request latency sample for a route and evaluate the p95 latency
+ * alert threshold (default 500ms). Emits a multi-channel alert when exceeded.
+ */
+export function recordRouteLatency(route, durationMs) {
+  if (!route || !Number.isFinite(durationMs) || durationMs < 0) return;
+  const samples = getRouteLatencySamples(route);
+  samples.push(durationMs);
+  if (samples.length > ROUTE_LATENCY_WINDOW_SIZE) samples.shift();
+
+  const threshold = getP95ThresholdMs();
+  const p95 = percentile(samples, 95);
+  if (samples.length >= 5 && p95 > threshold) {
+    if (shouldSendAlert(`route:${route}`, "p95_latency", DEFAULT_DEDUPE_WINDOW_MS)) {
+      p95LatencyAlerts.inc({ route });
+      alertsTriggered.inc({ contractId: route, type: "p95_latency" });
+      triggerAlert({
+        contractId: route,
+        type: "p95_latency",
+        severity: "critical",
+        condition: `p95 latency > ${threshold}ms`,
+        currentValue: Number(p95.toFixed(2)),
+        threshold,
+        remedy: "Inspect slow dependencies (DB, Horizon, Soroban RPC), check for N+1 queries, and scale the affected service.",
+        rule: getRule(route) || {},
+      }).catch((e) => logger.error("Failed to trigger p95 latency alert", e));
+    }
+  }
+}
+
+/**
+ * Record a request outcome for error-rate alerting (default 1% threshold).
+ */
+export function recordRouteOutcome(route, success) {
+  if (!route) return;
+  const m = getContractMetrics(`route:${route}`);
+  const now = Date.now();
+  let bucket = m.buckets.length > 0 ? m.buckets[m.buckets.length - 1] : null;
+  if (!bucket || now - bucket.start >= ALERT_WINDOW_MS) {
+    bucket = { start: now, total: 0, failed: 0 };
+    m.buckets.push(bucket);
+    if (m.buckets.length > MAX_BUCKETS) m.buckets.shift();
+  }
+  bucket.total += 1;
+  if (!success) bucket.failed += 1;
+
+  const total = m.buckets.reduce((s, b) => s + b.total, 0);
+  const failed = m.buckets.reduce((s, b) => s + b.failed, 0);
+  const errorRate = total === 0 ? 0 : failed / total;
+  const threshold = getErrorRateThreshold();
+  if (total >= DEFAULT_MIN_TOTAL && errorRate > threshold) {
+    if (shouldSendAlert(`route:${route}`, "error_rate", DEFAULT_DEDUPE_WINDOW_MS)) {
+      errorRateAlerts.inc({ route });
+      alertsTriggered.inc({ contractId: route, type: "error_rate" });
+      triggerAlert({
+        contractId: route,
+        type: "error_rate",
+        severity: errorRate > 0.05 ? "critical" : "warning",
+        condition: `error rate > ${(threshold * 100).toFixed(2)}%`,
+        currentValue: Number(errorRate.toFixed(4)),
+        threshold,
+        errorCount: failed,
+        totalCount: total,
+        remedy: "Check recent deployments, dependency health, and error logs for the affected route.",
+        rule: getRule(route) || {},
+      }).catch((e) => logger.error("Failed to trigger error rate alert", e));
+    }
+  }
+}
+
+/**
+ * Record a contract call failure and immediately alert (any failure triggers).
+ */
+export function recordContractCallFailure(contractId, functionName, error) {
+  const id = contractId || "unknown";
+  const fn = functionName || "unknown";
+  const key = `${id}:${fn}`;
+  const entry = contractCallFailures.get(key) || { count: 0, lastAt: 0 };
+  entry.count += 1;
+  entry.lastAt = Date.now();
+  contractCallFailures.set(key, entry);
+
+  contractCallFailureAlerts.inc({ contractId: id, functionName: fn });
+  alertsTriggered.inc({ contractId: id, type: "contract_call_failure" });
+
+  if (shouldSendAlert(key, "contract_call_failure", DEFAULT_CONTRACT_CALL_FAILURE_WINDOW_MS)) {
+    triggerAlert({
+      contractId: id,
+      type: "contract_call_failure",
+      severity: "critical",
+      condition: `contract call ${fn} failed`,
+      currentValue: entry.count,
+      threshold: 1,
+      remedy: "Inspect the contract invocation, verify arguments and network status, and check Soroban RPC availability.",
+      rule: getRule(id) || {},
+    }).catch((e) => logger.error("Failed to trigger contract call failure alert", e));
+  }
+}
+
+/**
+ * Open a new incident for tracking. Returns the incident id.
+ */
+export function openIncident({ type, severity = "warning", summary, details = {} }) {
+  incidentSequence += 1;
+  const id = `INC-${Date.now()}-${incidentSequence}`;
+  const incident = {
+    id,
+    type: type || "unknown",
+    severity,
+    summary: summary || "",
+    details,
+    status: "open",
+    openedAt: Date.now(),
+    resolvedAt: null,
+    mttrSeconds: null,
+    rootCause: null,
+    postMortem: null,
+  };
+  incidents.set(id, incident);
+  incidentCounter.inc({ severity, type: incident.type });
+  openIncidents.set(incidents.size);
+  return id;
+}
+
+/**
+ * Resolve an incident and record MTTR.
+ */
+export function resolveIncident(id, { rootCause = null, postMortem = null } = {}) {
+  const incident = incidents.get(id);
+  if (!incident || incident.status === "resolved") return null;
+  incident.status = "resolved";
+  incident.resolvedAt = Date.now();
+  incident.mttrSeconds = (incident.resolvedAt - incident.openedAt) / 1000;
+  incident.rootCause = rootCause;
+  incident.postMortem = postMortem;
+  incidentMttrSeconds.observe({ severity: incident.severity }, incident.mttrSeconds);
+  openIncidents.set([...incidents.values()].filter((i) => i.status === "open").length);
+  return incident;
+}
+
+export function getIncident(id) {
+  return incidents.get(id) || null;
+}
+
+export function listIncidents() {
+  return [...incidents.values()];
+}
+
+export function getMttrStats() {
+  const resolved = [...incidents.values()].filter((i) => i.status === "resolved" && Number.isFinite(i.mttrSeconds));
+  if (resolved.length === 0) return { count: 0, avgMttrSeconds: 0, minMttrSeconds: 0, maxMttrSeconds: 0 };
+  const values = resolved.map((i) => i.mttrSeconds);
+  const sum = values.reduce((a, b) => a + b, 0);
+  return {
+    count: resolved.length,
+    avgMttrSeconds: sum / resolved.length,
+    minMttrSeconds: Math.min(...values),
+    maxMttrSeconds: Math.max(...values),
+  };
+}
+
 function postToWebhook(url, payload) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -414,6 +766,16 @@ async function triggerAlert(payload) {
   }
   if (rule && rule.email) {
     console.error(`[ALERT EMAIL] To: ${rule.email} - ${message}`);
+  }
+  if (rule && rule.slackWebhookUrl) {
+    try {
+      await postToWebhook(rule.slackWebhookUrl, { text: message, ...payload });
+    } catch (e) {
+      console.error("Failed to send Slack alert", e);
+    }
+  }
+  if (rule && rule.smsNumber) {
+    console.error(`[ALERT SMS] To: ${rule.smsNumber} - ${message}`);
   }
 }
 
@@ -522,6 +884,7 @@ export function recordTransactionSuccess(contractId, meta = {}) {
 export function recordTransactionFailure(contractId, meta = {}) {
   metrics.transactionsFailedTotal += 1;
   recordDistributionOutcome({ contractId: typeof contractId === "string" ? contractId : meta.contractId, success: false, token: meta.token, amount: meta.amount, latencyMs: meta.latencyMs });
+  recordRouteOutcome("transaction", false);
 }
 
 // DoS protection metrics (#426)
@@ -586,6 +949,8 @@ export function getMetricsSnapshot() {
   return {
     ...metrics,
     averageHorizonResponseTimeMs,
+    openIncidents: [...incidents.values()].filter((i) => i.status === "open").length,
+    mttr: getMttrStats(),
   };
 }
 
@@ -674,6 +1039,9 @@ export async function prometheusMetrics() {
     "# HELP stellar_db_pool_utilization_percent Current database pool utilization percentage.",
     "# TYPE stellar_db_pool_utilization_percent gauge",
     `stellar_db_pool_utilization_percent ${formatMetricValue(snapshot.connectionHealthPoolUtilization)}`,
+    "# HELP stellar_incidents_open_total Number of currently open incidents.",
+    "# TYPE stellar_incidents_open_total gauge",
+    `stellar_incidents_open_total ${snapshot.openIncidents}`,
     "",
   ].join("\n");
 
@@ -711,6 +1079,10 @@ export function resetMetrics() {
   contractMetrics.clear();
   alertState.clear();
   trackedCollaborators.clear();
+  routeLatencySamples.clear();
+  contractCallFailures.clear();
+  incidents.clear();
+  incidentSequence = 0;
   resetEndpointMetrics();
   register.resetMetrics();
 }
@@ -792,11 +1164,14 @@ export function recordHttpRequest(method, route, status, durationMs) {
   httpRequests.inc(labels);
   if (Number.isFinite(durationMs) && durationMs >= 0) {
     httpRequestDuration.observe(labels, durationMs / 1000);
+    recordRouteLatency(route || "unknown", durationMs);
+    recordRouteOutcome(route || "unknown", Number(status) < 500);
   }
 }
 
 export function recordContractFunctionDuration(contractId, functionName, durationSeconds) {
   contractFunctionDuration.observe({ contractId, functionName }, durationSeconds);
+  recordRouteLatency(`contract:${contractId}:${functionName}`, durationSeconds * 1000);
 }
 
 export function recordRpcOperationDuration(operationType, durationSeconds) {

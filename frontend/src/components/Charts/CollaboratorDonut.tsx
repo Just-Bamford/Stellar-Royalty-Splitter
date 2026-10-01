@@ -5,6 +5,7 @@ import type { CollaboratorSlice } from '../../hooks/useChartData';
 export interface CollaboratorDonutProps {
   data: CollaboratorSlice[];
   height?: number;
+  currency?: string;
 }
 
 const COLORS = [
@@ -20,11 +21,7 @@ const COLORS = [
   '#84cc16',
 ];
 
-function formatCurrency(value: number): string {
-  return `\$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })`;
-}
-
-export default function CollaboratorDonut({ data, height = 280 }: CollaboratorDonutProps) {
+export function CollaboratorDonut({ data, height = 280, currency = 'USD' }: CollaboratorDonutProps) {
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
 
   const sorted = useMemo(() => {
@@ -51,11 +48,11 @@ export default function CollaboratorDonut({ data, height = 280 }: CollaboratorDo
             data={visible}
             dataKey="value"
             nameKey="name"
-            innerRadius='60%'
-            outerRadius='85%'
+            innerRadius="60%"
+            outerRadius="85%"
             paddingAngle={2}
             animationDuration={600}
-            stroke='#ffffff'
+            stroke="#ffffff"
           >
             {visible.map((entry, index) => (
               <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
@@ -64,7 +61,7 @@ export default function CollaboratorDonut({ data, height = 280 }: CollaboratorDo
           <Tooltip
             contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }}
             formatter={(value: number, name: string) => [
-              formatCompactCurrency(value),
+              formatCompactCurrency(value, currency),
               `${name} (${total ? Math.round((value / total) * 100) : 0}%)`,
             ]}
           />
@@ -84,9 +81,13 @@ export default function CollaboratorDonut({ data, height = 280 }: CollaboratorDo
   );
 }
 
-function formatCompactCurrency(value: number): string {
+function formatCompactCurrency(value: number, currency: string = 'USD'): string {
+  const prefix = currency === 'USD' || currency === '$' ? '$' : `${currency} `;
   if (Math.abs(value) >= 1000) {
-    return `\$$${(value / 1000).toFixed(1)}k`;
+    return `${prefix}${(value / 1000).toFixed(1)}k`;
   }
-  return `\$${value}`;
+  return `${prefix}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
+
+export { CollaboratorDonut as CollaboratorDonutChart };
+export default CollaboratorDonut;

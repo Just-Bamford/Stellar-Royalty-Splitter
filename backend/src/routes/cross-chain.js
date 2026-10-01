@@ -46,7 +46,10 @@ router.post('/quote', asyncHandler(async (req, res) => {
     });
     res.json(routeResult);
   } catch (err) {
-    logger.warn('Quote request failed', { error: err.message });
+    logger.warn(
+      'Quote request failed',
+      { error: err.message },
+    );
     res.status(422).json({ error: err.message });
   }
 }));

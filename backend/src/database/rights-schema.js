@@ -143,7 +143,7 @@ export function clearRightsTables() {
       db.prepare(`DELETE FROM rights_metadata`).run();
       db.prepare(`DELETE FROM rights`).run();
     } catch (_e) {
-      // Mocked DB fallback.
+      // Ignore errors if tables do not exist
     }
   }
 }

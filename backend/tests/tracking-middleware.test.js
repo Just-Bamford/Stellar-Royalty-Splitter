@@ -17,9 +17,6 @@ jest.unstable_mockModule("../src/services/mixpanel.js", () => ({
   isMixpanelConfigured: jest.fn(() => true),
 }));
 
-jest.unstable_mockModule("../src/middleware/tracking.js", () => ({
-  initializeUserTracking: mockInitializeUserTracking,
-}));
 
 const {
   trackDistributionEvents,

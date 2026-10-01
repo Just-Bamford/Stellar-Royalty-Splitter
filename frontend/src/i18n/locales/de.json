@@ -89,6 +89,7 @@
     "admin": "Admin",
     "health": "Gesundheit",
     "disputes": "Dispute",
+    "webhooks": "Webhooks",
     "earnings": "Einnahmen",
     "suspension": "Sperrung",
     "featureFlags": "Feature-Flags",
