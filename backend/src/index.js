@@ -38,6 +38,7 @@ import { startHealthMonitor, stopHealthMonitor } from "./database/health-monitor
 import { createGracefulShutdownHandler, shutdownMiddleware } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { snapshotRouter } from "./routes/snapshots.js";
+import apiDocsRouter from "./routes/api-docs.js";
 import { communicationsRouter } from "./routes/communications.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { applicationLogsRouter } from "./routes/application-logs.js";
@@ -91,6 +92,7 @@ import { setSecondaryRoyaltyPoolSource } from "./metrics.js";
 import { httpMetricsMiddleware } from "./middleware/http-metrics.js";
 import { responseTimeMiddleware } from "./middleware/response-time.js";
 import { createTrafficShadowMiddleware } from "./middleware/traffic-shadow.js";
+import { deprecationTrackingMiddleware, stopDeprecationTracking } from "./middleware/deprecation-tracking.js";
 import { getPendingRoyaltyPools } from "./database/secondary-royalties.js";
 import { initRedisCache } from "./cache.js";
 import { openseaRouter } from "./routes/marketplaces/opensea.js";
@@ -104,7 +106,7 @@ import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
 import { searchRouter } from "./routes/search.js";
 import { zkPrivacyRouter } from "./routes/zk-privacy.js";
-import snapshotRouter from "./routes/governance/snapshot.js";
+import governanceSnapshotRouter from "./routes/governance/snapshot.js";
 import { stripeRouter } from "./routes/payments/stripe.js";
 import { collaborativeEditorRouter } from "./routes/collaborative-editor.js";
 import { vestingRouter } from "./routes/vesting.js";
@@ -568,7 +570,7 @@ app.use("/api/v1/search", searchRouter);
 app.use("/api/v1/zk-privacy", zkPrivacyRouter);
 
 // Decentralized governance on Snapshot (#995)
-app.use("/api/v1/governance", snapshotRouter);
+app.use("/api/v1/governance", governanceSnapshotRouter);
 
 // Batch payment scheduling (#991)
 app.use("/api/v1/schedules", writeLimiter);
