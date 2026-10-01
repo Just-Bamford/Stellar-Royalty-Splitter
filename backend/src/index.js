@@ -43,6 +43,7 @@ import { metricsRouter } from "./routes/metrics.js";
 import { applicationLogsRouter } from "./routes/application-logs.js";
 import { evaluateLogAlerts, pruneApplicationLogs } from "./database/application-logs.js";
 import { initializeSigningKey } from "./signing-key.js";
+import { initializeKeyManager } from "./services/key-manager.js";
 import { sendError, notFoundHandler, errorHandler } from "./error-response.js";
 import { preferencesRouter } from "./routes/preferences.js";
 import { templatesRouter } from "./routes/templates.js";
@@ -115,6 +116,7 @@ import { identityRouter } from "./routes/identity.js";
 import { backupRouter } from "./routes/backup.js";
 import { startDistributionScheduler } from "./services/distribution-scheduler.js";
 import { startBackupScheduler } from "./services/contract-backup.js";
+import { eventsRouter, commandsRouter } from "./routes/events.js";
 import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
 import { rightsRouter } from "./routes/rights-management.js";
 import { treasuryRouter } from "./routes/treasury/index.js";
@@ -123,6 +125,7 @@ import { CapacityPlanner } from "./services/capacity-planner.js";
 import { crossChainRouter } from "./routes/cross-chain.js";
 
 // Initialize database on startup
+await initializeKeyManager({ scheduleRotation: true });
 initializeDatabase();
 initializeSigningKey();
 
@@ -164,6 +167,10 @@ pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
 startHealthMonitor();
 
 const app = express();
+
+
+const marketplaceDiscoveryRoutes = require('./routes/marketplaces/discovery');
+app.use('/api/v1/marketplaces', marketplaceDiscoveryRoutes);
 
 // Request correlation ID and logging middleware
 app.use((req, res, next) => {
@@ -579,6 +586,11 @@ app.use("/api/v1/identity", identityRouter);
 // Contract backup and disaster recovery (#993)
 app.use("/api/v1/backup", writeLimiter);
 app.use("/api/v1/backup", backupRouter);
+
+// Event sourcing and CQRS (#1066)
+app.use("/api/v1/events", eventsRouter);
+app.use("/api/v1/commands", writeLimiter);
+app.use("/api/v1/commands", commandsRouter);
 
 // Rights Management System
 app.use("/api/v1/rights", writeLimiter);

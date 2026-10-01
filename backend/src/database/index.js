@@ -24,6 +24,7 @@ export {
   updateTransactionHash,
   updateTransactionStatus,
   addDistributionPayout,
+  findPayoutsByAmount,
   getTransactionCount,
   getTransactionHistory,
   getTransactionHistoryCursor,
@@ -34,14 +35,27 @@ export {
   MAX_RETRY_COUNT,
 } from "./transactions.js";
 
-// Webhooks (#295)
+// Webhooks (#295, advanced system #1059)
 export {
   registerWebhook,
+  getWebhookById,
   listWebhooks,
+  listWebhooksForEvent,
+  updateWebhookEvents,
+  rotateWebhookSecret,
   deleteWebhook,
   updateWebhookRetryState,
+  updateWebhookRetryStateWithPayload,
   getWebhooksDueForRetry,
   resetWebhookRetryCount,
+  moveToDlq,
+  serializeEvents,
+  parseEvents,
+  recordDelivery,
+  updateDelivery,
+  listDeliveries,
+  countDeliveries,
+  getDeliveryStats,
 } from "./webhooks.js";
 
 // Audit logging
@@ -532,6 +546,18 @@ export {
   listBatchExecutionsBySchedule,
   listRecentBatchExecutions,
 } from "./schedules.js";
+
+// Event sourcing and CQRS (#1066)
+export {
+  appendEvent,
+  getAggregateEvents,
+  getContractEvents,
+  countContractEvents,
+  getEventById,
+  getAggregateVersion,
+  EventTypes,
+  AggregateTypes,
+} from "./event-store.js";
 
 // Rights Management System
 export {

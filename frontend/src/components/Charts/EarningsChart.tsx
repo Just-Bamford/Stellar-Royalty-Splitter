@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { TimePoint } from '../../hooks/useChartData';
+import { formatDateTime } from '../../utils/format';
 
 export interface EarningsChartProps {
   data: TimePoint[];
@@ -19,7 +20,7 @@ export interface EarningsChartProps {
 function formatDate(date: string): string {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return date;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return formatDateTime(d, { month: 'short', day: 'numeric' });
 }
 
 export function EarningsChart({ data, height = 280, currency = 'USD' }: EarningsChartProps) {

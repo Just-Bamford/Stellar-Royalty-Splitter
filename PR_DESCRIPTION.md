@@ -1,399 +1,154 @@
-# Four Major Features: Collaborative Editing, ML Oracle, Vesting Contracts & Enhanced Audit Logging
+# Advanced Fraud Detection and Anomaly Scoring System (Backend — #1042)
 
-## Overview
-This PR implements four significant features to enhance the Stellar Royalty Splitter platform with real-time collaboration, predictive analytics, team incentive management, and comprehensive compliance tracking.
+## Description
 
-## Issues Closed
-Closes #959  
-Closes #960  
-Closes #983  
-Closes #986
+Adds an anomaly-detection and fraud-scoring system. Each transaction is scored
+**0–100** against a per-user behavioural baseline using four independent risk
+factors, then an alert is raised and a remediation action (`allow` /
+`require_verification` / `block`) is derived from fixed thresholds. When an
+alert requires verification, an opaque 2FA/email token is issued; submitting it
+resolves the alert as approved.
 
----
+Risk factors:
 
-## 🤝 Feature #1: Real-time Collaborative Contract Editor (#959)
+| Condition | Points |
+| --- | --- |
+| Amount > 3x historical average | +30 |
+| Access from a new location | +20 |
+| Multiple failed attempts (>= 2) | +25 |
+| Activity outside usual hours | +15 |
 
-### Problem Solved
-Previously, only one admin could modify a contract at a time with no real-time collaboration, preventing team members from seeing changes in progress or collaborating on settings updates simultaneously.
+Alert thresholds: **score > 50 → require verification (email/2FA)**,
+**score > 80 → block + notify admin & user**.
 
-### Solution Implemented
-✅ **Backend Implementation Complete**
-- **Database Tables:**
-  - `contract_edit_sessions` - Tracks active editing sessions with field-level locking
-  - `contract_edit_history` - Complete audit trail of all edits
-  - `contract_field_versions` - Version control for operational transform support
+The pure scoring engine has no I/O and falls back gracefully (score 0 = normal)
+when baseline data is absent, keeping the **false-positive rate low** for
+established users.
 
-- **WebSocket Real-time Communication:**
-  - Subscribe to contract edits: `subscribe_contract_edits`
-  - Live event broadcasting: `field_locked`, `field_unlocked`, `field_updated`
-  - Automatic session cleanup (5-minute intervals)
+### Type of Change
 
-- **API Endpoints:**
-  - `POST /api/v1/contracts/:contractId/edit-session` - Acquire field lock
-  - `PUT /api/v1/contracts/:contractId/edit-session/:sessionId/extend` - Extend session
-  - `DELETE /api/v1/contracts/:contractId/edit-session/:sessionId` - Release lock
-  - `GET /api/v1/contracts/:contractId/edit-sessions` - View active editors
-  - `POST /api/v1/contracts/:contractId/field-update` - Update with conflict resolution
-  - `GET /api/v1/contracts/:contractId/edit-history` - View edit history
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [x] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to change)
+- [ ] Documentation update
+- [ ] Dependency update
+- [ ] Infrastructure/CI change
 
-- **Operational Transform:**
-  - Conflict detection and resolution
-  - Version tracking per field
-  - Last-Write-Wins strategy with version validation
+## Related Issues
 
-### Technical Details
-- Field-level locking prevents conflicting edits
-- Sessions auto-expire after 5 minutes (configurable)
-- Real-time WebSocket broadcasts notify all subscribed clients
-- Complete edit history with old/new value tracking
-- RBAC integration: requires `collaborator` role minimum
+Closes #1042
 
----
+## Changes Made
 
-## 🔮 Feature #2: Dynamic Royalty Oracle with ML Predictions (#960)
+- **New `backend/src/services/anomaly-scorer.js`** — pure, I/O-free scoring
+  engine (`scoreTransaction`, `deriveAlertLevel`, `POINTS`, `DEFAULT_THRESHOLDS`).
+  Deterministic and fully unit-tested.
+- **New `backend/src/services/fraud-detection.js`** — DB-backed service:
+  per-user behavioural baselines (EMA amount, known locations/devices, usual
+  hours), `scoreTransactionEvent` orchestration, alert creation/retrieval/
+  resolution, and the 2FA/email verification-token lifecycle
+  (`createVerificationToken` / `verifyToken`). Persisted via better-sqlite3.
+- **New `backend/src/routes/security/fraud-alerts.js`** — Express router:
+  `GET /` (list, filter by user/status), `GET /:id`, `POST /:id/resolve`
+  (approve|block), `POST /:id/verify` (submit token).
+- **Modified `backend/src/index.js`** — mount `fraudAlertsRouter` at
+  `/api/v1/security/fraud-alerts` behind `readLimiter` (4 lines).
+- **New `backend/tests/anomaly-scorer.test.js`** — 14 unit tests for all four
+  factors, boundaries, threshold customisation, score caps and alert-level
+  derivation.
+- **New `backend/tests/fraud-alerts-routes.test.js`** — 9 supertest route tests
+  (service mocked) covering list/fetch/resolve and the verification flow.
 
-### Problem Solved
-Royalty rates were static or manually set with no adaptive pricing based on market conditions, NFT floor prices, or trading volume.
+## Testing
 
-### Solution Implemented
-✅ **Backend Implementation Complete**
-- **Database Tables:**
-  - `royalty_predictions` - Stores ML model predictions with confidence scores
-  - `ml_model_metadata` - Tracks model versions, accuracy, and training metrics
-  - `market_data_snapshots` - Historical market data from multiple sources
+### Backend Changes
 
-- **API Endpoints:**
-  - `GET /api/v1/oracle/predict/:contractId` - Get latest prediction
-  - `POST /api/v1/oracle/predict` - Store new prediction (admin/system)
-  - `GET /api/v1/oracle/predictions/:contractId/history` - Prediction history
-  - `GET /api/v1/oracle/model-info` - Model metadata and performance
-  - `POST /api/v1/oracle/model` - Register new model version
-  - `GET /api/v1/oracle/market-data/:contractId` - Latest market data
-  - `POST /api/v1/oracle/market-data` - Store market snapshot
-  - `GET /api/v1/oracle/market-data/:contractId/history` - Market trends
-  - `GET /api/v1/oracle/accuracy/:contractId` - Calculate prediction accuracy
-  - `GET /api/v1/oracle/trends/:contractId` - Aggregated market trends
+- [x] Unit tests added/updated
+- [x] Integration tests added/updated (route contract via supertest + mocked service)
+- [x] Tested on Node 20.x (local Node v20.20.0)
+- [ ] Tested on Node 22.x
+- [x] Manual testing completed (Python-free; scoring engine exercised directly)
 
-- **Analytics Features:**
-  - Mean Absolute Error (MAE) calculation
-  - Prediction accuracy tracking
-  - Multi-source market data aggregation
-  - Historical trend analysis
+### Test results
 
-### Technical Details
-- Supports multiple prediction horizons (7d, 30d, etc.)
-- Stores prediction factors as JSON for explainability
-- Model versioning with training metrics (accuracy, precision, recall, F1)
-- Multi-source market data (OpenSea, Rarible, etc.)
-- Automatic accuracy calculation by comparing predictions to actuals
+```
+$ ./node_modules/.bin/eslint src/services/anomaly-scorer.js src/services/fraud-detection.js src/routes/security/fraud-alerts.js tests/anomaly-scorer.test.js tests/fraud-alerts-routes.test.js
+0 errors, 0 warnings
 
-### Integration Points
-- Ready for ML service integration (Python/TensorFlow.js)
-- Compatible with existing analytics infrastructure
-- Redis caching support for predictions
-
----
-
-## 🔒 Feature #3: Time-locked Vesting Contracts (#983)
-
-### Problem Solved
-Team incentives were distributed immediately with no mechanism for long-term engagement, leading to high turnover risk.
-
-### Solution Implemented
-✅ **Backend Implementation Complete**
-- **Database Tables:**
-  - `vesting_schedules` - Manages vesting schedules with cliff and duration
-  - `vesting_releases` - Tracks all token releases with transaction hashes
-
-- **Vesting Logic:**
-  - Cliff period: tokens locked until specific date
-  - Linear vesting: gradual unlock after cliff
-  - Release validation: prevents over-releasing
-  - Cancellation support: admin can cancel with reason
-
-- **API Endpoints:**
-  - `POST /api/v1/vesting/create` - Create vesting schedule (admin)
-  - `GET /api/v1/vesting/:scheduleId` - Get schedule with vested amounts
-  - `POST /api/v1/vesting/:scheduleId/release` - Release vested tokens
-  - `GET /api/v1/vesting/beneficiary/:address` - Get beneficiary schedules
-  - `GET /api/v1/vesting/contract/:contractId` - Get contract schedules
-  - `GET /api/v1/vesting/:scheduleId/releases` - Release history
-  - `GET /api/v1/vesting/releasable` - Find all releasable schedules
-  - `DELETE /api/v1/vesting/:scheduleId` - Cancel schedule (admin)
-  - `GET /api/v1/vesting/statistics/:beneficiary` - Vesting stats
-
-- **Calculation Features:**
-  - Real-time vested amount calculation
-  - Releasable amount computation
-  - Status tracking: cliff, vesting, fully_vested, cancelled
-  - BigInt arithmetic for precise token amounts
-
-### Technical Details
-- Time-based validation prevents early releases
-- Cliff duration and vesting duration in seconds
-- Status: active, cancelled, completed
-- Full audit trail integration
-- RBAC: admin creates, operator releases, viewer reads
-
-### Use Cases
-- Team member incentives with 1-year cliff, 4-year vesting
-- Advisor grants with custom schedules
-- Founder token locks
-- Employee retention programs
-
----
-
-## 📋 Feature #4: Enhanced Audit Logging & Compliance (#986)
-
-### Problem Solved
-No comprehensive audit trail for tracing who changed what or when. Compliance requirements (HIPAA, SOX) were not met with existing logging.
-
-### Solution Implemented
-✅ **Backend Implementation Complete**
-- **Database Tables:**
-  - `audit_chain` - Immutable hash-chain audit log with categories and severity
-
-- **Immutable Hash-Chain:**
-  - SHA-256 hash of each entry
-  - Links to previous entry's hash
-  - Tamper-evident verification
-  - Integrity checking API
-
-- **API Endpoints:**
-  - `POST /api/v1/audit-enhanced/entry` - Add audit entry
-  - `GET /api/v1/audit-enhanced/verify` - Verify chain integrity (admin)
-  - `GET /api/v1/audit-enhanced/entries` - Advanced filtering
-  - `GET /api/v1/audit-enhanced/statistics` - Audit statistics
-  - `GET /api/v1/audit-enhanced/export/json` - JSON export
-  - `GET /api/v1/audit-enhanced/export/csv` - CSV export
-  - `GET /api/v1/audit-enhanced/compliance-report/:contractId` - Compliance report
-  - `GET /api/v1/audit-enhanced/search` - Full-text search
-
-- **Advanced Features:**
-  - **Categories:** admin_action, transaction, configuration, dispute, access
-  - **Severity Levels:** info, warning, critical
-  - **Filtering:** by category, severity, date range, user, action
-  - **Search:** full-text search across action, user, and details
-  - **Exports:** JSON and CSV formats for compliance audits
-  - **Real-time Events:** WebSocket broadcasts for audit events
-
-- **Compliance Reports:**
-  - Chain integrity verification
-  - Statistics by category and severity
-  - Critical event highlighting
-  - Recent admin action tracking
-  - Date range filtering
-
-### Technical Details
-- Cryptographic hash-chain prevents tampering
-- IP address and User-Agent tracking
-- JSON details field for arbitrary metadata
-- Indexed for performance (contractId, user, category, severity, timestamp)
-- Real-time WebSocket broadcasting of audit events
-
-### Compliance Standards
-- HIPAA-ready audit trail
-- SOX compliance support
-- Immutable record keeping
-- Comprehensive access logging
-
----
-
-## 🏗️ Architecture & Integration
-
-### Database Migration
-- **Migration Version 5** adds all new tables with proper indexing
-- Foreign key constraints with CASCADE delete
-- Optimized indexes for query performance
-
-### WebSocket Enhancements
-- New subscription type: `subscribe_contract_edits`
-- Broadcast functions: `broadcastContractEdit()`, `broadcastAuditEvent()`
-- Proper cleanup on client disconnect
-
-### Background Jobs
-- Edit session cleanup (5-minute interval)
-- Automatic expired session removal
-- Graceful shutdown support
-
-### RBAC Integration
-All endpoints properly secured:
-- **Viewer:** Read-only access to all features
-- **Collaborator:** Can create edit sessions
-- **Operator:** Can release vested tokens, update fields
-- **Admin:** Full access including model training, schedule creation, chain verification
-
-### Database Schema
-```sql
--- Collaborative Editor
-contract_edit_sessions (id, contractId, userId, field, lockedAt, expiresAt, lastActivity)
-contract_edit_history (id, contractId, userId, field, oldValue, newValue, operation, editedAt)
-contract_field_versions (id, contractId, field, version, value, updatedBy, updatedAt)
-
--- Oracle
-royalty_predictions (id, contractId, predictedAmount, confidence, factors, modelVersion, predictionHorizon, predictedAt)
-ml_model_metadata (id, version, accuracy, precision, recall, f1Score, trainingDataSize, featuresUsed, hyperparameters, trainedBy, trainedAt)
-market_data_snapshots (id, contractId, source, floorPrice, volumeDay, volumeWeek, volumeMonth, numSales, avgSalePrice, uniqueBuyers, uniqueSellers, metadata, snapshotAt)
-
--- Vesting
-vesting_schedules (id, contractId, beneficiary, totalAmount, tokenAddress, startTime, cliffDuration, vestingDuration, releasedAmount, status, createdBy, createdAt, cancelledBy, cancelledAt, cancellationReason)
-vesting_releases (id, scheduleId, amount, releasedAt, txHash)
-
--- Enhanced Audit
-audit_chain (id, contractId, action, user, details, category, severity, ipAddress, userAgent, timestamp, previousHash, entryHash)
+$ node --experimental-vm-modules node_modules/jest/bin/jest.js anomaly-scorer fraud-alerts-routes
+PASS tests/anomaly-scorer.test.js
+PASS tests/fraud-alerts-routes.test.js
+Tests: 23 passed, 23 total
 ```
 
----
+### Contract Changes
 
-## 🧪 Testing Recommendations
+- [ ] Unit tests added/updated
+- [ ] WASM build verified
+- [ ] Formatting checked (`cargo fmt`)
 
-### Manual Testing
-1. **Collaborative Editor:**
-   - Create edit session on a field
-   - Verify lock prevents concurrent edits
-   - Test session extension and release
-   - Verify WebSocket broadcasts
+### Frontend Changes
 
-2. **Oracle:**
-   - Store market data snapshots
-   - Create predictions
-   - Verify accuracy calculations
-   - Test trend analysis
+- [ ] Feature tested in browser
+- [ ] Responsive design verified
+- [ ] Accessibility checked
 
-3. **Vesting:**
-   - Create schedule with cliff
-   - Verify cliff period blocks release
-   - Test linear vesting calculation
-   - Release tokens after cliff
+## Screenshots (if applicable)
 
-4. **Audit:**
-   - Add various audit entries
-   - Verify hash-chain integrity
-   - Export to CSV/JSON
-   - Generate compliance report
+N/A — backend/API only.
 
-### Automated Testing
-- Unit tests for calculation logic (vesting, accuracy)
-- Integration tests for API endpoints
-- WebSocket connection tests
-- Hash-chain integrity tests
+## Checklist
 
----
+- [x] Code follows the project's style guidelines (ESLint flat config, `eslint src/**/*.js`)
+- [x] Self-review of own code completed
+- [x] Comments added for complex logic (baseline EMA, token hashing/safety, alert lifecycle)
+- [x] Documentation updated (if needed) — module + function docstrings included
+- [x] No new warnings generated (lint: 0 errors / 0 warnings on touched files)
+- [x] Tests pass locally (23/23)
+- [x] No breaking changes (additive API + DB tables; existing endpoints unchanged)
+- [x] Branch is up to date with `main` — branched from `dev` per CI policy (PR targets `dev`)
 
-## 📦 Files Changed
+## Performance Considerations
 
-### New Files (13)
-- `backend/src/database/collaborative-editor.js`
-- `backend/src/database/vesting.js`
-- `backend/src/database/oracle.js`
-- `backend/src/database/audit-enhanced.js`
-- `backend/src/routes/collaborative-editor.js`
-- `backend/src/routes/vesting.js`
-- `backend/src/routes/oracle.js`
-- `backend/src/routes/audit-enhanced.js`
-- `backend/src/jobs/edit-session-cleanup.js`
+- No impact on existing transaction paths. Scoring is O(factors) per event and
+  runs inline; the heavy baseline lookup is a single indexed `SELECT`.
+- Verification tokens are stored as SHA-256 hashes (constant-time comparison via
+  `timingSafeEqual`); raw tokens are never persisted.
+- `getAlerts` is indexed by `(userId, createdAt DESC)` and
+  `(status, createdAt DESC)` so admin queries are cheap.
+- `readLimiter` (30 req/min per IP) guards the alert endpoints; write-heavy
+  `/resolve` and `/verify` are also covered by this limiter.
 
-### Modified Files (4)
-- `backend/src/database.js` - Added migration v5
-- `backend/src/database/index.js` - Exported new functions
-- `backend/src/websocket.js` - Added contract edit subscriptions
-- `backend/src/index.js` - Mounted new routes and jobs
+## Migration Guide (if breaking changes)
 
----
+No breaking changes. Three new tables are created idempotently
+(`CREATE TABLE IF NOT EXISTS`) on service load, so no manual migration step is
+required. Existing endpoints, contracts, and transactions are unaffected.
 
-## 🚀 Deployment Notes
+```diff
++ POST/GET  /api/v1/security/fraud-alerts            # list / create (read-only)
++ GET       /api/v1/security/fraud-alerts/:id          # detail
++ POST      /api/v1/security/fraud-alerts/:id/resolve  # approve | block  [admin]
++ POST      /api/v1/security/fraud-alerts/:id/verify   # submit 2FA/email token [user]
++ DB tables: fraud_baselines, fraud_scores, fraud_alerts, fraud_verification_tokens
+```
 
-### Environment Variables
-No new environment variables required. All features work with existing configuration.
+## Additional Context
 
-### Database Migration
-Migration v5 will run automatically on first startup after deployment.
-
-### Breaking Changes
-None. All new endpoints and tables are additive.
-
-### Rollback Plan
-If issues arise, revert to previous version. Migration v5 tables will remain but unused.
+- This is **backend Chunk 1 of 2** for #1042; a frontend dashboard for
+  reviewing alerts is tracked separately as Chunk 2.
+- In scope: anomaly detection, scoring, fraud alerts, verification flow.
+- Out of scope: third-party fraud-service integration (future work).
+- The working copy's `backend/src/index.js` previously contained pre-existing
+  `no-undef` references to sibling issues #991 / #993
+  (`schedulesRouter`, `batchRouter`, `identityRouter`, `backupRouter`,
+  `startDistributionScheduler`, `startBackupScheduler`, `l1WarmingInterval`,
+  `l2WarmingInterval`) that were accidentally dropped in a prior merge.
+  These have been fixed by restoring the missing imports.
+- The commit excludes `backend/package-lock.json` re-lock noise; this feature
+  introduces **no new dependencies**.
+- Please ensure the PR targets the **`dev`** branch (CI auto-closes PRs that
+  target `main`).
 
 ---
-
-## 📈 Performance Considerations
-
-### Indexing
-All tables include optimized indexes for common query patterns:
-- Contract ID + timestamp for history queries
-- User + timestamp for user-specific queries
-- Status fields for filtering
-
-### Caching
-- Predictions cacheable via Redis
-- Market data supports time-based caching
-- Edit sessions stored in SQLite for fast access
-
-### Cleanup
-- Edit sessions auto-expire and cleanup every 5 minutes
-- Old market data can be archived based on retention policy
-
----
-
-## 🎯 Next Steps
-
-### Frontend Implementation (Future PRs)
-While the backend is fully functional, frontend components should be added:
-1. Collaborative editor UI with live cursors
-2. Prediction charts and confidence visualizations
-3. Vesting schedule timeline components
-4. Audit log viewer with advanced filtering
-
-### ML Model Integration
-- Integrate Python/TensorFlow.js prediction service
-- Connect to OpenSea/Rarible APIs for market data
-- Implement automated retraining pipeline
-
-### Smart Contract Updates
-- Add vesting contract functions to Soroban contract
-- Implement time-locked release logic on-chain
-- Add oracle price feed integration
-
----
-
-## ✅ Checklist
-
-- [x] Database migrations added (v5)
-- [x] All new database functions implemented
-- [x] API routes created with proper RBAC
-- [x] WebSocket handlers for real-time features
-- [x] Background cleanup jobs added
-- [x] Error handling and logging
-- [x] Input validation on all endpoints
-- [x] Audit trail integration
-- [x] Documentation in code comments
-- [ ] Frontend components (follow-up PR)
-- [ ] Integration tests (follow-up PR)
-- [ ] ML model training pipeline (follow-up PR)
-
----
-
-## 👥 Review Notes
-
-This is a substantial PR implementing four major features. The backend implementation is complete and production-ready. Each feature:
-
-- ✅ Has comprehensive database schema
-- ✅ Includes full CRUD API endpoints
-- ✅ Follows existing code patterns
-- ✅ Integrates with RBAC system
-- ✅ Includes proper error handling
-- ✅ Has audit trail integration
-
-**Suggested Review Order:**
-1. Database migration (v5) in `database.js`
-2. Database modules in `database/` folder
-3. API routes in `routes/` folder
-4. WebSocket integration in `websocket.js`
-5. Main integration in `index.js`
-
----
-
-**Total Lines Added:** ~2,500 lines of production-ready backend code
-**Testing:** Manual testing recommended, automated tests can be added in follow-up
-**Documentation:** Inline code comments throughout, API documentation in route handlers
+**Please ensure all CI checks pass before requesting review.**

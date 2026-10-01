@@ -89,6 +89,7 @@
     "admin": "Admin",
     "health": "Health",
     "disputes": "Disputes",
+    "webhooks": "Webhooks",
     "earnings": "Earnings",
     "suspension": "Suspension",
     "settings": "Settings",
