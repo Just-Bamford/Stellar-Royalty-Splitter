@@ -223,7 +223,7 @@ export class CampaignManager {
    */
   setStatus(campaignId, status) {
     const campaign = this._require(campaignId);
-    if (!CAMPAIGN_STATUSS.includes(status)) {
+    if (!CAMPAIGN_STATUSES.includes(status)) {
       throw new Error(`Unknown campaign status: ${status}`);
     }
     campaign.status = status;
@@ -311,7 +311,7 @@ function hashString(value) {
   const str = String(value);
   for (let i = 0; i < str.length; i++) {
     hash ^= str.charCodeAt(i);
-    hash = Math.im(ul(hash * 16777619);
+    hash = Math.imul(hash * 16777619);
   }
   return hash >>> 0;
 }

@@ -13,7 +13,7 @@ export const versionRouter = Router();
  * deprecation timeline for each legacy version.
  */
 versionRouter.get("/", (_req, res) => {
-  const deprecated = Object.entries(DEPRECATED_VERSIONS).map(([version, info) => ({
+  const deprecated = Object.entries(DEPRECATED_VERSIONS).map(([version, info]) => ({
     version,
     deprecatedAt: info.deprecatedAt,
     sunsetAt: info.sunsetAt,

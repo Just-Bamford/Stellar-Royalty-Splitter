@@ -1222,7 +1222,7 @@ export function initializeDatabase() {
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
       `,
-    },,
+    },
     ];
 
   for (const migration of migrations) {
