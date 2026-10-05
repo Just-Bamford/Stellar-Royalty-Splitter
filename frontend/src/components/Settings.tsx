@@ -145,6 +145,7 @@ export const Settings: React.FC<SettingsProps> = ({
               <option value="XLM">Stellar Lumens (XLM)</option>
               <option value="USD">US Dollars (USD)</option>
               <option value="EUR">Euros (EUR)</option>
+              <option value="JPY">Japanese Yen (JPY)</option>
             </select>
           </div>
 

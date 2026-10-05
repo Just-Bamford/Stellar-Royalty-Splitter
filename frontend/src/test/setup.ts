@@ -99,12 +99,19 @@ vi.mock("react-i18next", () => {
 vi.mock("../context/NotificationContext", () => ({
   useNotifications: () => ({
     notifications: [],
+    archivedNotifications: [],
     unreadCount: 0,
     addNotification: vi.fn(),
-    markAllRead: vi.fn(),
-    clearAll: vi.fn(),
-    markRead: vi.fn(),
-    deleteNotification: vi.fn(),
+    markAsRead: vi.fn(),
+    markAsUnread: vi.fn(),
+    markAllAsRead: vi.fn(),
+    archiveNotification: vi.fn(),
+    unarchiveNotification: vi.fn(),
+    clearNotification: vi.fn(),
+    clearAllNotifications: vi.fn(),
+    searchNotifications: vi.fn(() => []),
+    preferences: null,
+    setPreferences: vi.fn(),
   }),
   NotificationProvider: ({ children }: any) => children,
 }));

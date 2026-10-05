@@ -1,4 +1,4 @@
-import { logger } from '../utils/logger.js';
+import logger from '../logger.js';
 
 const STARGATE_API =
   process.env.STARGATE_API_URL || 'https://api.stargate.finance';

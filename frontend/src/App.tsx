@@ -9,6 +9,7 @@ import {
   useKeyboardShortcuts,
   type Shortcut,
 } from "./hooks/useKeyboardShortcuts";
+import MarketplaceIntegration from './components/MarketplaceIntegration';
 import { useWebSocket } from "./hooks/useWebSocket";
 import { analytics } from "./lib/analytics";
 
@@ -19,6 +20,7 @@ import { Settings } from "./components/Settings";
 import WalletConnect from "./components/WalletConnect";
 import InitializeForm from "./components/InitializeForm";
 import DistributeForm from "./components/DistributeForm";
+import BatchClaiming from "./components/BatchClaiming";
 import { TransactionHistory } from "./components/TransactionHistory";
 import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
@@ -31,14 +33,17 @@ import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
 import { DisputeDashboard } from "./components/DisputeDashboard";
 import { ImpactDashboard } from "./components/ImpactDashboard";
+import { WebhookManager } from "./components/WebhookManager";
 import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
 import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
+import { TokenomicsSimulator } from "./components/TokenomicsSimulator";
 import { ContractTimeline } from "./components/ContractTimeline";
 import { ContributorSuspension } from "./components/ContributorSuspension";
 import { BulkContributorUpload } from "./components/BulkContributorUpload";
 import { ContributorTaxInfo } from "./components/ContributorTaxInfo";
 import { TaxComplianceReport } from "./components/TaxComplianceReport";
 import { PaymentHoldManager } from "./components/PaymentHoldManager";
+import { FeatureFlagManager } from "./components/FeatureFlagManager";
 import { ContributorOnboardingChecklist } from "./components/ContributorOnboardingChecklist";
 import { MultiContractEarnings } from "./components/MultiContractEarnings";
 import { UserProfile } from "./components/UserProfile";
@@ -245,7 +250,8 @@ export default function App() {
       localStorage.setItem("lastContractId", value);
     }
   }
-
+  
+<MarketplaceIntegration />
   function closeHelp() {
     localStorage.setItem("srs_help_seen", "1");
     setShowHelp(false);
@@ -409,6 +415,8 @@ export default function App() {
           ),
           "Earnings Forecast",
         );
+      case "tokenomics":
+        return withErrorBoundary(<TokenomicsSimulator />, "Tokenomics Simulator");
       case "timeline":
         return withErrorBoundary(
           contractId ? (
@@ -445,6 +453,10 @@ export default function App() {
                 contractId={contractId}
                 walletAddress={walletAddress}
                 onSuccess={() => {}}
+              />
+              <BatchClaiming
+                contractId={contractId}
+                walletAddress={walletAddress}
               />
             </div>
           ) : (
@@ -485,6 +497,19 @@ export default function App() {
           ),
           "Environmental Impact",
         );
+      case "webhooks":
+        return withErrorBoundary(
+          contractId ? (
+            <div className="page-section">
+              <WebhookManager contractId={contractId} />
+            </div>
+          ) : (
+            <div className="page-empty">
+              <p>Please select a contract first</p>
+            </div>
+          ),
+          "Webhook Integrations",
+        );
       case "earnings":
         return withErrorBoundary(
           walletAddress ? (
@@ -510,6 +535,8 @@ export default function App() {
           ),
           "Contributor Suspension",
         );
+      case "feature-flags":
+        return withErrorBoundary(<FeatureFlagManager />, "Feature Flags");
       case "settings":
         return withErrorBoundary(
           <Settings

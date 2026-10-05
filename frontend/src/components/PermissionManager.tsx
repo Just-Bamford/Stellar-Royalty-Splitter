@@ -1,0 +1,27 @@
+import { FormEvent, useCallback, useEffect, useState } from "react";
+
+type User = { id: number; walletAddress: string; roles: string[]; permissions: string[] };
+type AuditEvent = { id: number; action: string; affectedUserId: number; timestamp: string; expiresAt?: string };
+type Matrix = Record<string, string[]>;
+const API = "/admin/permissions";
+
+async function request(path: string, options?: RequestInit) {
+  const response = await fetch(`${API}${path}`, { ...options, headers: { "Content-Type": "application/json", ...options?.headers } });
+  const data = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.message ?? data?.error ?? "Permission request failed");
+  return data;
+}
+
+/** Admin-only management UI. The API remains the authorization boundary. */
+export default function PermissionManager() {
+  const [users, setUsers] = useState<User[]>([]); const [matrix, setMatrix] = useState<Matrix>({});
+  const [audit, setAudit] = useState<AuditEvent[]>([]); const [selected, setSelected] = useState<User | null>(null);
+  const [role, setRole] = useState("viewer"); const [permission, setPermission] = useState(""); const [expiresAt, setExpiresAt] = useState("");
+  const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
+  const load = useCallback(async () => { setLoading(true); setError(""); try { const [usersData, matrixData, auditData] = await Promise.all([request("/users"), request("/matrix"), request("/audit")]); setUsers(usersData.users); setMatrix(matrixData.matrix); setAudit(auditData.events); } catch (err) { setError(err instanceof Error ? err.message : "Unable to load permissions"); } finally { setLoading(false); } }, []);
+  useEffect(() => { void load(); }, [load]);
+  const mutate = async (action: () => Promise<unknown>, confirmation: string) => { if (!selected || !window.confirm(confirmation)) return; setPending(true); setError(""); try { await action(); setMessage("Permission changes saved."); await load(); } catch (err) { setError(err instanceof Error ? err.message : "Permission update failed"); } finally { setPending(false); } };
+  const grantTemporary = (event: FormEvent) => { event.preventDefault(); if (!selected || !permission || !expiresAt) { setError("Choose a permission and future expiration."); return; } void mutate(() => request(`/users/${selected.id}/temporary-permissions`, { method: "POST", body: JSON.stringify({ permission, expiresAt: new Date(expiresAt).toISOString() }) }), "Grant this time-limited permission?"); };
+  if (loading) return <section aria-busy="true">Loading permission management…</section>;
+  return <section aria-labelledby="permission-manager-title"><h2 id="permission-manager-title">Permission management</h2>{error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}<div className="permission-manager"><aside><h3>Collaborators</h3>{users.length === 0 ? <p>No users found.</p> : <ul>{users.map((user) => <li key={user.id}><button type="button" onClick={() => { setSelected(user); setMessage(""); }} aria-pressed={selected?.id === user.id}>{user.walletAddress || `User ${user.id}`}</button><small>{user.roles.join(", ") || "No assigned roles"}</small></li>)}</ul>}</aside><main>{selected ? <><h3>{selected.walletAddress || `User ${selected.id}`}</h3><p>Roles: {selected.roles.join(", ") || "None"}</p><p>Effective permissions: {selected.permissions.join(", ") || "None"}</p><label>Assign role <select value={role} disabled={pending} onChange={(event) => setRole(event.target.value)}>{Object.keys(matrix).map((name) => <option key={name}>{name}</option>)}</select></label><button disabled={pending} type="button" onClick={() => void mutate(() => request(`/users/${selected.id}/roles`, { method: "PUT", body: JSON.stringify({ role }) }), `Assign ${role} to this user?`)}>Assign role</button><ul>{selected.roles.map((name) => <li key={name}>{name} <button disabled={pending} type="button" onClick={() => void mutate(() => request(`/users/${selected.id}/roles/${name}`, { method: "DELETE" }), `Remove ${name} from this user?`)}>Remove</button></li>)}</ul><form onSubmit={grantTemporary}><h3>Temporary permission</h3><label>Permission <select required value={permission} disabled={pending} onChange={(event) => setPermission(event.target.value)}><option value="">Select permission</option>{Array.from(new Set(Object.values(matrix).flat())).map((name) => <option key={name}>{name}</option>)}</select></label><label>Expires at <input required type="datetime-local" value={expiresAt} disabled={pending} onChange={(event) => setExpiresAt(event.target.value)} /></label><button disabled={pending} type="submit">Grant temporarily</button></form></> : <p>Select a collaborator to inspect or manage their roles.</p>}</main></div><h3>Recent permission changes</h3>{audit.length === 0 ? <p>No permission changes recorded.</p> : <ul>{audit.map((event) => <li key={event.id}>{event.action} for user {event.affectedUserId} at {new Date(event.timestamp).toLocaleString()} {event.expiresAt ? `(expires ${new Date(event.expiresAt).toLocaleString()})` : ""}{selected && <button disabled={pending} type="button" onClick={() => void mutate(() => request(`/audit/${event.id}/rollback`, { method: "POST" }), "Roll back this permission change? This creates a new audit event.")}>Rollback</button>}</li>)}</ul>}</section>;
+}
