@@ -205,6 +205,9 @@ describe("Chaos Engineering - Fault Injection", () => {
     it("should inject latency into operations", async () => {
       enableChaos({
         rpcFailureRate: 0,
+        timeoutRate: 0,
+        dbFailureRate: 0,
+        networkFailureRate: 0,
         latencyMs: 100,
         latencyJitter: 0, // No jitter for predictable timing
       });
@@ -220,6 +223,9 @@ describe("Chaos Engineering - Fault Injection", () => {
     it("should apply jitter to latency", async () => {
       enableChaos({
         rpcFailureRate: 0,
+        timeoutRate: 0,
+        dbFailureRate: 0,
+        networkFailureRate: 0,
         latencyMs: 100,
         latencyJitter: 0.5, // ±50% variation
       });

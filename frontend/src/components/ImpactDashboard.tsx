@@ -380,3 +380,5 @@ export function ImpactDashboard({ contractId, walletAddress }: ImpactDashboardPr
     </div>
   );
 }
+
+export default ImpactDashboard;

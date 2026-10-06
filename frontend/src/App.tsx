@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { Navigation } from "./components/Navigation";
 import HelpModal from "./components/HelpModal";
 import { OfflineIndicator } from "./components/OfflineIndicator";
@@ -32,7 +32,14 @@ import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
 import { DisputeDashboard } from "./components/DisputeDashboard";
-import { ImpactDashboard } from "./components/ImpactDashboard";
+// Lazy-loaded to keep the initial bundle under the performance budget
+// (e2e/performance.spec.ts, 9.5 MB). The impact page is not on the initial
+// route, so code-splitting it avoids penalizing first-load transfer size.
+const ImpactDashboard = lazy(() =>
+  import("./components/ImpactDashboard").then((m) => ({
+    default: m.ImpactDashboard,
+  })),
+);
 import { WebhookManager } from "./components/WebhookManager";
 import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
 import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
@@ -488,7 +495,9 @@ export default function App() {
         return withErrorBoundary(
           contractId ? (
             <div className="page-section">
-              <ImpactDashboard contractId={contractId} walletAddress={walletAddress} />
+              <Suspense fallback={<div className="page-empty"><p>Loading environmental impact...</p></div>}>
+                <ImpactDashboard contractId={contractId} walletAddress={walletAddress} />
+              </Suspense>
             </div>
           ) : (
             <div className="page-empty">
