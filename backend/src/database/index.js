@@ -256,7 +256,7 @@ export {
   getReferralLinkByCode,
   registerReferral,
   activateReferral,
-  getReferralBy Referred,
+  getReferralByReferred,
   getReferralsByReferrer,
   countReferralsByReferrer,
   awardReferralBonus,
@@ -605,4 +605,21 @@ export {
   createReceiptRecord,
   listReceiptsByExpense,
 } from "./treasury-schema.js";
+
+// Environmental impact tracking and carbon offsets (#1064)
+export {
+  recordEmission,
+  getUserEmissions,
+  getUserEmissionsByDay,
+  getProjectEmissions,
+  getProjectEmissionsByDay,
+  recordOffset,
+  getUserOffsets,
+  listUserOffsets,
+  countUserOffsets,
+  getProjectOffsets,
+  getCarbonSettings,
+  upsertCarbonSettings,
+  listAutoOffsetWallets,
+} from "./carbon.js";
 

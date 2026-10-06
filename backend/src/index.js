@@ -123,9 +123,13 @@ import { eventsRouter, commandsRouter } from "./routes/events.js";
 import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
 import { rightsRouter } from "./routes/rights-management.js";
 import { treasuryRouter } from "./routes/treasury/index.js";
+import { carbonRouter } from "./routes/carbon.js";
 import { createTrafficShaper } from "./middleware/traffic-shaper.js";
 import { CapacityPlanner } from "./services/capacity-planner.js";
 import { crossChainRouter } from "./routes/cross-chain.js";
+import { attachFeatureFlags } from "./middleware/feature-flag-resolver.js";
+import { automationRouter } from "./routes/automation.js";
+import { featureFlagsRouter } from "./routes/feature-flags.js";
 
 // Initialize database on startup
 await initializeKeyManager({ scheduleRotation: true });
@@ -612,6 +616,10 @@ app.use("/api/v1/rights", rightsRouter);
 // DAO Treasury Management (#1076)
 app.use("/api/v1/treasury", writeLimiter);
 app.use("/api/v1/treasury", treasuryRouter);
+
+// Environmental impact tracking and carbon offsets (#1064)
+app.use("/api/v1/carbon", writeLimiter);
+app.use("/api/v1", carbonRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;

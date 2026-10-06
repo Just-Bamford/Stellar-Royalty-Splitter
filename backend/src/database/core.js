@@ -1175,6 +1175,54 @@ export function initializeDatabase() {
             ADD COLUMN channel_preferences TEXT NOT NULL DEFAULT '{}';
         `,
       },
+    {
+      // #1064: Environmental impact tracking — per-transaction emissions,
+      // offset purchases, and per-wallet auto-offset settings.
+      version: 28,
+      sql: `
+        CREATE TABLE IF NOT EXISTS carbon_emissions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          contractId TEXT NOT NULL,
+          txHash TEXT,
+          transactionId INTEGER,
+          operationCount INTEGER NOT NULL DEFAULT 1,
+          gramsCo2 REAL NOT NULL,
+          recordedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(contractId, txHash, walletAddress)
+        );
+        CREATE INDEX IF NOT EXISTS idx_carbon_emissions_wallet
+          ON carbon_emissions(walletAddress, recordedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_carbon_emissions_contract
+          ON carbon_emissions(contractId, recordedAt DESC);
+
+        CREATE TABLE IF NOT EXISTS carbon_offsets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          contractId TEXT,
+          tonnes REAL NOT NULL,
+          amountUsdCents INTEGER NOT NULL DEFAULT 0,
+          provider TEXT NOT NULL DEFAULT 'demo',
+          project TEXT NOT NULL DEFAULT 'mixed',
+          status TEXT NOT NULL DEFAULT 'completed'
+            CHECK(status IN ('pending', 'completed', 'failed')),
+          autoPurchase INTEGER NOT NULL DEFAULT 0,
+          txHash TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_carbon_offsets_wallet
+          ON carbon_offsets(walletAddress, createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_carbon_offsets_contract
+          ON carbon_offsets(contractId, createdAt DESC);
+
+        CREATE TABLE IF NOT EXISTS carbon_settings (
+          walletAddress TEXT PRIMARY KEY,
+          autoOffsetEnabled INTEGER NOT NULL DEFAULT 0,
+          offsetPercentage REAL NOT NULL DEFAULT 1.0,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `,
+    },
     ];
 
   for (const migration of migrations) {

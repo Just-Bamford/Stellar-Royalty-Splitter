@@ -13,7 +13,7 @@ import request from "supertest";
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const WALLET   = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const WALLET = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
 const TOKEN    = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
 const MOCK_EVENT = {
@@ -32,26 +32,30 @@ const MOCK_EVENT = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Suite 1 — database/event-store unit tests
 // ─────────────────────────────────────────────────────────────────────────────
+// NOTE: jest.unstable_mockModule + dynamic import() must run at module
+// top-level (top-level await). They cannot live inside describe() — the
+// callback is synchronous, so `await` there is a SyntaxError that aborts
+// the entire jest run.
+
+const prepareMock = jest.fn();
+const runMock = jest.fn();
+const getMock = jest.fn();
+const allMock = jest.fn(() => []);
+const countWriteMock = jest.fn();
+
+prepareMock.mockImplementation(() => ({ run: runMock, get: getMock, all: allMock }));
+runMock.mockReturnValue({ lastInsertRowid: 1 });
+getMock.mockReturnValue({ nextVersion: 1, v: 0 });
+
+await jest.unstable_mockModule("../src/database/core.js", () => ({
+  db: { prepare: prepareMock },
+  countWrite: countWriteMock,
+}));
+
+const { appendEvent, getAggregateVersion, EventTypes, AggregateTypes } =
+  await import("../src/database/event-store.js");
 
 describe("database/event-store — appendEvent", () => {
-  const prepareMock = jest.fn();
-  const runMock = jest.fn();
-  const getMock = jest.fn();
-  const allMock = jest.fn(() => []);
-  const countWriteMock = jest.fn();
-
-  prepareMock.mockImplementation(() => ({ run: runMock, get: getMock, all: allMock }));
-  runMock.mockReturnValue({ lastInsertRowid: 1 });
-  getMock.mockReturnValue({ nextVersion: 1, v: 0 });
-
-  await jest.unstable_mockModule("../src/database/core.js", () => ({
-    db: { prepare: prepareMock },
-    countWrite: countWriteMock,
-  }));
-
-  const { appendEvent, getAggregateVersion, EventTypes, AggregateTypes } =
-    await import("../src/database/event-store.js");
-
   beforeEach(() => jest.clearAllMocks());
 
   test("appendEvent returns eventId and version", () => {
@@ -102,11 +106,11 @@ describe("database/event-store — appendEvent", () => {
 // Suite 2 — projection unit tests (pure reducers, no mocks needed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("contractStateReducer — projection", () => {
-  const { contractStateReducer } = await import(
-    "../src/projections/contract-state-projection.js"
-  );
+const { contractStateReducer } = await import(
+  "../src/projections/contract-state-projection.js"
+);
 
+describe("contractStateReducer — projection", () => {
   const initial = { contractId: CONTRACT, distributions: [], collaborators: [], initialized: false };
 
   test("CONTRACT_INITIALIZED sets initialized=true and stores collaborators", () => {
@@ -171,11 +175,11 @@ describe("contractStateReducer — projection", () => {
   });
 });
 
-describe("earningsReducer — projection", () => {
-  const { earningsReducer } = await import(
-    "../src/projections/earnings-projection.js"
-  );
+const { earningsReducer } = await import(
+  "../src/projections/earnings-projection.js"
+);
 
+describe("earningsReducer — projection", () => {
   const initial = { contractId: CONTRACT, distributionCount: 0, lastDistributionAt: null, tokenIds: [] };
 
   test("increments distributionCount on DistributionInitiated", () => {
@@ -206,70 +210,70 @@ describe("earningsReducer — projection", () => {
 // Suite 3 — HTTP route integration tests
 // ─────────────────────────────────────────────────────────────────────────────
 
+const queryContractHistoryMock = jest.fn(() => ({ events: [], total: 0, limit: 50, offset: 0 }));
+const projectContractStateMock = jest.fn(async () => ({
+  state: { contractId: CONTRACT, initialized: false, distributions: [], collaborators: [] },
+  eventCount: 0,
+  lastEventId: null,
+  asOf: null,
+}));
+const queryStateAtTimeMock = jest.fn(async (contractId, asOf) => ({
+  state: { contractId, initialized: false },
+  eventCount: 0,
+  asOf,
+}));
+const projectEarningsSummaryMock = jest.fn(() => ({
+  contractId: CONTRACT, distributionCount: 3, lastDistributionAt: "2026-09-28T00:00:00Z", tokenIds: [TOKEN],
+}));
+const getEventByIdMock = jest.fn(() => MOCK_EVENT);
+const handleDistributeCommandMock = jest.fn();
+const handleInitializeCommandMock = jest.fn();
+
+await jest.unstable_mockModule("../src/queries/contract-history-query.js", () => ({
+  queryContractHistory: queryContractHistoryMock,
+}));
+await jest.unstable_mockModule("../src/projections/contract-state-projection.js", () => ({
+  projectContractState: projectContractStateMock,
+  contractStateReducer: jest.fn((s) => s),
+}));
+await jest.unstable_mockModule("../src/queries/time-travel-query.js", () => ({
+  queryStateAtTime: queryStateAtTimeMock,
+}));
+await jest.unstable_mockModule("../src/projections/earnings-projection.js", () => ({
+  projectEarningsSummary: projectEarningsSummaryMock,
+  earningsReducer: jest.fn((s) => s),
+}));
+await jest.unstable_mockModule("../src/events/event-store.js", () => ({
+  getEventById: getEventByIdMock,
+  getContractEvents: jest.fn(() => []),
+  countContractEvents: jest.fn(() => 0),
+  getAggregateEvents: jest.fn(() => []),
+  getAggregateVersion: jest.fn(() => 0),
+  replayEvents: jest.fn(async () => ({ state: {}, eventCount: 0, lastEventId: null, asOf: null })),
+  appendEvent: jest.fn(async () => ({ eventId: "evt-001", version: 1 })),
+  EventTypes: {
+    CONTRACT_INITIALIZED: "ContractInitialized",
+    DISTRIBUTION_INITIATED: "DistributionInitiated",
+  },
+  AggregateTypes: { CONTRACT: "contract", DISPUTE: "dispute", COLLABORATOR: "collaborator" },
+  subscribe: jest.fn(() => () => {}),
+}));
+await jest.unstable_mockModule("../src/commands/distribute-command.js", () => ({
+  handleDistributeCommand: handleDistributeCommandMock,
+}));
+await jest.unstable_mockModule("../src/commands/initialize-command.js", () => ({
+  handleInitializeCommand: handleInitializeCommandMock,
+}));
+await jest.unstable_mockModule("../src/database/index.js", () => ({
+  initializeDatabase: jest.fn(),
+  getMigrationVersion: jest.fn(() => 26),
+  addAuditLog: jest.fn(),
+  recordTransaction: jest.fn(() => 1),
+}));
+
+const { default: app } = await import("./app.js");
+
 describe("events/commands routes — integration", () => {
-  const queryContractHistoryMock = jest.fn(() => ({ events: [], total: 0, limit: 50, offset: 0 }));
-  const projectContractStateMock = jest.fn(async () => ({
-    state: { contractId: CONTRACT, initialized: false, distributions: [], collaborators: [] },
-    eventCount: 0,
-    lastEventId: null,
-    asOf: null,
-  }));
-  const queryStateAtTimeMock = jest.fn(async (contractId, asOf) => ({
-    state: { contractId, initialized: false },
-    eventCount: 0,
-    asOf,
-  }));
-  const projectEarningsSummaryMock = jest.fn(() => ({
-    contractId: CONTRACT, distributionCount: 3, lastDistributionAt: "2026-09-28T00:00:00Z", tokenIds: [TOKEN],
-  }));
-  const getEventByIdMock = jest.fn(() => MOCK_EVENT);
-  const handleDistributeCommandMock = jest.fn();
-  const handleInitializeCommandMock = jest.fn();
-
-  await jest.unstable_mockModule("../src/queries/contract-history-query.js", () => ({
-    queryContractHistory: queryContractHistoryMock,
-  }));
-  await jest.unstable_mockModule("../src/projections/contract-state-projection.js", () => ({
-    projectContractState: projectContractStateMock,
-    contractStateReducer: jest.fn((s) => s),
-  }));
-  await jest.unstable_mockModule("../src/queries/time-travel-query.js", () => ({
-    queryStateAtTime: queryStateAtTimeMock,
-  }));
-  await jest.unstable_mockModule("../src/projections/earnings-projection.js", () => ({
-    projectEarningsSummary: projectEarningsSummaryMock,
-    earningsReducer: jest.fn((s) => s),
-  }));
-  await jest.unstable_mockModule("../src/events/event-store.js", () => ({
-    getEventById: getEventByIdMock,
-    getContractEvents: jest.fn(() => []),
-    countContractEvents: jest.fn(() => 0),
-    getAggregateEvents: jest.fn(() => []),
-    getAggregateVersion: jest.fn(() => 0),
-    replayEvents: jest.fn(async () => ({ state: {}, eventCount: 0, lastEventId: null, asOf: null })),
-    appendEvent: jest.fn(async () => ({ eventId: "evt-001", version: 1 })),
-    EventTypes: {
-      CONTRACT_INITIALIZED: "ContractInitialized",
-      DISTRIBUTION_INITIATED: "DistributionInitiated",
-    },
-    AggregateTypes: { CONTRACT: "contract", DISPUTE: "dispute", COLLABORATOR: "collaborator" },
-    subscribe: jest.fn(() => () => {}),
-  }));
-  await jest.unstable_mockModule("../src/commands/distribute-command.js", () => ({
-    handleDistributeCommand: handleDistributeCommandMock,
-  }));
-  await jest.unstable_mockModule("../src/commands/initialize-command.js", () => ({
-    handleInitializeCommand: handleInitializeCommandMock,
-  }));
-  await jest.unstable_mockModule("../src/database/index.js", () => ({
-    initializeDatabase: jest.fn(),
-    getMigrationVersion: jest.fn(() => 26),
-    addAuditLog: jest.fn(),
-    recordTransaction: jest.fn(() => 1),
-  }));
-
-  const { default: app } = await import("./app.js");
-
   beforeEach(() => jest.clearAllMocks());
 
   // ── GET /api/v1/events/:contractId ────────────────────────────────────────
