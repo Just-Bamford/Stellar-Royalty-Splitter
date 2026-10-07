@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-electron/
+build/
+coverage/
+*.exe
+*.dmg
+*.zip
+*.AppImage
+*.deb
+*.rpm
+.DS_Store
+*.log

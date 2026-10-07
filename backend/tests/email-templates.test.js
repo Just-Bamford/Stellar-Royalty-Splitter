@@ -1,5 +1,8 @@
 import { describe, test, expect } from "@jest/globals";
-import { renderWeeklyDigestHtml, renderWeeklyDigestText } from "../src/email/templates/weekly-digest.js";
+import {
+  renderWeeklyDigestHtml,
+  renderWeeklyDigestText,
+} from "../src/email/templates/weekly-digest.js";
 
 const mockEarnings = {
   totalEarned: 12.3456789,
@@ -104,7 +107,8 @@ describe("Weekly digest email template (#569)", () => {
     test("truncates wallet address in display", () => {
       const html = renderWeeklyDigestHtml({ ...commonProps, earnings: mockEarnings });
 
-      expect(html).toContain("GAAAAAAAAA...AAAAAAAA");
+      // Wallet is truncated as first 10 chars + ... + last 8 chars
+      expect(html).toContain("GAPTAQKSMN...BQOS4M3C");
     });
   });
 
@@ -148,7 +152,8 @@ describe("Weekly digest email template (#569)", () => {
     test("truncates wallet address in display", () => {
       const text = renderWeeklyDigestText({ ...commonProps, earnings: mockEarnings });
 
-      expect(text).toContain("GAAAAAAAAA...AAAAAAAA");
+      // Wallet is truncated as first 10 chars + ... + last 8 chars
+      expect(text).toContain("GAPTAQKSMN...BQOS4M3C");
     });
   });
 });

@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 import {
-  LineChart,
   Line,
   BarChart,
   Bar,
@@ -10,10 +9,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine,
   ComposedChart,
 } from "recharts";
 import { formatCurrency } from "../../utils/format";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 export interface TrendPoint {
   date: string;
@@ -79,6 +78,25 @@ export const EarningsChart: React.FC<EarningsChartProps> = ({
   const [selectedDrillPoint, setSelectedDrillPoint] = useState<TrendPoint | null>(null);
   const [movingAvgPeriod, setMovingAvgPeriod] = useState(7);
 
+  // #920 — shrink chart heights and thin out the x-axis on small screens so
+  // charts stay readable instead of cramped (acceptance: "charts scale and
+  // remain readable on mobile").
+  const isSmallScreen = useMediaQuery("(max-width: 768px)");
+  const isVerySmallScreen = useMediaQuery("(max-width: 480px)");
+  const revenueChartHeight = isVerySmallScreen ? 220 : isSmallScreen ? 260 : 320;
+  const frequencyChartHeight = isVerySmallScreen ? 200 : isSmallScreen ? 240 : 300;
+  // recharts has no "auto" keyword for interval — omitting it (undefined)
+  // preserves the default behavior.
+  const dateTickInterval: "preserveStartEnd" | undefined = isVerySmallScreen
+    ? "preserveStartEnd"
+    : undefined;
+  const dateTickFontSize = isVerySmallScreen ? 10 : isSmallScreen ? 11 : 12;
+  const compactMargin = { top: 5, right: 5, bottom: 0, left: -15 };
+  const defaultMargin = { top: 5, right: 5, bottom: 0, left: 0 };
+  const legendWrapperStyle = isSmallScreen
+    ? { fontSize: 11 }
+    : undefined;
+
   const chartDataWithMA = useMemo(
     () => calculateMovingAverage(trends, movingAvgPeriod),
     [trends, movingAvgPeriod]
@@ -127,11 +145,18 @@ export const EarningsChart: React.FC<EarningsChartProps> = ({
 
         {chartDataWithPerformance.length > 0 ? (
           <>
-            <ResponsiveContainer width="100%" height={320}>
-              <ComposedChart data={chartDataWithPerformance}>
+            <ResponsiveContainer width="100%" height={revenueChartHeight}>
+              <ComposedChart data={chartDataWithPerformance} margin={isSmallScreen ? compactMargin : defaultMargin}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
+                <XAxis
+                  dataKey="date"
+                  interval={dateTickInterval}
+                  tick={{ fontSize: dateTickFontSize }}
+                  angle={isSmallScreen ? -35 : 0}
+                  textAnchor={isSmallScreen ? "end" : "middle"}
+                  height={isSmallScreen ? 46 : 30}
+                />
+                <YAxis tick={{ fontSize: dateTickFontSize }} width={isSmallScreen ? 44 : 60} />
                 <Tooltip
                   formatter={(value) =>
                     typeof value === "number"
@@ -161,7 +186,7 @@ export const EarningsChart: React.FC<EarningsChartProps> = ({
                     return null;
                   }}
                 />
-                <Legend />
+                <Legend wrapperStyle={legendWrapperStyle} />
                 <Line
                   type="monotone"
                   dataKey="amount"
@@ -237,7 +262,7 @@ export const EarningsChart: React.FC<EarningsChartProps> = ({
                 <div className="forecast-content">
                   <div className="forecast-amount">
                     <span className="forecast-label">Projected earnings by month-end</span>
-                    <strong>{formatCurrency(forecastData.forecast, displayCurrency)}</strong>
+                    <strong>{formatCurrency(forecastData.forecast ?? 0, displayCurrency)}</strong>
                   </div>
                   <div className="forecast-confidence">
                     <small>Assumption: {confidence}</small>
@@ -255,13 +280,20 @@ export const EarningsChart: React.FC<EarningsChartProps> = ({
         <h2>Distribution Frequency & Performance Heat</h2>
         {chartDataWithPerformance.length > 0 ? (
           <>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartDataWithPerformance}>
+            <ResponsiveContainer width="100%" height={frequencyChartHeight}>
+              <BarChart data={chartDataWithPerformance} margin={isSmallScreen ? compactMargin : defaultMargin}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
+                <XAxis
+                  dataKey="date"
+                  interval={dateTickInterval}
+                  tick={{ fontSize: dateTickFontSize }}
+                  angle={isSmallScreen ? -35 : 0}
+                  textAnchor={isSmallScreen ? "end" : "middle"}
+                  height={isSmallScreen ? 46 : 30}
+                />
+                <YAxis tick={{ fontSize: dateTickFontSize }} width={isSmallScreen ? 44 : 60} />
                 <Tooltip />
-                <Legend />
+                <Legend wrapperStyle={legendWrapperStyle} />
                 <Bar
                   dataKey="count"
                   fill="#764ba2"

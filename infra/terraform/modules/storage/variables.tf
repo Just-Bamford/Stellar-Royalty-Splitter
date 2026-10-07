@@ -55,6 +55,17 @@ variable "monthly_retention_days" {
   default     = 365
 }
 
+variable "pitr_retention_days" {
+  description = "Retention for the 15-minute point-in-time snapshots under pitr/ (#937). Only the newest few matter for RPO."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.pitr_retention_days >= 1
+    error_message = "pitr_retention_days must be at least 1."
+  }
+}
+
 variable "noncurrent_version_retention_days" {
   description = "How long superseded object versions are kept. This is the window for recovering from a corrupted database being backed up over a good copy."
   type        = number

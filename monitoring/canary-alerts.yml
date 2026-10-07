@@ -1,0 +1,110 @@
+# Canary deployment alerts (#936).
+#
+# infra/canary-controller.js is what actually rolls a canary back — it
+# evaluates the same signals every check interval and moves the ALB weight to
+# 0% on its own. These rules are the independent second line: they page a
+# human if a canary is unhealthy and still receiving traffic (e.g. the
+# controller crashed mid-rollout), and they surface shadow-traffic mismatches
+# before any user is routed to the new version.
+#
+# The deployment="stable|canary" label comes from monitoring/prometheus.yml.
+# Thresholds mirror the controller defaults in DEFAULT_THRESHOLDS.
+
+groups:
+  - name: royalty-splitter-canary-recording
+    interval: 30s
+    rules:
+      - record: royalty_splitter:http_error_ratio:by_deployment:5m
+        expr: |
+          sum by (deployment) (rate(http_requests_total{status=~"5..",route!~"/metrics|/health.*|/api/v1/health.*"}[5m]))
+          / (sum by (deployment) (rate(http_requests_total{route!~"/metrics|/health.*|/api/v1/health.*"}[5m])) > 0)
+      - record: royalty_splitter:http_p95_latency:by_deployment:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (deployment, le) (rate(http_request_duration_seconds_bucket{route!~"/metrics|/health.*|/api/v1/health.*"}[5m])))
+      - record: royalty_splitter:http_request_rate:by_deployment:5m
+        expr: sum by (deployment) (rate(http_requests_total{route!~"/metrics|/health.*|/api/v1/health.*"}[5m]))
+
+  - name: royalty-splitter-canary-alerts
+    interval: 30s
+    rules:
+      - alert: RoyaltySplitterCanaryErrorRateHigh
+        expr: |
+          royalty_splitter:http_error_ratio:by_deployment:5m{deployment="canary"} > 0.05
+          and on() canary_traffic_percent > 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: platform
+          runbook: canary-rollback
+        annotations:
+          summary: Canary 5xx ratio is above 5% while it is receiving traffic
+          description: "Canary error ratio {{ $value | humanizePercentage }}."
+          action: "Confirm the canary controller rolled back; if not, run `node infra/canary-controller.js set-weight 0 --router alb ...` immediately."
+
+      - alert: RoyaltySplitterCanaryErrorRateAboveStable
+        expr: |
+          (
+            royalty_splitter:http_error_ratio:by_deployment:5m{deployment="canary"}
+            - on() royalty_splitter:http_error_ratio:by_deployment:5m{deployment="stable"}
+          ) > 0.02
+          and on() canary_traffic_percent > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: canary-rollback
+        annotations:
+          summary: Canary errors are more than 2 percentage points above stable
+          action: Compare canary and stable error panels on the Canary Deployment dashboard; roll back if the gap persists.
+
+      - alert: RoyaltySplitterCanaryLatencyRegression
+        expr: |
+          royalty_splitter:http_p95_latency:by_deployment:5m{deployment="canary"}
+          / on() royalty_splitter:http_p95_latency:by_deployment:5m{deployment="stable"} > 1.5
+          and on() canary_traffic_percent > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: canary-rollback
+        annotations:
+          summary: Canary p95 latency is more than 1.5x stable
+          description: "Canary is {{ $value | printf \"%.2f\" }}x slower than stable at p95."
+          action: Check the canary's RPC and database panels; roll back if the regression is release-related.
+
+      - alert: RoyaltySplitterCanaryStalled
+        expr: canary_state == 1 and (time() - push_time_seconds{job="canary_controller"}) > 600
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+          runbook: canary-rollback
+        annotations:
+          summary: Canary controller stopped reporting mid-rollout
+          description: The rollout is still marked as baking but the controller has not pushed status for 10 minutes, so nothing is guarding the canary.
+          action: Check the deploy workflow run; if it died, set the canary weight to 0 manually and restart the rollout.
+
+      - alert: RoyaltySplitterCanaryRolledBack
+        expr: canary_state == 3
+        labels:
+          severity: warning
+          owner: platform
+          runbook: canary-rollback
+        annotations:
+          summary: The last canary rollout was automatically rolled back
+          action: Read the rollout summary in the deploy workflow run for the failing check, fix forward, and redeploy.
+
+      - alert: RoyaltySplitterShadowTrafficMismatch
+        expr: |
+          sum(rate(stellar_shadow_requests_total{result=~"mismatch|error"}[10m]))
+          / (sum(rate(stellar_shadow_requests_total[10m])) > 0) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: canary-rollback
+        annotations:
+          summary: More than 5% of shadowed requests got a different result from the canary
+          description: "Mismatch ratio {{ $value | humanizePercentage }} — the new version answers real production reads differently."
+          action: Hold the rollout at 0% and diff canary vs stable responses for the affected routes before shifting any traffic.

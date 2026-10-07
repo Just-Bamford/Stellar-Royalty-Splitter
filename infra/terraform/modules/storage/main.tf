@@ -161,6 +161,43 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
     }
   }
 
+  # 15-minute point-in-time snapshots written by infra/backup-manager.js (#937).
+  # They exist to bound RPO, not for history — the daily/weekly/monthly tiers
+  # above cover that — so they expire quickly. Their manifests go with them.
+  rule {
+    id     = "pitr-retention"
+    status = "Enabled"
+
+    filter {
+      prefix = "pitr/"
+    }
+
+    expiration {
+      days = var.pitr_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
+  rule {
+    id     = "pitr-manifest-retention"
+    status = "Enabled"
+
+    filter {
+      prefix = "manifests/pitr/"
+    }
+
+    expiration {
+      days = var.pitr_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
   rule {
     id     = "abort-incomplete-uploads"
     status = "Enabled"

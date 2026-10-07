@@ -39,16 +39,18 @@ function compareRows(a: PerformanceRow, b: PerformanceRow, key: SortKey): number
 interface ContributorPerformanceComparisonProps {
   collaborators: CollaboratorEarning[];
   currency: string;
+  now?: number;
 }
 
 export default function ContributorPerformanceComparison({
   collaborators,
   currency,
+  now,
 }: ContributorPerformanceComparisonProps) {
   const [sortKey, setSortKey] = useState<SortKey>("totalEarned");
   const rows = useMemo(
-    () => buildPerformanceRows(collaborators).sort((a, b) => compareRows(a, b, sortKey)),
-    [collaborators, sortKey],
+    () => buildPerformanceRows(collaborators, now).sort((a, b) => compareRows(a, b, sortKey)),
+    [collaborators, sortKey, now],
   );
   const inactiveCount = rows.filter((row) => row.inactive).length;
   const bestEarner = rows[0];

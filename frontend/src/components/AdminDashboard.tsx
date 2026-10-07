@@ -4,9 +4,9 @@ import { QRCodeSVG } from "qrcode.react";
 import { CopyButton } from "./CopyButton";
 import { Skeleton } from "./Skeleton";
 import { BulkContributorUpload } from "./BulkContributorUpload";
-import { ContributorTaxInfo } from "./ContributorTaxInfo";
 import { TaxComplianceReport } from "./TaxComplianceReport";
 import { PaymentHoldManager } from "./PaymentHoldManager";
+import { KeyRotationPanel } from "./KeyRotationPanel";
 import "./AdminDashboard.css";
 
 interface AdminDashboardProps {

@@ -33,11 +33,24 @@ Complete setup and development instructions for the Stellar Royalty Splitter pro
 git clone https://github.com/your-org/stellar-royalty-splitter.git
 cd stellar-royalty-splitter
 
+# Check out the dev branch (active development)
+git checkout dev
+git pull origin dev
+
+# Create your feature branch FROM dev
+git checkout -b feature/your-feature-name
+
 # Install development hooks (optional but recommended)
 ./scripts/setup-hooks.sh  # macOS/Linux
 # or
 .\scripts\setup-hooks.bat  # Windows
 ```
+
+**Branch strategy:**
+
+- `main` - Stable production releases (protected, requires PR reviews + CI)
+- `dev` - Active development (merge base for all features)
+- `feature/*` - Your work branches (created from `dev`, PRs target `dev`)
 
 ### Validate Your Environment
 
@@ -180,6 +193,34 @@ npm test -- admin.test.js
 rm database.db  # Then restart server
 ```
 
+### Running Tests Before Committing
+
+**Always run this before committing:**
+
+```bash
+cd backend
+
+# 1. Format code
+npm run format
+
+# 2. Check linting
+npm run lint
+
+# 3. Run all tests
+npm test
+
+# Expected: 1106/1107 tests passing
+```
+
+**If any tests fail:**
+
+- Read the error message carefully
+- Check which file changed
+- Review the failing test to understand what broke
+- Fix the issue and re-run: `npm test`
+
+**Don't commit if tests fail** — CI will catch it and block merge anyway.
+
 ---
 
 ## Smart Contract Setup
@@ -297,7 +338,10 @@ cd backend
 # Run all tests
 npm test
 
-# Watch mode (continuous)
+# Expected result: 1106/1107 passing (99.9%)
+# One cache timing edge case in collaborators.integration.test.js
+
+# Watch mode (continuous, re-run on file changes)
 npm test -- --watch
 
 # Run specific file
@@ -305,6 +349,21 @@ npm test -- health.test.js
 
 # Run with coverage
 npm test -- --coverage
+```
+
+### Frontend Tests
+
+```bash
+cd frontend
+
+# Run unit/component tests
+npm run test
+
+# Run E2E tests
+npm run test:e2e
+
+# Watch mode
+npm run test -- --watch
 ```
 
 ### Contract Tests
@@ -330,6 +389,25 @@ npm test -- distribute.integration.test.js
 
 # These test end-to-end flows between components
 ```
+
+### Test Troubleshooting
+
+**Tests failing with "cannot find module"?**
+
+- On `dev` branch? `git checkout dev && git pull origin dev`
+- Fresh install? Run `npm ci` (cleaner than `npm install`)
+- Clear cache: `npm test -- --clearCache`
+
+**SQLite errors in tests?**
+
+- Database file locked: `rm backend/database.db`
+- Port conflicts: Kill node processes (`pkill -f "node.*backend"`)
+
+**Mock/dependency issues?**
+
+- Check that validation, stellar, and database mocks are properly set up
+- Review test file setup in `beforeEach()` blocks
+- Ensure `jest.resetModules()` is called when needed
 
 ---
 
@@ -399,6 +477,49 @@ fn test_example() {
 ---
 
 ## Common Issues
+
+### Branch and Git Issues
+
+**"I'm on the wrong branch"**
+
+```bash
+# Check current branch
+git branch -v
+
+# Switch to dev
+git checkout dev
+git pull origin dev
+
+# Create feature branch FROM dev
+git checkout -b feature/my-feature
+```
+
+**"I see stale test failures after switching branches"**
+
+```bash
+# Clear test cache and node_modules
+cd backend
+rm -rf node_modules package-lock.json
+npm ci        # Clean install
+npm test      # Re-run tests
+```
+
+**"My changes aren't on dev, they're on main"**
+
+```bash
+# Check what's ahead/behind
+git fetch origin
+git log main..origin/dev --oneline   # Changes on dev not on main
+
+# If you committed to main by accident:
+git log main --oneline | head -5     # Find your commit
+git checkout dev
+git cherry-pick <commit-hash>        # Copy to dev
+git checkout main
+git reset --hard origin/main         # Reset main to origin
+```
+
+### Node.js and Dependencies
 
 ### Node.js Version Mismatch
 

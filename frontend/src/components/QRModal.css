@@ -1,0 +1,395 @@
+/**
+ * QR Modal styles — WalletConnect QR code display
+ */
+
+.qr-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.qr-modal-content {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .qr-modal-overlay {
+    background-color: rgba(0, 0, 0, 0.7);
+  }
+
+  .qr-modal-content {
+    background: #1e1e1e;
+    color: #e0e0e0;
+  }
+}
+
+/* Header */
+.qr-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-header {
+    border-bottom-color: #333;
+  }
+}
+
+.qr-modal-header h2 {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: #333;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-header h2 {
+    color: #e0e0e0;
+  }
+}
+
+.qr-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.qr-modal-close:hover {
+  background-color: #f0f0f0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-close {
+    color: #aaa;
+  }
+
+  .qr-modal-close:hover {
+    background-color: #333;
+  }
+}
+
+/* Body */
+.qr-modal-body {
+  padding: 2rem 1.5rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* QR Container */
+.qr-modal-qr-container {
+  text-align: center;
+  width: 100%;
+}
+
+.qr-modal-instruction {
+  font-size: 0.95rem;
+  color: #666;
+  margin: 0 0 1.5rem 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-instruction {
+    color: #aaa;
+  }
+}
+
+.qr-code-wrapper {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  border: 2px solid #f0f0f0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-code-wrapper {
+    background-color: #0d0d0d;
+    border-color: #333;
+  }
+}
+
+.qr-code-wrapper canvas {
+  display: block;
+}
+
+.qr-modal-subtext {
+  font-size: 0.875rem;
+  color: #999;
+  margin: 1rem 0 1.5rem 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-subtext {
+    color: #777;
+  }
+}
+
+/* Fallback manual entry */
+.qr-modal-fallback {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.qr-modal-fallback summary {
+  cursor: pointer;
+  color: #0066cc;
+  font-size: 0.875rem;
+  user-select: none;
+  padding: 0.5rem;
+  margin: -0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.qr-modal-fallback summary:hover {
+  background-color: rgba(0, 102, 204, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-fallback summary {
+    color: #66b3ff;
+  }
+
+  .qr-modal-fallback summary:hover {
+    background-color: rgba(102, 179, 255, 0.1);
+  }
+}
+
+.qr-modal-manual {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f5f5f5;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-manual {
+    background-color: #222;
+  }
+}
+
+.uri-code {
+  background-color: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.75rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  word-break: break-all;
+  color: #333;
+}
+
+@media (prefers-color-scheme: dark) {
+  .uri-code {
+    background-color: #1a1a1a;
+    border-color: #444;
+    color: #ddd;
+  }
+}
+
+.qr-modal-copy-button {
+  padding: 0.5rem 1rem;
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+
+.qr-modal-copy-button:hover {
+  background-color: #0052a3;
+}
+
+.qr-modal-copy-button:active {
+  background-color: #004080;
+}
+
+/* Error state */
+.qr-modal-error {
+  text-align: center;
+}
+
+.qr-modal-error-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.qr-modal-error p {
+  color: #d32f2f;
+  margin: 0 0 1.5rem 0;
+  font-size: 0.95rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-error p {
+    color: #ff6b6b;
+  }
+}
+
+/* Loading state */
+.qr-modal-loading {
+  text-align: center;
+}
+
+.spinner {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #0066cc;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .spinner {
+    border-color: #333;
+    border-top-color: #66b3ff;
+  }
+}
+
+.qr-modal-loading p {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-loading p {
+    color: #aaa;
+  }
+}
+
+/* Idle state */
+.qr-modal-idle {
+  text-align: center;
+}
+
+/* Buttons */
+.qr-modal-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+  margin-top: 1rem;
+}
+
+.qr-modal-button:hover {
+  background-color: #0052a3;
+}
+
+.qr-modal-button:active {
+  background-color: #004080;
+}
+
+/* Footer */
+.qr-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #f0f0f0;
+  background-color: #f9f9f9;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-footer {
+    border-top-color: #333;
+    background-color: #0d0d0d;
+  }
+}
+
+.qr-modal-security-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #666;
+  line-height: 1.4;
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr-modal-security-note {
+    color: #999;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .qr-modal-content {
+    max-width: none;
+    max-height: 100vh;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .qr-modal-overlay {
+    align-items: flex-end;
+  }
+
+  .qr-modal-header {
+    padding: 1rem;
+  }
+
+  .qr-modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .qr-modal-body {
+    padding: 1.5rem 1rem;
+  }
+
+  .qr-code-wrapper {
+    padding: 0.75rem;
+  }
+}

@@ -1,5 +1,5 @@
 /**
- * Database module index — re-exports all database functions.
+ * Database module index ÔÇö re-exports all database functions.
  * Provides backwards compatibility while organizing code into focused submodules.
  */
 
@@ -24,6 +24,7 @@ export {
   updateTransactionHash,
   updateTransactionStatus,
   addDistributionPayout,
+  findPayoutsByAmount,
   getTransactionCount,
   getTransactionHistory,
   getTransactionHistoryCursor,
@@ -34,14 +35,27 @@ export {
   MAX_RETRY_COUNT,
 } from "./transactions.js";
 
-// Webhooks (#295)
+// Webhooks (#295, advanced system #1059)
 export {
   registerWebhook,
+  getWebhookById,
   listWebhooks,
+  listWebhooksForEvent,
+  updateWebhookEvents,
+  rotateWebhookSecret,
   deleteWebhook,
   updateWebhookRetryState,
+  updateWebhookRetryStateWithPayload,
   getWebhooksDueForRetry,
   resetWebhookRetryCount,
+  moveToDlq,
+  serializeEvents,
+  parseEvents,
+  recordDelivery,
+  updateDelivery,
+  listDeliveries,
+  countDeliveries,
+  getDeliveryStats,
 } from "./webhooks.js";
 
 // Audit logging
@@ -141,17 +155,32 @@ export {
   getAllWalletAddresses,
 } from "./contributor-tax.js";
 
-// Real-time notifications (#594)
+// Real-time notifications (#594, expanded #1046)
 export {
   createNotification,
   getNotifications,
+  getArchivedNotifications,
   getUnreadNotificationCount,
+  getUnreadCountByType,
   markNotificationRead,
+  markNotificationUnread,
   markAllNotificationsRead,
+  archiveNotification,
   deleteNotification,
   getNotificationPreference,
   upsertNotificationPreference,
+  getChannelPreferences,
+  getQuietHours,
+  resolveFrequency,
+  resolveQuietHours,
+  isWithinQuietHours,
+  shouldSendNotification,
   createSystemNotification,
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+  FREQUENCY_OPTIONS,
+  DEFAULT_CHANNEL_PREFERENCES,
+  DEFAULT_QUIET_HOURS,
 } from "./notifications.js";
 
 // Payment hold/release system (#596)
@@ -183,7 +212,7 @@ export {
   getEarningsForWeek,
 } from "./email-digest.js";
 
-// Disputes / ticket system (#607)
+// Disputes / ticket system (#607, enhanced #961)
 export {
   createDispute,
   getDisputeByTicketId,
@@ -194,6 +223,14 @@ export {
   updateDisputeStatus,
   addDisputeComment,
   getDisputeComments,
+  addDisputeEvidence,
+  getDisputeEvidence,
+  storeDisputeAnalysis,
+  getDisputeAnalysis,
+  addMediationRecommendation,
+  getMediationRecommendations,
+  updateMediationRecommendationStatus,
+  getDisputeStatistics,
 } from "./disputes.js";
 
 // API key rate-limit usage tracking (#608)
@@ -256,6 +293,17 @@ export {
 // Reusable royalty split templates (#652)
 export { createTemplate, listTemplates, getTemplateById, deleteTemplate } from "./templates.js";
 
+// Versioned contract templates and clone provenance
+export {
+  createContractTemplate,
+  getContractTemplate,
+  listContractTemplates,
+  updateContractTemplate,
+  listContractTemplateVersions,
+  addContractTemplateReview,
+  recordContractTemplateClone,
+} from "./contract-templates.js";
+
 // Contributor metrics (#600)
 export {
   getCachedMetrics,
@@ -299,6 +347,279 @@ export {
   resetHealthMonitorState,
 } from "./health-monitor.js";
 
+// Salesforce CRM integration (#939)
+export {
+  CRM_PROVIDER,
+  CRM_SYNC_STATES,
+  CRM_ACTIVITY_STATES,
+  CRM_SYNC_DIRECTIONS,
+  getConnection,
+  saveConnection,
+  updateConnectionTokens,
+  disconnectConnection,
+  getSyncStatus,
+  startSync,
+  incrementSyncProgress,
+  finishSync,
+  getContactMappingByAddress,
+  findContactMappingByExternalId,
+  listContactMappings,
+  upsertContactMapping,
+  recordCrmActivity,
+  listCrmActivities,
+  listKnownCollaborators,
+} from "./crm-sync-status.js";
+
+// Tax compliance forms (#950)
+export {
+  TAX_FORM_TYPES,
+  TAX_FORM_STATUSES,
+  SUPPORTED_COUNTRIES,
+  IRS_1099_THRESHOLD_USD,
+  CRA_T4A_THRESHOLD_USD,
+  createTaxForm,
+  getTaxForm,
+  getLatestTaxForm,
+  listTaxForms,
+  countTaxForms,
+  voidTaxForm,
+  getTaxYearSummary,
+} from "./tax-forms.js";
+
+// Reputation and trust score system (#962)
+export {
+  initializeReputationTables,
+  getOrCreateReputation,
+  recordPayoutEvent,
+  recordReputationActivity,
+  calculateTrustScore,
+  updateReputationAfterPayout,
+  getReputationDetails,
+  getTopCollaborators,
+  getCollaboratorsByTier,
+  countCollaboratorsByTier,
+  recalculateAllTrustScores,
+  getReputationStatistics,
+} from "./reputation.js";
+
+// Advanced search API (#971)
+export {
+  initializeSearchTables,
+  indexCollaborator,
+  indexTransaction,
+  indexDispute,
+  recordSearch,
+  searchCollaborators,
+  searchTransactions,
+  searchDisputes,
+  searchAll,
+  semanticSearch,
+  advancedSearch,
+  getSearchSuggestions,
+  getTrendingSearches,
+  getSearchStatistics,
+  rebuildSearchIndexes,
+} from "./search.js";
+
+// Zero-knowledge proof privacy system (#972)
+export {
+  initializeZKPrivacyTables,
+  storeDistributionProof,
+  getDistributionProof,
+  getDistributionProofs,
+  markProofVerified,
+  storeNullifier,
+  isNullifierUsed,
+  issueAnonymousCredential,
+  getAnonymousCredential,
+  getCredentialsByWallet,
+  markCredentialUsed,
+  revokeCredential,
+  getZKAuditLog,
+  getZKPrivacyStatistics,
+} from "./zk-privacy.js";
+
+// Query optimizer & batching utilities (#984)
+export {
+  explainQueryPlan,
+  batchGetContributorStatus,
+  batchGetTransactionDetails,
+  batchGetDisputeComments,
+  batchGetCollaboratorReputation,
+  refreshEarningsSummaryMV,
+  getOptimizedEarningsSummary,
+} from "../services/query-optimizer.js";
+
+// Real-time collaborative contract editor (#959)
+export {
+  createEditSession,
+  extendEditSession,
+  releaseEditSession,
+  getActiveEditSessions,
+  recordContractEdit,
+  getContractEditHistory,
+  applyOperationalTransform,
+  getFieldVersion,
+  cleanupExpiredSessions,
+} from "./collaborative-editor.js";
+
+// Dynamic royalty oracle with ML predictions (#960)
+export {
+  storePrediction,
+  getLatestPrediction,
+  getPredictionHistory,
+  storeModelMetadata,
+  getLatestModelMetadata,
+  getModelMetadata,
+  storeMarketData,
+  getLatestMarketData,
+  getMarketDataHistory,
+  calculatePredictionAccuracy,
+  getMarketTrends,
+} from "./oracle.js";
+
+// Time-locked vesting contracts (#983)
+export {
+  createVestingSchedule,
+  calculateVestedAmount,
+  releaseVestedTokens,
+  getVestingSchedule,
+  getVestingSchedulesByBeneficiary,
+  getVestingSchedulesByContract,
+  getVestingReleaseHistory,
+  getSchedulesWithReleasableTokens,
+  cancelVestingSchedule,
+  getVestingStatistics,
+} from "./vesting.js";
+
+// Enhanced audit logging with hash-chain (#986)
+export {
+  addAuditEntry,
+  verifyAuditChainIntegrity,
+  getAuditEntries,
+  getAuditStatistics,
+  exportAuditLogJSON,
+  exportAuditLogCSV,
+  getComplianceReport,
+  searchAuditLog,
+} from "./audit-enhanced.js";
+
 // Default export for backwards compatibility
 import { db } from "./core.js";
 export default db;
+
+// Contract backups and disaster recovery (#993)
+export {
+  getIsoWeek,
+  createBackupRecord,
+  markBackupUploading,
+  markBackupCompleted,
+  markBackupFailed,
+  recordDrillResult,
+  getBackupById,
+  listBackups,
+  countBackups,
+  getLatestBackup,
+  backupExistsForWeek,
+  getContractsWithBackups,
+  pruneOldBackups,
+} from "./backups.js";
+
+// Distribution schedules and batch execution (#991)
+export {
+  createSchedule,
+  getScheduleById,
+  listSchedulesByContract,
+  countSchedulesByContract,
+  updateSchedule,
+  deleteSchedule,
+  pauseSchedule,
+  resumeSchedule,
+  markScheduleRun,
+  getDueSchedules,
+  createBatchExecution,
+  markBatchRunning,
+  markBatchCompleted,
+  markBatchFailed,
+  recordBatchItem,
+  getBatchExecution,
+  listBatchExecutionsBySchedule,
+  listRecentBatchExecutions,
+} from "./schedules.js";
+
+// Event sourcing and CQRS (#1066)
+export {
+  appendEvent,
+  getAggregateEvents,
+  getContractEvents,
+  countContractEvents,
+  getEventById,
+  getAggregateVersion,
+  EventTypes,
+  AggregateTypes,
+} from "./event-store.js";
+
+// Rights Management System
+export {
+  initializeRightsTables,
+  clearRightsTables,
+  createRightRecord,
+  getRightById,
+  getRightsByContract,
+  getRightsByOwner,
+  updateRightRecord,
+  deleteRightRecord,
+  upsertRightMetadataRecord,
+  getRightMetadataRecord,
+  createVerificationProofRecord,
+  getVerificationProofById,
+  getVerificationProofsRecord,
+  updateVerificationProofStatusRecord,
+  addRightHistoryRecord,
+  getRightHistoryRecord,
+  linkRightToDisputeRecord,
+  getRightsForDisputeRecord,
+  getDisputesForRightRecord,
+} from "./rights-schema.js";
+
+// DAO Treasury Management (#1076)
+export {
+  initializeTreasuryTables,
+  clearTreasuryTables,
+  createCategoryRecord,
+  getCategoryById,
+  getCategoryByName,
+  listCategories,
+  updateCategoryRecord,
+  deleteCategoryRecord,
+  createAllocationRecord,
+  getAllocationById,
+  listAllocations,
+  createExpenseRecord,
+  getExpenseById,
+  listExpenses as listTreasuryExpenseRecords,
+  updateExpenseRecord,
+  deleteExpenseRecord,
+  createApprovalRecord,
+  listApprovalsByExpense,
+  createReceiptRecord,
+  listReceiptsByExpense,
+} from "./treasury-schema.js";
+
+// Environmental impact tracking and carbon offsets (#1064)
+export {
+  recordEmission,
+  getUserEmissions,
+  getUserEmissionsByDay,
+  getProjectEmissions,
+  getProjectEmissionsByDay,
+  recordOffset,
+  getUserOffsets,
+  listUserOffsets,
+  countUserOffsets,
+  getProjectOffsets,
+  getCarbonSettings,
+  upsertCarbonSettings,
+  listAutoOffsetWallets,
+} from "./carbon.js";
+

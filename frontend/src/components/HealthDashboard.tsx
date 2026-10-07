@@ -3,7 +3,7 @@
  * SLA tracking, and historical trends (#787).
  */
 import { useState, useCallback } from "react";
-import { api, HealthResponse, HealthHistoryEntry, SLAStats, HealthComponent } from "../api";
+import { HealthHistoryEntry, SLAStats, HealthComponent } from "../api";
 import { useHealth, useHealthHistory, useHealthSla } from "../hooks/queries/useHealth";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
@@ -307,7 +307,7 @@ export function HealthDashboard() {
           <p style={{ margin: "6px 0 0", fontSize: "0.9rem" }}>{error}</p>
         </div>
         <button
-          onClick={fetchAll}
+          onClick={handleRefresh}
           style={{ marginTop: "12px" }}
           className="btn btn-secondary"
         >

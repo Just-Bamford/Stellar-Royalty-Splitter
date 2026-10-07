@@ -1,12 +1,14 @@
 import { jest, describe, test, expect, beforeAll, afterAll } from "@jest/globals";
+import { Keypair } from "@stellar/stellar-sdk";
 
 await jest.unstable_mockModule("../src/logger.js", () => ({
   default: { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() },
 }));
 
-// Use a well-known testnet keypair (never used for real funds)
-const TEST_SECRET = "SCZANGBA5RLZWHEUIZRTLBOAMHCTNBNE22GKFRP4LUGMS3U5TZLTNMH";
-const TEST_PUBLIC = "GD2AVIZF6KZXS5LFVBKUUHYUQFZ5H6V7HXBHQVMBYQNPTCGCQPKQXE";
+// Generate a valid test keypair for testing
+const testKeypair = Keypair.random();
+const TEST_SECRET = testKeypair.secret();
+const TEST_PUBLIC = testKeypair.publicKey();
 
 describe("rpcSigning (disabled by default)", () => {
   let mod;
@@ -35,7 +37,10 @@ describe("rpcSigning (disabled by default)", () => {
     const original = global.fetch;
     global.fetch = fakeFetch;
     await mod.signedFetch("http://example.com", { method: "POST", body: "data" });
-    expect(fakeFetch).toHaveBeenCalledWith("http://example.com", expect.objectContaining({ method: "POST" }));
+    expect(fakeFetch).toHaveBeenCalledWith(
+      "http://example.com",
+      expect.objectContaining({ method: "POST" })
+    );
     global.fetch = original;
   });
 });
@@ -77,7 +82,7 @@ describe("rpcSigning (enabled)", () => {
       headers["X-Stellar-Signature"],
       headers["X-Stellar-Timestamp"],
       body,
-      headers["X-Stellar-Public-Key"],
+      headers["X-Stellar-Public-Key"]
     );
     expect(valid).toBe(true);
   });
@@ -89,7 +94,7 @@ describe("rpcSigning (enabled)", () => {
       headers["X-Stellar-Signature"],
       headers["X-Stellar-Timestamp"],
       JSON.stringify({ result: "tampered" }),
-      headers["X-Stellar-Public-Key"],
+      headers["X-Stellar-Public-Key"]
     );
     expect(valid).toBe(false);
   });
@@ -103,7 +108,7 @@ describe("rpcSigning (enabled)", () => {
       headers["X-Stellar-Signature"],
       staleTimestamp,
       body,
-      headers["X-Stellar-Public-Key"],
+      headers["X-Stellar-Public-Key"]
     );
     expect(valid).toBe(false);
   });

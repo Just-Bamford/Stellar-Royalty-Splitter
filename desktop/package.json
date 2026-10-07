@@ -1,0 +1,101 @@
+{
+  "name": "stellar-royalty-splitter-desktop",
+  "version": "0.1.0",
+  "description": "Desktop application for Stellar Royalty Splitter on macOS and Windows",
+  "main": "main.js",
+  "type": "module",
+  "author": "Stellar Royalty Splitter Contributors",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "lint": "eslint \"src/**/*.js\" \"tests/**/*.js\" main.js preload.js",
+    "lint:fix": "eslint \"src/**/*.js\" \"tests/**/*.js\" main.js preload.js --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "org.stellar.royaltysplitter.desktop",
+    "productName": "Stellar Royalty Splitter",
+    "copyright": "Copyright © 2026 Stellar Royalty Splitter Contributors",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "assets/**/*",
+      "../frontend/dist/**/*"
+    ],
+    "protocols": [
+      {
+        "name": "Stellar Royalty Splitter Protocol",
+        "schemes": [
+          "desktop",
+          "stellar-splitter"
+        ]
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "contract",
+        "name": "Stellar Royalty Splitter Contract",
+        "description": "Stellar Royalty Splitter Contract Configuration File",
+        "role": "Editor"
+      },
+      {
+        "ext": "stellar",
+        "name": "Stellar Splitter Configuration",
+        "description": "Stellar Splitter Configuration File",
+        "role": "Editor"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icons/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Stellar Royalty Splitter"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Just-Bamford",
+      "repo": "Stellar-Royalty-Splitter"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "eslint": "^8.57.0",
+    "vitest": "^1.6.0"
+  }
+}

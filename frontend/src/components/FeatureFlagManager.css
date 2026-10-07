@@ -1,0 +1,130 @@
+.feature-flag-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.ffm-header h2 {
+  margin: 0;
+}
+
+.ffm-subtitle {
+  color: var(--text-muted, #6b7280);
+  margin-top: 0.25rem;
+}
+
+.ffm-error {
+  color: #b91c1c;
+}
+
+.ffm-status {
+  color: #047857;
+}
+
+.ffm-create,
+.ffm-card {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--surface-color, #fff);
+}
+
+.ffm-create-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.ffm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ffm-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.ffm-badge {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.ffm-badge-on {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.ffm-badge-off {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.ffm-badge-killed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.ffm-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.ffm-danger {
+  color: #b91c1c;
+}
+
+.ffm-rollout {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ffm-rollout input {
+  width: 5rem;
+}
+
+.ffm-details {
+  margin-top: 1rem;
+  border-top: 1px dashed var(--border-color, #e5e7eb);
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ffm-rules ul,
+.ffm-history ul,
+.ffm-health ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+.ffm-rules li,
+.ffm-health li,
+.ffm-history li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ffm-rule-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}

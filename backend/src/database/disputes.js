@@ -1,5 +1,5 @@
 /**
- * Disputes database helpers — closes #607.
+ * Disputes database helpers — closes #607, enhanced for #961.
  *
  * Provides CRUD operations for the disputes ticket system:
  *   - createDispute        — open a new ticket
@@ -9,10 +9,18 @@
  *   - updateDisputeStatus  — admin: change status and optionally set adminNote
  *   - addDisputeComment    — append a comment (contributor or admin)
  *   - getDisputeComments   — fetch all comments for a dispute
+ *
+ * Enhanced AI-powered mediation (#961):
+ *   - addDisputeEvidence   — attach evidence documents
+ *   - getDisputeEvidence   — retrieve all evidence for a dispute
+ *   - analyzeDispute       — run AI analysis on dispute data
+ *   - getDisputeAnalysis   — retrieve AI analysis results
+ *   - addMediationRecommendation — store AI mediation suggestions
  */
 
 import { db, countWrite } from "./core.js";
 import { randomUUID } from "crypto";
+import logger from "../logger.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -238,3 +246,259 @@ export function getDisputeComments(disputeId) {
     )
     .all(disputeId);
 }
+
+// ─── AI-Powered Mediation (#961) ──────────────────────────────────────────────
+
+/**
+ * Add evidence document to a dispute.
+ *
+ * @param {number} disputeId  Internal row ID
+ * @param {string} submittedBy  wallet address or 'admin'
+ * @param {string} evidenceType  Type of evidence: document, transaction_proof, screenshot, other
+ * @param {string} fileUrl  URL or path to the stored evidence file
+ * @param {string} description  Description of the evidence
+ * @param {object} metadata  Additional metadata (file size, mime type, etc.)
+ * @returns {{ id: number, disputeId: number, submittedBy: string, evidenceType: string, 
+ *             fileUrl: string, description: string, metadata: string, createdAt: string }}
+ */
+export function addDisputeEvidence(disputeId, submittedBy, evidenceType, fileUrl, description, metadata = {}) {
+  const now = new Date().toISOString();
+
+  const result = db
+    .prepare(
+      `INSERT INTO dispute_evidence (disputeId, submittedBy, evidenceType, fileUrl, description, metadata, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(disputeId, submittedBy, evidenceType, fileUrl, description, JSON.stringify(metadata), now);
+
+  countWrite();
+
+  return {
+    id: result.lastInsertRowid,
+    disputeId,
+    submittedBy,
+    evidenceType,
+    fileUrl,
+    description,
+    metadata: JSON.stringify(metadata),
+    createdAt: now,
+  };
+}
+
+/**
+ * Retrieve all evidence for a dispute.
+ *
+ * @param {number} disputeId  Internal row ID
+ * @returns {object[]}
+ */
+export function getDisputeEvidence(disputeId) {
+  return db
+    .prepare(
+      `SELECT id, disputeId, submittedBy, evidenceType, fileUrl, description, metadata, createdAt
+       FROM dispute_evidence
+       WHERE disputeId = ?
+       ORDER BY createdAt ASC`
+    )
+    .all(disputeId)
+    .map(row => ({
+      ...row,
+      metadata: row.metadata ? JSON.parse(row.metadata) : {},
+    }));
+}
+
+/**
+ * Store AI analysis results for a dispute.
+ *
+ * @param {number} disputeId  Internal row ID
+ * @param {string} analysisType  Type of analysis: transaction_pattern, evidence_review, sentiment_analysis
+ * @param {object} findings  AI analysis findings
+ * @param {number} confidenceScore  Confidence score 0-100
+ * @param {object} recommendations  AI recommendations
+ * @returns {{ id: number, disputeId: number, analysisType: string, findings: string,
+ *             confidenceScore: number, recommendations: string, createdAt: string }}
+ */
+export function storeDisputeAnalysis(disputeId, analysisType, findings, confidenceScore, recommendations) {
+  const now = new Date().toISOString();
+
+  const result = db
+    .prepare(
+      `INSERT INTO dispute_ai_analysis (disputeId, analysisType, findings, confidenceScore, recommendations, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      disputeId,
+      analysisType,
+      JSON.stringify(findings),
+      confidenceScore,
+      JSON.stringify(recommendations),
+      now
+    );
+
+  countWrite();
+
+  return {
+    id: result.lastInsertRowid,
+    disputeId,
+    analysisType,
+    findings: JSON.stringify(findings),
+    confidenceScore,
+    recommendations: JSON.stringify(recommendations),
+    createdAt: now,
+  };
+}
+
+/**
+ * Retrieve all AI analysis results for a dispute.
+ *
+ * @param {number} disputeId  Internal row ID
+ * @returns {object[]}
+ */
+export function getDisputeAnalysis(disputeId) {
+  return db
+    .prepare(
+      `SELECT id, disputeId, analysisType, findings, confidenceScore, recommendations, createdAt
+       FROM dispute_ai_analysis
+       WHERE disputeId = ?
+       ORDER BY createdAt DESC`
+    )
+    .all(disputeId)
+    .map(row => ({
+      ...row,
+      findings: row.findings ? JSON.parse(row.findings) : {},
+      recommendations: row.recommendations ? JSON.parse(row.recommendations) : {},
+    }));
+}
+
+/**
+ * Add a mediation recommendation.
+ *
+ * @param {number} disputeId  Internal row ID
+ * @param {string} recommendationType  Type: automated, human_review_suggested, escalation_required
+ * @param {string} recommendation  Recommendation text
+ * @param {object} reasoning  Reasoning behind the recommendation
+ * @param {number} priority  Priority level 1-5
+ * @returns {{ id: number, disputeId: number, recommendationType: string, recommendation: string,
+ *             reasoning: string, priority: number, status: string, createdAt: string }}
+ */
+export function addMediationRecommendation(disputeId, recommendationType, recommendation, reasoning, priority) {
+  const now = new Date().toISOString();
+
+  const result = db
+    .prepare(
+      `INSERT INTO dispute_mediation_recommendations 
+       (disputeId, recommendationType, recommendation, reasoning, priority, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+    )
+    .run(disputeId, recommendationType, recommendation, JSON.stringify(reasoning), priority, now);
+
+  countWrite();
+
+  return {
+    id: result.lastInsertRowid,
+    disputeId,
+    recommendationType,
+    recommendation,
+    reasoning: JSON.stringify(reasoning),
+    priority,
+    status: 'pending',
+    createdAt: now,
+  };
+}
+
+/**
+ * Get mediation recommendations for a dispute.
+ *
+ * @param {number} disputeId  Internal row ID
+ * @returns {object[]}
+ */
+export function getMediationRecommendations(disputeId) {
+  return db
+    .prepare(
+      `SELECT id, disputeId, recommendationType, recommendation, reasoning, priority, status, 
+              implementedBy, implementedAt, createdAt
+       FROM dispute_mediation_recommendations
+       WHERE disputeId = ?
+       ORDER BY priority DESC, createdAt DESC`
+    )
+    .all(disputeId)
+    .map(row => ({
+      ...row,
+      reasoning: row.reasoning ? JSON.parse(row.reasoning) : {},
+    }));
+}
+
+/**
+ * Update mediation recommendation status.
+ *
+ * @param {number} recommendationId
+ * @param {string} status  Status: pending, implemented, rejected
+ * @param {string} implementedBy  Who implemented it (wallet address or admin)
+ * @returns {object|null}
+ */
+export function updateMediationRecommendationStatus(recommendationId, status, implementedBy = null) {
+  const now = new Date().toISOString();
+
+  const stmt = db.prepare(
+    `UPDATE dispute_mediation_recommendations
+     SET status = ?, implementedBy = ?, implementedAt = ?
+     WHERE id = ?`
+  );
+
+  const changes = stmt.run(status, implementedBy, now, recommendationId).changes;
+
+  if (changes === 0) return null;
+
+  countWrite();
+
+  return db
+    .prepare(`SELECT * FROM dispute_mediation_recommendations WHERE id = ?`)
+    .get(recommendationId);
+}
+
+/**
+ * Get dispute statistics for AI analysis.
+ *
+ * @param {number} disputeId
+ * @returns {object}
+ */
+export function getDisputeStatistics(disputeId) {
+  const dispute = db.prepare(`SELECT * FROM disputes WHERE id = ?`).get(disputeId);
+  if (!dispute) return null;
+
+  const evidenceCount = db
+    .prepare(`SELECT COUNT(*) as count FROM dispute_evidence WHERE disputeId = ?`)
+    .get(disputeId).count;
+
+  const commentCount = db
+    .prepare(`SELECT COUNT(*) as count FROM dispute_comments WHERE disputeId = ?`)
+    .get(disputeId).count;
+
+  const analysisCount = db
+    .prepare(`SELECT COUNT(*) as count FROM dispute_ai_analysis WHERE disputeId = ?`)
+    .get(disputeId).count;
+
+  const recommendationCount = db
+    .prepare(`SELECT COUNT(*) as count FROM dispute_mediation_recommendations WHERE disputeId = ?`)
+    .get(disputeId).count;
+
+  // Get transaction history for the wallet address
+  const transactionCount = db
+    .prepare(
+      `SELECT COUNT(*) as count FROM distribution_payouts WHERE collaboratorAddress = ?`
+    )
+    .get(dispute.walletAddress).count;
+
+  return {
+    disputeId,
+    evidenceCount,
+    commentCount,
+    analysisCount,
+    recommendationCount,
+    transactionCount,
+    status: dispute.status,
+    category: dispute.category,
+    createdAt: dispute.createdAt,
+    updatedAt: dispute.updatedAt,
+  };
+}
+

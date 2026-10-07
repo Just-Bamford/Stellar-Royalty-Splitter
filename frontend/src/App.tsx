@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { Navigation } from "./components/Navigation";
 import HelpModal from "./components/HelpModal";
 import { OfflineIndicator } from "./components/OfflineIndicator";
@@ -9,6 +9,7 @@ import {
   useKeyboardShortcuts,
   type Shortcut,
 } from "./hooks/useKeyboardShortcuts";
+import MarketplaceIntegration from './components/MarketplaceIntegration';
 import { useWebSocket } from "./hooks/useWebSocket";
 import { analytics } from "./lib/analytics";
 
@@ -19,6 +20,7 @@ import { Settings } from "./components/Settings";
 import WalletConnect from "./components/WalletConnect";
 import InitializeForm from "./components/InitializeForm";
 import DistributeForm from "./components/DistributeForm";
+import BatchClaiming from "./components/BatchClaiming";
 import { TransactionHistory } from "./components/TransactionHistory";
 import SecondaryRoyaltyConfig from "./components/SecondaryRoyaltyConfig";
 import RecordSecondarySale from "./components/RecordSecondarySale";
@@ -29,9 +31,33 @@ import { CopyButton } from "./components/CopyButton";
 import { api, SESSION_EXPIRED_EVENT } from "./api";
 import { OnboardingWalkthrough } from "./components/OnboardingWalkthrough";
 import { HealthDashboard } from "./components/HealthDashboard";
+import { DisputeDashboard } from "./components/DisputeDashboard";
+// Lazy-loaded to keep the initial bundle under the performance budget
+// (e2e/performance.spec.ts, 9.5 MB). The impact page is not on the initial
+// route, so code-splitting it avoids penalizing first-load transfer size.
+const ImpactDashboard = lazy(() =>
+  import("./components/ImpactDashboard").then((m) => ({
+    default: m.ImpactDashboard,
+  })),
+);
+import { WebhookManager } from "./components/WebhookManager";
+import { EarningsHistoryChart } from "./components/EarningsHistoryChart";
+import { EarningsForecastCalculator } from "./components/EarningsForecastCalculator";
+import { TokenomicsSimulator } from "./components/TokenomicsSimulator";
+import { ContractTimeline } from "./components/ContractTimeline";
+import { ContributorSuspension } from "./components/ContributorSuspension";
+import { BulkContributorUpload } from "./components/BulkContributorUpload";
+import { ContributorTaxInfo } from "./components/ContributorTaxInfo";
+import { TaxComplianceReport } from "./components/TaxComplianceReport";
+import { PaymentHoldManager } from "./components/PaymentHoldManager";
+import { FeatureFlagManager } from "./components/FeatureFlagManager";
+import { ContributorOnboardingChecklist } from "./components/ContributorOnboardingChecklist";
+import { MultiContractEarnings } from "./components/MultiContractEarnings";
+import { UserProfile } from "./components/UserProfile";
+import { ActivityFeed } from "./components/ActivityFeed";
+import { CommunityForum } from "./components/CommunityForum";
 import { useNotifications } from "./context/NotificationContext";
 import { ToastContainer } from "react-toastify";
-import { CollaborationConsole } from "./components/CollaborationConsole";
 
 import "./App.css";
 
@@ -58,6 +84,7 @@ export default function App() {
     () => localStorage.getItem("srs_currentPage") ?? "dashboard",
   );
   const [selectedTxHash, setSelectedTxHash] = useState<string | null>(null);
+  const [selectedProfileAddress, setSelectedProfileAddress] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionToast, setSessionToast] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -66,8 +93,24 @@ export default function App() {
   const { connected: wsConnected } = useWebSocket({
     walletAddress,
     onNotification: (data: any) => {
+      const notificationTypes = [
+        "pending",
+        "confirmed",
+        "failed",
+        "info",
+        "distribution",
+        "payment",
+        "dispute",
+        "system",
+        "warning",
+      ] as const;
+
+      const notificationType = notificationTypes.includes(data.type)
+        ? data.type
+        : "info";
+
       addNotification({
-        type: data.type === "pending" || data.type === "confirmed" || data.type === "failed" ? data.type : "info",
+        type: notificationType,
         title: data.title || "Notification",
         message: data.message || "",
         txHash: data.txHash,
@@ -214,7 +257,8 @@ export default function App() {
       localStorage.setItem("lastContractId", value);
     }
   }
-
+  
+<MarketplaceIntegration />
   function closeHelp() {
     localStorage.setItem("srs_help_seen", "1");
     setShowHelp(false);
@@ -378,6 +422,8 @@ export default function App() {
           ),
           "Earnings Forecast",
         );
+      case "tokenomics":
+        return withErrorBoundary(<TokenomicsSimulator />, "Tokenomics Simulator");
       case "timeline":
         return withErrorBoundary(
           contractId ? (
@@ -415,6 +461,10 @@ export default function App() {
                 walletAddress={walletAddress}
                 onSuccess={() => {}}
               />
+              <BatchClaiming
+                contractId={contractId}
+                walletAddress={walletAddress}
+              />
             </div>
           ) : (
             <div className="page-empty">
@@ -436,10 +486,38 @@ export default function App() {
         );
       case "health":
         return withErrorBoundary(<HealthDashboard />, "System Health");
-      case "collaboration":
+      case "disputes":
         return withErrorBoundary(
-          contractId ? <CollaborationConsole contractId={contractId} /> : <div className="page-empty"><p>Please select a contract first</p></div>,
-          "Collaborative Operations",
+          <DisputeDashboard walletAddress={walletAddress} />,
+          "Dispute Dashboard",
+        );
+      case "impact":
+        return withErrorBoundary(
+          contractId ? (
+            <div className="page-section">
+              <Suspense fallback={<div className="page-empty"><p>Loading environmental impact...</p></div>}>
+                <ImpactDashboard contractId={contractId} walletAddress={walletAddress} />
+              </Suspense>
+            </div>
+          ) : (
+            <div className="page-empty">
+              <p>Please select a contract first</p>
+            </div>
+          ),
+          "Environmental Impact",
+        );
+      case "webhooks":
+        return withErrorBoundary(
+          contractId ? (
+            <div className="page-section">
+              <WebhookManager contractId={contractId} />
+            </div>
+          ) : (
+            <div className="page-empty">
+              <p>Please select a contract first</p>
+            </div>
+          ),
+          "Webhook Integrations",
         );
       case "earnings":
         return withErrorBoundary(
@@ -466,6 +544,8 @@ export default function App() {
           ),
           "Contributor Suspension",
         );
+      case "feature-flags":
+        return withErrorBoundary(<FeatureFlagManager />, "Feature Flags");
       case "settings":
         return withErrorBoundary(
           <Settings
@@ -578,6 +658,37 @@ export default function App() {
             onConnectWallet={() => handlePageChange("connect-wallet")}
           />,
           "Onboarding Checklist",
+        );
+      case "profile":
+        return withErrorBoundary(
+          <UserProfile
+            walletAddress={walletAddress}
+            targetAddress={selectedProfileAddress || walletAddress || undefined}
+            onClose={selectedProfileAddress ? () => setSelectedProfileAddress(null) : undefined}
+          />,
+          "User Profile",
+        );
+      case "feed":
+        return withErrorBoundary(
+          <ActivityFeed
+            walletAddress={walletAddress}
+            onSelectUserAddress={(addr) => {
+              setSelectedProfileAddress(addr);
+              handlePageChange("profile");
+            }}
+          />,
+          "Activity Feed",
+        );
+      case "forum":
+        return withErrorBoundary(
+          <CommunityForum
+            walletAddress={walletAddress}
+            onSelectUserAddress={(addr) => {
+              setSelectedProfileAddress(addr);
+              handlePageChange("profile");
+            }}
+          />,
+          "Community Forum",
         );
 
       default:
@@ -711,14 +822,6 @@ export default function App() {
                     onClick={() => handlePageChange("transactions")}
                   >
                     History
-                  </button>
-                  <button
-                    className={`quick-action-btn ${
-                      currentPage === "collaboration" ? "active" : ""
-                    }`}
-                    onClick={() => handlePageChange("collaboration")}
-                  >
-                    Collaborative Ops
                   </button>
                   {walletAddress && (
                     <>

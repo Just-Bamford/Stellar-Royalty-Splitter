@@ -6,6 +6,22 @@
 import { db, countWrite } from "./core.js";
 
 /**
+ * Undistributed royalties per contract, read by the
+ * `stellar_secondary_royalty_pool_pending` gauge at scrape time (#935).
+ * Uses the same `distributed` flag the secondary distribute route clears.
+ */
+export function getPendingRoyaltyPools() {
+  return db
+    .prepare(`
+      SELECT contractId, COALESCE(SUM(CAST(royaltyAmount AS REAL)), 0) AS pending
+      FROM secondary_sales
+      WHERE distributed = 0
+      GROUP BY contractId
+    `)
+    .all();
+}
+
+/**
  * Record a secondary (resale) transaction for an NFT.
  * Returns the secondary sale record ID.
  */

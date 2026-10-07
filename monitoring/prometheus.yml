@@ -4,6 +4,8 @@ global:
 
 rule_files:
   - /etc/prometheus/royalty-splitter-alerts.yml
+  - /etc/prometheus/anomaly-detection-rules.yml
+  - /etc/prometheus/canary-alerts.yml
 
 scrape_configs:
   - job_name: royalty-splitter-api
@@ -13,9 +15,32 @@ scrape_configs:
         labels:
           service: royalty-splitter-api
           environment: production
+          deployment: stable
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
+
+  # Canary process (#936): same host, port 3002, only running during a
+  # rollout. Kept in its own job so an idle canary port does not trip
+  # RoyaltySplitterApiDown, and labelled deployment="canary" so canary
+  # analysis and monitoring/canary-alerts.yml can compare it with stable.
+  - job_name: royalty-splitter-api-canary
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:3002"]
+        labels:
+          service: royalty-splitter-api
+          environment: production
+          deployment: canary
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # Rollout state pushed by infra/canary-controller.js (--pushgateway-url).
+  - job_name: canary-controller
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]
 
   - job_name: royalty-splitter-health
     metrics_path: /api/v1/health

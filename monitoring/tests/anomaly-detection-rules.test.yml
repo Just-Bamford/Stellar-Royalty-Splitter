@@ -1,0 +1,60 @@
+# promtool test rules monitoring/tests/anomaly-detection-rules.test.yml
+rule_files:
+  - ../anomaly-detection-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Steady 10 distributions/minute for two hours, then a jump to 300/minute.
+  - interval: 1m
+    input_series:
+      - series: 'stellar_distributions_total{outcome="built"}'
+        values: '0+10x120 1200+300x20'
+    alert_rule_test:
+      - eval_time: 110m
+        alertname: RoyaltySplitterDistributionRateAnomaly
+        exp_alerts: []
+      - eval_time: 130m
+        alertname: RoyaltySplitterDistributionRateAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              runbook: anomaly-distribution-rate
+            exp_annotations:
+              summary: Distribution volume spiked well above its trailing-hour baseline
+              description: "z-score 483.3 — distributions are being built far faster than usual."
+              action: Check for a retry storm or scripted client, confirm the traffic is legitimate, and review idempotency and rate-limit hit counters.
+
+  # Steady traffic with no spike never alerts.
+  - interval: 1m
+    input_series:
+      - series: 'stellar_distributions_total{outcome="built"}'
+        values: '0+10x180'
+    alert_rule_test:
+      - eval_time: 170m
+        alertname: RoyaltySplitterDistributionRateAnomaly
+        exp_alerts: []
+
+  # 5xx ratio jumps from 0 to 20% of traffic.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{status="200"}'
+        values: '0+600x180'
+      - series: 'http_requests_total{status="500"}'
+        values: '0x120 0+150x60'
+    alert_rule_test:
+      - eval_time: 115m
+        alertname: RoyaltySplitterErrorRatioAnomaly
+        exp_alerts: []
+      - eval_time: 135m
+        alertname: RoyaltySplitterErrorRatioAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              owner: platform
+              runbook: elevated-errors
+            exp_annotations:
+              summary: API 5xx ratio spiked relative to the last hour
+              description: "z-score 6.6."
+              action: Correlate with recent deploys and canary status; roll back if the spike follows a release.

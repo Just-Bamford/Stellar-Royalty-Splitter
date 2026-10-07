@@ -14,14 +14,22 @@
 
 import crypto from "crypto";
 import logger from "../logger.js";
+import { dedupMetrics } from "../idempotency.js";
 
-const DEDUP_WINDOW_MS = parseInt(process.env.DEDUP_WINDOW_MS ?? "5000", 10);
+export { dedupMetrics };
+
+const DEDUP_WINDOW_MS = parseInt(
+  process.env.IDEMPOTENCY_DEDUP_WINDOW_MS ?? process.env.DEDUP_WINDOW_MS ?? "5000",
+  10
+);
 
 /** Tracks in-flight requests: hash → Promise<{status, body}> */
 const inFlight = new Map();
 
-/** Simple counters for observability. */
-export const dedupMetrics = { hits: 0, misses: 0 };
+// Keep the legacy middleware's exported counters aligned with the idempotency
+// middleware. New idempotent routes use the operation + Idempotency-Key map in
+// ../idempotency.js, while existing consumers of this middleware retain their
+// previous body-based behaviour.
 
 /**
  * Build a stable deduplication key from the request body fields that
@@ -59,11 +67,14 @@ export function dedupMiddleware() {
       dedupMetrics.hits++;
       logger.debug({ key }, "Dedup: in-flight duplicate detected — waiting for first response");
 
-      inFlight.get(key).then(({ status, body: cachedBody }) => {
-        res.status(status).json(cachedBody);
-      }).catch((err) => {
-        res.status(500).json({ error: err.message ?? "Upstream request failed" });
-      });
+      inFlight
+        .get(key)
+        .then(({ status, body: cachedBody }) => {
+          res.status(status).json(cachedBody);
+        })
+        .catch((err) => {
+          res.status(500).json({ error: err.message ?? "Upstream request failed" });
+        });
 
       return; // do NOT call next()
     }
@@ -86,6 +97,11 @@ export function dedupMiddleware() {
         rejectShared(new Error("Dedup entry timed out"));
       }
     }, DEDUP_WINDOW_MS);
+
+    // Allow this timeout to not block process exit during tests
+    if (cleanup.unref) {
+      cleanup.unref();
+    }
 
     // Intercept res.json to capture the real response
     const originalJson = res.json.bind(res);

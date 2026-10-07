@@ -6,12 +6,15 @@ import en from './locales/en.json';
 import es from './locales/es.json';
 import de from './locales/de.json';
 import zh from './locales/zh.json';
+import { additionalTranslations } from './locales/additional';
+import { SUPPORTED_LANGUAGES } from './languages';
 
 const resources = {
   en: { translation: en },
   es: { translation: es },
   de: { translation: de },
   zh: { translation: zh },
+  ...additionalTranslations,
 };
 
 i18n
@@ -20,6 +23,9 @@ i18n
   .init({
     resources,
     fallbackLng: 'en',
+    supportedLngs: SUPPORTED_LANGUAGES.map(({ code }) => code),
+    nonExplicitSupportedLngs: true,
+    load: 'languageOnly',
     debug: import.meta.env.DEV,
     interpolation: {
       escapeValue: false,

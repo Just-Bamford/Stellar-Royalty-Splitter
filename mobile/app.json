@@ -1,0 +1,22 @@
+{
+  "name": "StellarRoyaltySplitter",
+  "displayName": "Stellar Royalty Splitter",
+  "version": "0.1.0",
+  "orientation": "portrait",
+  "icon": "./assets/icon.png",
+  "splash": {
+    "image": "./assets/splash.png",
+    "resizeMode": "contain",
+    "backgroundColor": "#0b0f19"
+  },
+  "android": {
+    "package": "org.stellar.royaltysplitter.mobile",
+    "permissions": ["USE_BIOMETRIC", "USE_FINGERPRINT", "RECEIVE_BOOT_COMPLETED", "VIBRATE"]
+  },
+  "ios": {
+    "bundleIdentifier": "org.stellar.royaltysplitter.mobile",
+    "infoPlist": {
+      "NSFaceIDUsageDescription": "Enable Face ID to quickly and securely access your royalty dashboard and authorize transactions."
+    }
+  }
+}

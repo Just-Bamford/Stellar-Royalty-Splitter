@@ -1,146 +1,91 @@
-/**
- * Tests for WalletConnect session recovery (issue #697).
- *
- * Run with: cd frontend && npx react-scripts test --watchAll=false --testPathPattern=WalletConnect
- */
-
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import WalletConnect from "./WalletConnect";
 
+const mockRefreshWalletNetwork = vi.fn();
+const mockConnect = vi.fn();
+const mockDisconnect = vi.fn();
+const mockSetSelectedWallet = vi.fn();
+
+let mockWalletContext = {
+  connect: mockConnect,
+  disconnect: mockDisconnect,
+  error: null as string | null,
+  isLoading: false,
+  selectedWallet: "freighter" as string | null,
+  setSelectedWallet: mockSetSelectedWallet,
+};
+
 vi.mock("../context/NetworkContext", () => ({
   useNetwork: () => ({
-    refreshWalletNetwork: vi.fn(),
+    refreshWalletNetwork: mockRefreshWalletNetwork,
   }),
+}));
+
+vi.mock("../context/WalletContext", () => ({
+  useWallet: () => mockWalletContext,
 }));
 
 const ADDRESS = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
 
-function setFreighter(freighter: Partial<Window["freighter"]> | undefined) {
-  Object.defineProperty(window, "freighter", {
-    configurable: true,
-    value: freighter,
-  });
-}
-
 beforeEach(() => {
-  localStorage.clear();
-  setFreighter(undefined);
+  vi.clearAllMocks();
+  mockWalletContext = {
+    connect: mockConnect,
+    disconnect: mockDisconnect,
+    error: null,
+    isLoading: false,
+    selectedWallet: "freighter",
+    setSelectedWallet: mockSetSelectedWallet,
+  };
 });
 
-describe("WalletConnect session recovery", () => {
-  it("silently restores a previously-connected session without prompting", async () => {
-    localStorage.setItem("freighter_connected", "true");
-    localStorage.setItem("lastWalletAddress", ADDRESS);
-    const getAddress = vi.fn().mockResolvedValue({ address: ADDRESS });
-    setFreighter({ getAddress });
+describe("WalletConnect Component", () => {
+  it("renders connect button when not connected", () => {
+    render(<WalletConnect walletAddress={null} onConnect={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /connect wallet/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /other wallets/i })).toBeInTheDocument();
+  });
 
+  it("handles connect when wallet is selected", async () => {
+    mockConnect.mockResolvedValue(ADDRESS);
     const onConnect = vi.fn();
-    render(
-      <WalletConnect
-        walletAddress={null}
-        onConnect={onConnect}
-        onDisconnect={vi.fn()}
-      />,
-    );
 
-    await waitFor(() => expect(onConnect).toHaveBeenCalledWith(ADDRESS));
-    expect(getAddress).toHaveBeenCalled();
+    render(<WalletConnect walletAddress={null} onConnect={onConnect} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith("freighter");
+      expect(onConnect).toHaveBeenCalledWith(ADDRESS);
+      expect(mockRefreshWalletNetwork).toHaveBeenCalled();
+    });
   });
 
-  it("does not attempt a silent restore if no prior session was recorded", async () => {
-    const getAddress = vi.fn().mockResolvedValue({ address: ADDRESS });
-    setFreighter({ getAddress });
+  it("opens wallet selector when 'Other Wallets' is clicked", () => {
+    render(<WalletConnect walletAddress={null} onConnect={vi.fn()} />);
 
-    const onConnect = vi.fn();
-    render(
-      <WalletConnect
-        walletAddress={null}
-        onConnect={onConnect}
-        onDisconnect={vi.fn()}
-      />,
-    );
+    fireEvent.click(screen.getByRole("button", { name: /other wallets/i }));
 
-    await new Promise((r) => setTimeout(r, 0));
-    expect(getAddress).not.toHaveBeenCalled();
-    expect(onConnect).not.toHaveBeenCalled();
+    expect(screen.getByText("Freighter")).toBeInTheDocument();
+    expect(screen.getByText("MetaMask")).toBeInTheDocument();
   });
 
-  it("clears the stale session flag and shows a reconnect prompt when restore fails", async () => {
-    localStorage.setItem("freighter_connected", "true");
-    localStorage.setItem("lastWalletAddress", ADDRESS);
-    const getAddress = vi.fn().mockRejectedValue(new Error("not authorized"));
-    setFreighter({ getAddress });
+  it("opens wallet selector when connecting without a selected wallet", () => {
+    mockWalletContext.selectedWallet = null;
 
-    render(
-      <WalletConnect
-        walletAddress={null}
-        onConnect={vi.fn()}
-        onDisconnect={vi.fn()}
-      />,
-    );
+    render(<WalletConnect walletAddress={null} onConnect={vi.fn()} />);
 
-    await waitFor(() =>
-      expect(screen.getByText(/previous session expired/i)).toBeInTheDocument(),
-    );
-    expect(localStorage.getItem("freighter_connected")).toBeNull();
-    expect(localStorage.getItem("lastWalletAddress")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /retry connection/i }),
-    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+
+    expect(screen.getByText("Freighter")).toBeInTheDocument();
+    expect(screen.getByText("MetaMask")).toBeInTheDocument();
   });
 
-  it("persists the session after a successful manual connect", async () => {
-    const requestAccess = vi.fn().mockResolvedValue({ address: ADDRESS });
-    setFreighter({ requestAccess });
-
-    const onConnect = vi.fn();
-    render(
-      <WalletConnect
-        walletAddress={null}
-        onConnect={onConnect}
-        onDisconnect={vi.fn()}
-      />,
-    );
-
-    screen.getByRole("button", { name: /connect freighter/i }).click();
-
-    await waitFor(() => expect(onConnect).toHaveBeenCalledWith(ADDRESS));
-    expect(localStorage.getItem("freighter_connected")).toBe("true");
-    expect(localStorage.getItem("lastWalletAddress")).toBe(ADDRESS);
-  });
-
-  it("shows a readable error and keeps the connect button available when the user rejects the request", async () => {
-    const requestAccess = vi
-      .fn()
-      .mockRejectedValue(new Error("User declined access"));
-    setFreighter({ requestAccess });
-
-    render(
-      <WalletConnect
-        walletAddress={null}
-        onConnect={vi.fn()}
-        onDisconnect={vi.fn()}
-      />,
-    );
-
-    screen.getByRole("button", { name: /connect freighter/i }).click();
-
-    await waitFor(() =>
-      expect(screen.getByText(/connection rejected/i)).toBeInTheDocument(),
-    );
-    expect(
-      screen.getByRole("button", { name: /retry connection/i }),
-    ).toBeEnabled();
-  });
-
-  it("clears the persisted session on disconnect", () => {
-    localStorage.setItem("freighter_connected", "true");
-    localStorage.setItem("lastWalletAddress", ADDRESS);
-    setFreighter({});
-
+  it("displays truncated address and disconnect button when connected", () => {
     const onDisconnect = vi.fn();
+
     render(
       <WalletConnect
         walletAddress={ADDRESS}
@@ -149,36 +94,27 @@ describe("WalletConnect session recovery", () => {
       />,
     );
 
-    screen.getByRole("button", { name: /disconnect/i }).click();
+    expect(screen.getByText("GAAZI4...CWNA")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /disconnect/i })).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
+    expect(mockDisconnect).toHaveBeenCalled();
     expect(onDisconnect).toHaveBeenCalled();
-    expect(localStorage.getItem("freighter_connected")).toBeNull();
-    expect(localStorage.getItem("lastWalletAddress")).toBeNull();
   });
 
-  it("updates the connected address and persists it when Freighter reports an account change", () => {
-    const onConnect = vi.fn();
-    const handlers: Record<string, (data: { address: string }) => void> = {};
-    setFreighter({
-      getAddress: vi.fn().mockResolvedValue({ address: ADDRESS }),
-      on: (event, handler) => {
-        handlers[event] = handler;
-      },
-    });
+  it("displays error message when context has error", () => {
+    mockWalletContext.error = "User rejected transaction or connection";
 
-    render(
-      <WalletConnect
-        walletAddress={ADDRESS}
-        onConnect={onConnect}
-        onDisconnect={vi.fn()}
-      />,
-    );
+    render(<WalletConnect walletAddress={null} onConnect={vi.fn()} />);
 
-    const NEW_ADDRESS =
-      "GBBZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNB";
-    handlers.accountChanged({ address: NEW_ADDRESS });
+    expect(screen.getByRole("alert")).toHaveTextContent("User rejected transaction or connection");
+  });
 
-    expect(onConnect).toHaveBeenCalledWith(NEW_ADDRESS);
-    expect(localStorage.getItem("lastWalletAddress")).toBe(NEW_ADDRESS);
+  it("disables connect button when loading", () => {
+    mockWalletContext.isLoading = true;
+
+    render(<WalletConnect walletAddress={null} onConnect={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /connecting.../i })).toBeDisabled();
   });
 });

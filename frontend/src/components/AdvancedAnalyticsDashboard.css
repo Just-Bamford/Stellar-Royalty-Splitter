@@ -170,6 +170,37 @@
   height: 320px;
 }
 
+/* #920 — shorter charts on phones so they remain readable without taking
+   over the whole viewport. */
+@media (max-width: 768px) {
+  .chart-container-inner {
+    height: 240px;
+  }
+
+  .hourly-chart-container {
+    height: 200px;
+  }
+
+  .advanced-analytics-dashboard {
+    padding: 16px;
+  }
+
+  .analytics-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 480px) {
+  .chart-container-inner {
+    height: 200px;
+  }
+
+  .heatmap-grid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  }
+}
+
 /* Heatmap Section */
 .heatmap-section {
   background: rgba(15, 23, 42, 0.6);

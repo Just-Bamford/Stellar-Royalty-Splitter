@@ -194,13 +194,14 @@ describe("RPC Retry Integration with Stellar Operations", () => {
     });
 
     test("warns when attempting to retry submit", async () => {
-      const warnSpy = jest.spyOn(console, "warn").mockImplementation();
+      const { default: logger } = await import("../src/logger.js");
+      const warnSpy = jest.spyOn(logger, "warn").mockImplementation();
       const operation = jest.fn();
 
       try {
         await withRetry(operation, { operationType: "submit" });
       } catch (e) {
-        // Expected to be called
+        // Expected to fail
       }
 
       expect(warnSpy).toHaveBeenCalled();

@@ -56,6 +56,30 @@ plus failure scenarios:
 ### 7. Transaction Detail (`transaction-detail.spec.ts`)
 - Open and inspect a transaction's detail view
 
+### 8. Multi-Collaborator Large Scale (`multi-collaborator-large.spec.ts`, #964)
+- Initialize contract with 50+ collaborators
+- Handle UI performance with 100+ collaborators
+- Bulk import collaborators via CSV
+- Validate collaborator addresses in bulk
+- Test shares validation with large collaborator sets
+
+### 9. Batch Distribution (`batch-distribution.spec.ts`, #964)
+- Distribute multiple tokens in a single batch transaction
+- Compare gas savings: batch vs individual distributions
+- Handle partial batch failures gracefully
+- Support idempotency for batch operations
+- Validate batch size limits
+- Real-time fee updates as tokens are added
+
+### 10. Secondary Royalty Advanced (`secondary-royalty-advanced.spec.ts`, #964)
+- Complete secondary royalty workflow: record and distribute
+- Batch distribution for multiple secondary sales
+- Validate secondary sale data comprehensively
+- View secondary royalty history and analytics
+- Auto-distribution on sale recording
+- Retry logic for distribution failures
+- Calculate net proceeds after royalty deduction
+
 ## Running locally
 
 1. From `frontend/`, install dependencies (`npm install`) and Playwright's

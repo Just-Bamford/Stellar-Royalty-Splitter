@@ -42,7 +42,6 @@ The contract supports both primary sales and secondary market royalties, with ro
 - [Usage Examples](#usage-examples)
 - [Rounding](#rounding)
 - [Frontend & Backend](#frontend--backend)
-- [Platform API Workflows](#platform-api-workflows)
 - [Environment Variables](#environment-variables)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
@@ -100,7 +99,14 @@ cd backend
 npm test
 ```
 
-**Status:** ✅ **152/152 tests passing (100%)**
+**Status:** ✅ **1106/1107 tests passing (99.9% - 1 edge case in cache timing)**
+
+Recent improvements:
+
+- Fixed 33 test failures across 8 test suites
+- Added comprehensive mock infrastructure for validation, Stellar, and database modules
+- Improved error handling and mock call count assertions
+- Removed test_issues folder from repository
 
 ### Frontend E2E Tests
 
@@ -282,13 +288,39 @@ Payouts use integer division. Any rounding dust (typically 1–2 stroops) is ass
 
 A React frontend and Express backend are included for interacting with the contract via a UI.
 
+### Getting Started
+
+**Clone the repository and create a feature branch off `dev`:**
+
+```bash
+git clone https://github.com/Just-Bamford/Stellar-Royalty-Splitter.git
+cd Stellar-Royalty-Splitter
+
+# Check out the dev branch for the latest development code
+git checkout dev
+
+# Create a feature branch for your work
+git checkout -b feature/your-feature-name
+```
+
+**Branch workflow:**
+
+- `main` - Stable production releases (protected, requires PR reviews and CI passes)
+- `dev` - Active development branch (merge base for all feature branches)
+
+### Backend Setup
+
 ```bash
 # Backend
 cd backend
 cp .env.example .env   # fill in your keys
 npm install
 npm run dev            # → http://localhost:3001
+```
 
+### Frontend Setup
+
+```bash
 # Frontend (separate terminal)
 cd frontend
 npm install
@@ -300,17 +332,6 @@ The frontend proxies `/api/*` to the backend automatically via the Vite config.
 The backend builds unsigned transaction XDR and returns it to the frontend. **Freighter signs and submits client-side — your private key never leaves the browser.**
 
 OpenAPI documentation is served by the backend at `GET /api/v1/docs` for Swagger UI and `GET /api/v1/docs/json` for the machine-readable OpenAPI 3.0 spec. Legacy aliases remain available at `/api/docs` and `/api/docs/json`.
-
-### Platform API Workflows
-
-The backend also exposes these versioned workflow APIs:
-
-| Workflow | Endpoints | Purpose |
-| --- | --- | --- |
-| Reputation | `/api/v1/reputation` | Record collaborator activity and retrieve reliability/trust scores. |
-| Dispute intelligence | `/api/v1/disputes/:ticketId/evidence`, `/api/v1/disputes/:ticketId/analyze` | Collect hashed evidence and generate a mediation recommendation. |
-| Search | `/api/v1/search`, `/api/v1/search/documents` | Index platform documents and query full-text/semantic-ranked results. |
-| Private proofs | `/api/v1/private-proofs`, `/api/v1/private-proofs/verify` | Create and verify commitment-based proofs without returning witnesses. |
 
 ---
 
@@ -386,6 +407,10 @@ Stellar-Royalty-Splitter/
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, branch naming conventions, and the PR checklist.
+
+See [CONTRIBUTOR_SETUP.md](CONTRIBUTOR_SETUP.md) for a step-by-step guide to getting started as a new contributor.
+
+For GitHub repository configuration and branch protection rules, see [GITHUB_SETUP.md](GITHUB_SETUP.md).
 
 ---
 

@@ -163,7 +163,7 @@ export function SystemHealthDashboard() {
           </div>
 
           <p className="health-generated-at">
-            Report generated at {new Date(health.generatedAt).toLocaleString()}
+            Report generated at {new Date(health.generatedAt ?? health.timestamp).toLocaleString()}
           </p>
         </>
       )}

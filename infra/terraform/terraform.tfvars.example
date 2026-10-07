@@ -1,0 +1,21 @@
+name_prefix = "srs-prod"
+environment = "prod"
+
+us_region = "us-east-1"
+eu_region = "eu-west-1"
+
+us_vpc_cidr = "10.0.0.0/16"
+eu_vpc_cidr = "10.1.0.0/16"
+
+app_port = 3001
+
+us_soroban_rpc_url = "https://soroban-testnet.stellar.org"
+us_horizon_url     = "https://horizon-testnet.stellar.org"
+
+eu_soroban_rpc_url = "https://soroban-testnet.stellar.org"
+eu_horizon_url     = "https://horizon-testnet.stellar.org"
+
+domain_name     = "stellar-royalty-splitter.org"
+route53_zone_id = "Z0123456789ABCDEF"
+
+enable_dns_failover = true

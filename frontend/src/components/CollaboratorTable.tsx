@@ -26,7 +26,7 @@ interface Props {
 
 type SortKey = "address" | "share";
 
-/* ── Filter types ──────────────────────────────────────────────────────────── */
+/* ÔöÇÔöÇ Filter types ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
 
 type ShareRange = "all" | "gt10" | "r5to10" | "r1to5" | "lt1";
 type PaymentStatus = "all" | "paid" | "unpaid";
@@ -40,8 +40,8 @@ interface ActiveFilters {
 const SHARE_RANGE_LABELS: Record<ShareRange, string> = {
   all: "All shares",
   gt10: "> 10%",
-  r5to10: "5 – 10%",
-  r1to5: "1 – 5%",
+  r5to10: "5 ÔÇô 10%",
+  r1to5: "1 ÔÇô 5%",
   lt1: "< 1%",
 };
 
@@ -51,7 +51,7 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   unpaid: "Unpaid",
 };
 
-/* ── Persistent names: single JSON blob per contract (O(1) read) ───────────── */
+/* ÔöÇÔöÇ Persistent names: single JSON blob per contract (O(1) read) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
 
 const NAME_STORAGE_KEY = "srs_collab_names";
 
@@ -85,7 +85,7 @@ function saveNames(contractId: string, names: Map<string, string>) {
   }
 }
 
-/* ── Share range predicate ─────────────────────────────────────────────────── */
+/* ÔöÇÔöÇ Share range predicate ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
 
 function matchesShareRange(basisPoints: number, range: ShareRange): boolean {
   const pct = basisPoints / 100;
@@ -115,28 +115,28 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
 
-  // ── debounced search ──────────────────────────────────────────────────
+  // ÔöÇÔöÇ debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── filters ───────────────────────────────────────────────────────────
+  // ÔöÇÔöÇ filters ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [filters, setFilters] = useState<ActiveFilters>({
     shareRange: "all",
     paymentStatus: "all",
   });
 
-  // ── editable names ────────────────────────────────────────────────────
+  // ÔöÇÔöÇ editable names ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  // ── payment data (from analytics) ─────────────────────────────────────
+  // ÔöÇÔöÇ payment data (from analytics) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [paymentData, setPaymentData] = useState<Map<string, number> | null>(
     null,
   );
 
-  // ── tier data ──────────────────────────────────────────────────────────
+  // ÔöÇÔöÇ tier data ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [tierData, setTierData] = useState<Map<string, string> | null>(null);
 
   useEffect(() => {
@@ -192,7 +192,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     };
   }, [contractId, refreshKey, retryCount]);
 
-  /* ── Debounced search ────────────────────────────────────────────────── */
+  /* ÔöÇÔöÇ Debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -210,7 +210,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     });
   }
 
-  /* ── Name editing ────────────────────────────────────────────────────── */
+  /* ÔöÇÔöÇ Name editing ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   const startEditing = useCallback(
     (address: string) => {
       setEditingName(address);
@@ -240,7 +240,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     setEditValue("");
   }, []);
 
-  /* ── Filter/Sort helpers ──────────────────────────────────────────────── */
+  /* ÔöÇÔöÇ Filter/Sort helpers ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   function hasActiveFilters(): boolean {
     return (
       filters.shareRange !== "all" ||
@@ -255,7 +255,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     setFilters({ shareRange: "all", paymentStatus: "all" });
   }
 
-  /* ── Compute filtered & sorted list (must be before render guards for hooks) ── */
+  /* ÔöÇÔöÇ Compute filtered & sorted list (must be before render guards for hooks) ÔöÇÔöÇ */
   const searchLower = search.toLowerCase();
   const filtered = useMemo(() => {
     return collaborators
@@ -333,14 +333,14 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     downloadJSON(json, filename);
   }, [getExportItems, contractId, filters, search, isFiltered]);
 
-  /* ── Render guards ──────────────────────────────────────────────────── */
+  /* ÔöÇÔöÇ Render guards ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   if (!contractId) return null;
   if (loading)
     return (
       <div className="card">
         <span className="badge">Collaborators</span>
-        <span className="sr-only">Loading collaborators…</span>
-        <TableSkeleton rows={5} columns={3} label="Loading collaborators…" />
+        <span className="sr-only">Loading collaboratorsÔÇª</span>
+        <TableSkeleton rows={5} columns={3} label="Loading collaboratorsÔÇª" />
       </div>
     );
   if (error)
@@ -398,13 +398,13 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       <span className="badge">Collaborators</span>
       <CollaboratorAllocationChart collaborators={collaborators} />
 
-      {/* ── Search bar ───────────────────────────────────────────────── */}
+      {/* ÔöÇÔöÇ Search bar ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
       <div className="collab-search-bar">
         <span className="collab-search-icon" aria-hidden="true">
-          🔍
+          ­ƒöì
         </span>
         <input
-          placeholder="Search by address or name…"
+          placeholder="Search by address or nameÔÇª"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           aria-label="Search collaborators"
@@ -419,12 +419,12 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             }}
             aria-label="Clear search"
           >
-            ✕
+            Ô£ò
           </button>
         )}
       </div>
 
-      {/* ── Filter bar ────────────────────────────────────────────────── */}
+      {/* ÔöÇÔöÇ Filter bar ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
       <div className="collab-filter-bar">
         <div className="collab-filter-group">
           <span className="collab-filter-label">Share</span>
@@ -441,8 +441,8 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
           >
             <option value="all">All shares</option>
             <option value="gt10">&gt; 10%</option>
-            <option value="r5to10">5% – 10%</option>
-            <option value="r1to5">1% – 5%</option>
+            <option value="r5to10">5% ÔÇô 10%</option>
+            <option value="r1to5">1% ÔÇô 5%</option>
             <option value="lt1">&lt; 1%</option>
           </select>
         </div>
@@ -455,7 +455,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             disabled={paymentData === null}
             title={
               paymentData === null
-                ? "Payment data unavailable — connect wallet and fetch analytics to enable"
+                ? "Payment data unavailable ÔÇö connect wallet and fetch analytics to enable"
                 : undefined
             }
             onChange={(e) =>
@@ -475,7 +475,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
               className="collab-filter-hint"
               title="Payment status data is not yet available"
             >
-              ⓘ
+              Ôôÿ
             </span>
           )}
         </div>
@@ -495,7 +495,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
           </button>
         </div>
 
-        {/* ── Export dropdown (#896) ──────────────────────────────────── */}
+        {/* ÔöÇÔöÇ Export dropdown (#896) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
         <div className="collab-export-dropdown" data-testid="collab-export-dropdown">
           <button
             type="button"
@@ -505,7 +505,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             aria-expanded={exportMenuOpen}
             aria-label="Export collaborator data"
           >
-            ⬇️ Export {isFiltered ? `(${filtered.length})` : ""}
+            Ô¼ç´©Å Export {isFiltered ? `(${filtered.length})` : ""}
           </button>
           {exportMenuOpen && (
             <div className="collab-export-menu" role="menu">
@@ -515,7 +515,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                 onClick={handleExportCSV}
                 data-testid="export-collaborators-csv"
               >
-                📄 Export as CSV
+                ­ƒôä Export as CSV
               </button>
               <button
                 type="button"
@@ -523,14 +523,14 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                 onClick={handleExportJSON}
                 data-testid="export-collaborators-json"
               >
-                📋 Export as JSON
+                ­ƒôï Export as JSON
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Active filter chips ───────────────────────────────────────── */}
+      {/* ÔöÇÔöÇ Active filter chips ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
       {filterChips.length > 0 && (
         <div className="collab-active-filters">
           {filterChips.map((chip) => (
@@ -542,7 +542,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                 onClick={chip.onRemove}
                 aria-label={`Remove filter: ${chip.label}`}
               >
-                ✕
+                Ô£ò
               </button>
             </span>
           ))}
@@ -558,7 +558,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
         </div>
       )}
 
-      {/* ── Result count ──────────────────────────────────────────────── */}
+      {/* ÔöÇÔöÇ Result count ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
       <div className="collab-result-count">
         <span className="collab-result-count-text">
           Showing{" "}
@@ -572,11 +572,11 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
         </span>
       </div>
 
-      {/* ── Empty results message ─────────────────────────────────────── */}
+      {/* ÔöÇÔöÇ Empty results message ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
       {filtered.length === 0 ? (
         <div className="collab-no-results">
           <span className="collab-no-results-icon" aria-hidden="true">
-            🔎
+            ­ƒöÄ
           </span>
           <p>No collaborators match your current filters.</p>
           <p style={{ fontSize: "0.75rem" }}>
@@ -611,7 +611,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                         className="collab-name-input"
                         value={editValue}
                         autoFocus
-                        placeholder="Name or note…"
+                        placeholder="Name or noteÔÇª"
                         onChange={(e) => setEditValue(e.target.value)}
                         onBlur={() => commitName(c.address)}
                         onKeyDown={(e) => {
@@ -646,7 +646,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                           className="collab-name-edit-icon"
                           aria-hidden="true"
                         >
-                          ✎
+                          Ô£Ä
                         </span>
                       </span>
                     )}
@@ -664,7 +664,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                           : "Copy collaborator address"
                       }
                     >
-                      {copied === c.address ? "✓" : "⧉"}
+                      {copied === c.address ? "Ô£ô" : "Ôºë"}
                     </button>
                   </td>
                   <td>
@@ -673,9 +673,9 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                       title={tier}
                     >
                       {tier === "vip"
-                        ? "⭐ VIP"
+                        ? "Ô¡É VIP"
                         : tier === "trial"
-                          ? "🔹 Trial"
+                          ? "­ƒö╣ Trial"
                           : "Regular"}
                     </span>
                   </td>

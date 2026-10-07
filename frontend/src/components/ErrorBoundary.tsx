@@ -1,4 +1,4 @@
-import React, { ReactNode, Component, ErrorInfo } from "react";
+import { ReactNode, Component, ErrorInfo } from "react";
 import { logErrorSafely } from "../lib/error-logger";
 import "./ErrorBoundary.css";
 
@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<
 
     // Log error with safe metadata (no stack traces exposed)
     logErrorSafely(error, {
-      componentStack: errorInfo.componentStack,
+      componentStack: errorInfo.componentStack ?? undefined,
       level,
       errorId: this.state.errorId,
       timestamp: new Date().toISOString(),

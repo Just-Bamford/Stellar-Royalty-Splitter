@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "start": "react-scripts start",
+    "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -14,9 +15,7 @@
     "analyze": "vite build --mode analyze",
     "preview": "vite preview",
     "size": "size-limit",
-    "size:why": "size-limit --why",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "size:why": "size-limit --why"
   },
   "size-limit": [
     {
@@ -30,6 +29,7 @@
     "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-query-devtools": "^5.102.8",
     "@tanstack/react-virtual": "^3.10.8",
+    "@walletconnect/web3-provider": "^1.8.0",
     "html2canvas": "^1.4.1",
     "i18next": "^26.4.0",
     "i18next-browser-languagedetector": "^8.2.1",
@@ -46,15 +46,12 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.0",
-    "@storybook/addon-a11y": "^8.6.14",
-    "@storybook/addon-essentials": "^8.6.14",
-    "@storybook/react": "^8.6.14",
-    "@storybook/react-vite": "^8.6.14",
     "@playwright/test": "^1.59.1",
     "@size-limit/preset-small-lib": "^11.0.0",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^26.6.3",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",

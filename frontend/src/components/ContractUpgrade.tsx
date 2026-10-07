@@ -31,7 +31,7 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
     if (!contractId) return;
     api
       .getContractVersion(contractId)
-      .then((res) => setCurrentVersion(res.data.version))
+      .then((res) => setCurrentVersion(res.version))
       .catch(() => setCurrentVersion(null));
   }, [contractId]);
 
@@ -62,7 +62,7 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
       // Re-fetch version after upgrade
       api
         .getContractVersion(contractId)
-        .then((r) => setCurrentVersion(r.data.version))
+        .then((r) => setCurrentVersion(r.version))
         .catch(() => {});
     } catch (e: unknown) {
       setStatus("error", e instanceof Error ? e.message : "Upgrade failed");

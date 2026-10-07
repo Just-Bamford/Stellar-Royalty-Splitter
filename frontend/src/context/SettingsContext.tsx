@@ -13,7 +13,6 @@ export { isValidContractId, normalizeContractList };
 
 export interface SettingsType extends BaseSettingsType {
   trackedContracts: string[];
-  language: "en" | "es" | "de" | "zh";
 }
 
 interface SettingsContextType {
@@ -23,14 +22,14 @@ interface SettingsContextType {
   removeTrackedContract: (contractId: string) => void;
 }
 
-const DEFAULTS: SettingsType = {
+export const DEFAULTS: SettingsType = {
   autoSaveAuditLog: true,
   notifyOnDistribution: true,
   displayCurrency: "XLM",
+  language: "en",
   maxPayoutsPerTransaction: 10,
   minPayoutAmount: 0.1,
   trackedContracts: [],
-  language: "en",
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(
@@ -46,9 +45,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const addTrackedContract = useContractsStore((s) => s.addTrackedContract);
   const removeTrackedContract = useContractsStore((s) => s.removeTrackedContract);
   const settings: SettingsType = {
+    ...DEFAULTS,
     ...baseSettings,
     trackedContracts,
-    language: "en",
   };
 
   return (
@@ -72,7 +71,7 @@ export const useSettings = (): SettingsContextType => {
     return context;
   }
   return {
-    settings: { ...baseSettings, trackedContracts },
+    settings: { ...DEFAULTS, ...baseSettings, trackedContracts },
     updateSettings,
     addTrackedContract,
     removeTrackedContract,

@@ -4,6 +4,11 @@
  */
 
 import { db, countWrite } from "./core.js";
+import { recordCollaboratorPayout } from "../metrics.js";
+import { recordAuditEvent } from "../services/audit-trail.js";
+import { decryptField } from "../crypto/encryption.js";
+
+const PAYOUT_AMOUNT_FIELD = "distribution_payouts.amountReceived";
 
 /**
  * Exponential backoff delays in milliseconds for each retry attempt.
@@ -23,6 +28,12 @@ export function recordTransaction(contractId, type, initiatorAddress, data) {
 
   const result = stmt.run(contractId, type, initiatorAddress, requestedAmount, tokenId);
   countWrite();
+  recordAuditEvent({
+    eventType: "transaction_recorded",
+    actor: initiatorAddress,
+    contractId,
+    payload: { transactionId: result.lastInsertRowid, type, requestedAmount, tokenId, status: "pending" },
+  });
   return result.lastInsertRowid;
 }
 
@@ -35,6 +46,7 @@ export function updateTransactionHash(transactionId, txHash) {
 
   stmt.run(txHash, transactionId);
   countWrite();
+  recordAuditEvent({ eventType: "transaction_hash_linked", payload: { transactionId, txHash } });
 }
 
 export function updateTransactionStatus(txHash, status, blockTime = null, errorMessage = null) {
@@ -46,6 +58,10 @@ export function updateTransactionStatus(txHash, status, blockTime = null, errorM
 
   stmt.run(status, blockTime, errorMessage, txHash);
   countWrite();
+  recordAuditEvent({
+    eventType: "transaction_status_changed",
+    payload: { txHash, status, blockTime, errorMessage },
+  });
 }
 
 export function addDistributionPayout(
@@ -62,6 +78,46 @@ export function addDistributionPayout(
 
   stmt.run(transactionId, contractId, collaboratorAddress, amountReceived);
   countWrite();
+  recordCollaboratorPayout(contractId, collaboratorAddress, amountReceived);
+  recordAuditEvent({
+    eventType: "distribution_payout_recorded",
+    actor: collaboratorAddress,
+    contractId,
+    payload: { transactionId, amountReceived },
+  });
+
+  // Update collaborator reputation after successful payout (#962)
+  import("./reputation.js")
+    .then(({ updateReputationAfterPayout }) => {
+      updateReputationAfterPayout(
+        collaboratorAddress,
+        contractId,
+        amountReceived,
+        new Date().toISOString()
+      );
+    })
+    .catch((err) => {
+      import("../logger.js").then(({ default: logger }) => {
+        logger.warn("Failed to update reputation after payout", {
+          collaboratorAddress,
+          error: err.message,
+        });
+      });
+    });
+}
+
+/** Find exact payout amounts by a per-contract keyed index without decrypting the candidate rows. */
+export function findPayoutsByAmount(contractId, amountReceived) {
+  const rows = db.prepare(`
+    SELECT id, transactionId, contractId, collaboratorAddress, amountReceived
+    FROM distribution_payouts_encrypted
+    WHERE amountReceivedHash = field_blind_index(?, ?, '${PAYOUT_AMOUNT_FIELD}')
+  `).all(String(amountReceived), contractId);
+
+  return rows.map((row) => ({
+    ...row,
+    amountReceived: decryptField(row.amountReceived, contractId, PAYOUT_AMOUNT_FIELD),
+  }));
 }
 
 export function getTransactionCount(contractId, filters = {}) {
@@ -285,7 +341,7 @@ export function getTransactionDetails(txHash) {
         blockTime,
         status,
         errorMessage,
-        payoutsJson
+        decrypt_field(payoutsJson, contractId, 'contract_event_archive.payoutsJson') as payoutsJson
       FROM contract_event_archive
       WHERE txHash = ?
     `);

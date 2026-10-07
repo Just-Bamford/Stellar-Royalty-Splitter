@@ -1,0 +1,38 @@
+# Operations stack inputs (#935–#938). Copy to <env>.tfvars (gitignored) and
+# fill in from `terraform -chdir=environments/<env> output`.
+
+environment     = "prod"
+name_prefix     = "srs-prod"
+aws_region      = "us-east-1"
+alert_topic_arn = "arn:aws:sns:us-east-1:123456789012:srs-prod-alerts"
+
+# Grants for scheduled jobs attach to the app instance role.
+instance_role_name = "srs-prod-app-XXXXXXXX"
+
+# ── Backups (#937) ─────────────────────────────────────────────────────────
+backup_bucket_name              = "srs-prod-backups-123456789012"
+backup_kms_key_arn              = "arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+backup_encryption_key_parameter = "/srs-prod/backup-encryption-key" # SSM SecureString
+# Weekly recovery test restores production backups into STAGING.
+recovery_test_instance_name_tag  = "srs-staging-app"
+recovery_test_instance_role_name = "srs-staging-app-XXXXXXXX"
+
+# ── Audit trail archive (#938) ─────────────────────────────────────────────
+audit_archive_kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+app_log_group_name        = "/srs-prod/app"
+audit_object_lock_mode    = "COMPLIANCE"
+
+# ── Canary (#936) ──────────────────────────────────────────────────────────
+vpc_id                  = "vpc-0123456789abcdef0"
+listener_arn            = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/srs-prod-alb/abc/def"
+stable_target_group_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/srs-prod-tg/abc"
+autoscaling_group_name  = "srs-prod-app"
+alb_security_group_id   = "sg-0123456789abcdef0"
+app_security_group_id   = "sg-0fedcba9876543210"
+alb_arn_suffix          = "app/srs-prod-alb/0123456789abcdef"
+deployer_role_name      = "github-deploy-prod"
+
+# ── Grafana (#935) ─────────────────────────────────────────────────────────
+enable_grafana_dashboards = true
+grafana_url               = "https://grafana.example.com"
+# grafana_auth: set GRAFANA_AUTH in the environment rather than here.

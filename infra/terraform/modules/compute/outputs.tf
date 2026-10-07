@@ -42,3 +42,8 @@ output "api_base_url" {
   description = "Base URL for the API. Set FRONTEND_ORIGIN and the frontend API base to this until a custom domain exists."
   value       = var.certificate_arn == null ? "http://${aws_lb.main.dns_name}" : "https://${aws_lb.main.dns_name}"
 }
+
+output "listener_arn" {
+  description = "The listener that serves traffic (HTTPS when a certificate is set, otherwise HTTP). Canary weighted-routing rules attach here (#936)."
+  value       = var.certificate_arn == null ? aws_lb_listener.http.arn : aws_lb_listener.https[0].arn
+}

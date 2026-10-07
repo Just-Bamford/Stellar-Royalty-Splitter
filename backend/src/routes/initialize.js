@@ -10,7 +10,7 @@ import { createHash } from "crypto";
 import { validate, initializeSchema, validateInitializePayloadSize } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
 import { sendError } from "../error-response.js";
-import { invalidateContract } from "../cache.js";
+import { invalidateContractCaches } from "../cache-invalidation.js";
 import logger from "../logger.js";
 
 export const initializeRouter = Router();
@@ -38,7 +38,7 @@ async function buildInitializeTransaction(req, res, next, method, args, type, me
       auditMetadata: metadata,
       transactionMetadata: { requestedAmount: null, tokenId: null },
     });
-    invalidateContract(contractId);
+    invalidateContractCaches(contractId, { reason: "initialize" });
     res.json({ xdr, transactionId });
   } catch (err) {
     if (err.status) return sendError(res, err.status, err.code, err.message);
@@ -139,7 +139,8 @@ initializeRouter.post(
 
       // Invalidate cached read-only data for this contract so stale state
       // is not served after the new collaborator set is written on-chain.
-      invalidateContract(contractId);
+      // Propagates to every other backend instance via Redis pub/sub (#926).
+      invalidateContractCaches(contractId, { reason: "initialize" });
 
       logger.info("contract state change: initialize XDR built", {
         contractId,

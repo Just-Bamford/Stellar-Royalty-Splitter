@@ -1,7 +1,8 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import logger from "../logger.js";
+import { registerFieldEncryptor } from "../middleware/field-encryptor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH ?? path.join(__dirname, "..", "..", "audit.db");
@@ -12,6 +13,126 @@ db.pragma("synchronous = NORMAL"); // safe with WAL, much faster
 db.pragma("cache_size = -64000"); // 64MB page cache
 db.pragma("foreign_keys = ON"); // enforce FK constraints
 db.pragma("temp_store = MEMORY"); // temp tables in memory
+registerFieldEncryptor(db);
+
+const PAYOUT_AMOUNT_FIELD = "distribution_payouts.amountReceived";
+
+function migrateEncryptedPayouts() {
+  const current = db.prepare("SELECT type FROM sqlite_master WHERE name = 'distribution_payouts'").get();
+  if (current?.type === "table") {
+    db.exec("ALTER TABLE distribution_payouts RENAME TO distribution_payouts_encrypted");
+  } else if (!current) {
+    db.exec(`
+      CREATE TABLE distribution_payouts_encrypted (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transactionId INTEGER NOT NULL,
+        contractId TEXT NOT NULL DEFAULT '',
+        collaboratorAddress TEXT NOT NULL,
+        amountReceived TEXT NOT NULL,
+        amountReceivedHash TEXT,
+        FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE CASCADE
+      )
+    `);
+  }
+
+  const columns = db.prepare("PRAGMA table_info(distribution_payouts_encrypted)").all();
+  if (!columns.some(({ name }) => name === "amountReceivedHash")) {
+    db.exec("ALTER TABLE distribution_payouts_encrypted ADD COLUMN amountReceivedHash TEXT");
+  }
+
+  db.prepare(`
+    UPDATE distribution_payouts_encrypted
+      SET amountReceivedHash = field_blind_index(
+        amountReceived,
+        COALESCE(NULLIF(contractId, ''), (SELECT contractId FROM transactions WHERE id = transactionId)),
+        ?
+      )
+    WHERE amountReceivedHash IS NULL
+  `).run(PAYOUT_AMOUNT_FIELD);
+
+  const archive = db.prepare("SELECT type FROM sqlite_master WHERE name = 'contract_event_archive'").get();
+  if (archive?.type === "table") {
+    db.prepare(`
+      UPDATE contract_event_archive
+      SET payoutsJson = encrypt_field(payoutsJson, contractId, 'contract_event_archive.payoutsJson')
+      WHERE payoutsJson NOT LIKE 'enc:v1:%'
+    `).run();
+  }
+  db.prepare(`
+    UPDATE distribution_payouts_encrypted
+      SET amountReceived = encrypt_field(
+        amountReceived,
+        COALESCE(NULLIF(contractId, ''), (SELECT contractId FROM transactions WHERE id = transactionId)),
+        ?
+      )
+    WHERE amountReceived NOT LIKE 'enc:v1:%'
+  `).run(PAYOUT_AMOUNT_FIELD);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_distribution_payouts_amount_hash
+      ON distribution_payouts_encrypted(amountReceivedHash);
+
+    DROP VIEW IF EXISTS distribution_payouts;
+    CREATE VIEW distribution_payouts AS
+        SELECT dp.id, dp.transactionId, dp.contractId, dp.collaboratorAddress,
+          decrypt_field(
+            dp.amountReceived,
+            COALESCE(NULLIF(dp.contractId, ''), t.contractId),
+            '${PAYOUT_AMOUNT_FIELD}'
+          ) AS amountReceived
+        FROM distribution_payouts_encrypted AS dp
+        LEFT JOIN transactions AS t ON t.id = dp.transactionId;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_insert;
+    CREATE TRIGGER distribution_payouts_insert
+    INSTEAD OF INSERT ON distribution_payouts
+    BEGIN
+      INSERT INTO distribution_payouts_encrypted
+        (id, transactionId, contractId, collaboratorAddress, amountReceived, amountReceivedHash)
+      VALUES (
+        NEW.id, NEW.transactionId, COALESCE(NEW.contractId, ''), NEW.collaboratorAddress,
+          encrypt_field(
+            NEW.amountReceived,
+            COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+            '${PAYOUT_AMOUNT_FIELD}'
+          ),
+          field_blind_index(
+            NEW.amountReceived,
+            COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+            '${PAYOUT_AMOUNT_FIELD}'
+          )
+      );
+    END;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_update;
+    CREATE TRIGGER distribution_payouts_update
+    INSTEAD OF UPDATE ON distribution_payouts
+    BEGIN
+      UPDATE distribution_payouts_encrypted
+      SET transactionId = NEW.transactionId,
+          contractId = NEW.contractId,
+          collaboratorAddress = NEW.collaboratorAddress,
+            amountReceived = encrypt_field(
+              NEW.amountReceived,
+              COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+              '${PAYOUT_AMOUNT_FIELD}'
+            ),
+            amountReceivedHash = field_blind_index(
+              NEW.amountReceived,
+              COALESCE(NULLIF(NEW.contractId, ''), (SELECT contractId FROM transactions WHERE id = NEW.transactionId)),
+              '${PAYOUT_AMOUNT_FIELD}'
+            )
+      WHERE id = OLD.id;
+    END;
+
+    DROP TRIGGER IF EXISTS distribution_payouts_delete;
+    CREATE TRIGGER distribution_payouts_delete
+    INSTEAD OF DELETE ON distribution_payouts
+    BEGIN
+      DELETE FROM distribution_payouts_encrypted WHERE id = OLD.id;
+    END;
+  `);
+}
 
 // Checkpoint the WAL periodically to prevent unbounded growth.
 let _writeCount = 0;
@@ -55,7 +176,7 @@ export function initializeDatabase() {
   const migrations = [
     {
       version: 1,
-      sql: `/* initial schema — already applied via CREATE TABLE IF NOT EXISTS */`,
+      sql: `/* initial schema  already applied via CREATE TABLE IF NOT EXISTS */`,
     },
     {
       version: 3,
@@ -96,6 +217,8 @@ export function initializeDatabase() {
       sql: `
         PRAGMA foreign_keys = OFF;
 
+        BEGIN;
+
         CREATE TABLE IF NOT EXISTS distribution_payouts_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           transactionId INTEGER NOT NULL,
@@ -117,12 +240,14 @@ export function initializeDatabase() {
           totalRoyaltiesDistributed TEXT NOT NULL,
           numberOfSales INTEGER NOT NULL,
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY(transactionId) REFERENCES transactions(id) On DELETE CASCADE                    );
+          FOREIGN KEY(transactionId) REFERENCES transactions(id) On DELETE CASCADE                    );
         INSERT OR IGNORE INTO secondary_royalty_distributions_new
           SELECT id, transactionId, contractId, totalRoyaltiesDistributed, numberOfSales, timestamp
           FROM secondary_royalty_distributions;
         DROP TABLE secondary_royalty_distributions;
         ALTER TABLE secondary_royalty_distributions_new RENAME TO secondary_royalty_distributions;
+
+        COMMIT;
 
         PRAGMA foreign_keys = ON;
       `,
@@ -132,18 +257,17 @@ export function initializeDatabase() {
       sql: `
         CREATE TABLE IF NOT EXISTS payment_preferences (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          walletAddress TEXT NOT NULLR UNIQUE,
+        walletAddress TEXT NOT NULL UNIQUE,
           paymentMethod TEXT NOT NULL CHECK(paymentMethod IN ('direct_transfer', 'usdc', 'zlm')),
           updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE CONSTRAINT ID <//>
         CREATE INDEX IF NOT EXISTS idx_payment_preferences_walletAddress
           ON payment_preferences(walletAddress);
       `,
     },
     {
       version: 6,
-        sql: `
+      sql: `
           CREATE TABLE IF NOT EXISTS email_digest_subscribers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             walletAddress TEXT NOT NULL UNIQUE,
@@ -164,7 +288,7 @@ export function initializeDatabase() {
             weekEnd TEXT NOT NULL,
             sentAt DATETIME DEFAULT CURRENT_TIMESTAMP,
             earningsSummary TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'sent' CHECK(s4tatus IN ('sent', 'failed')),
+            status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent', 'failed')),
             FOREIGN KEY(subscriberId) REFERENCES email_digest_subscribers(id) ON DELETE CASCADE
           );
 
@@ -172,27 +296,22 @@ export function initializeDatabase() {
             ON email_digest_subscribers(walletAddress);
           CREATE INDEX IF NOT EXISTS idx_email_digest_subscribers_enabled
             ON email_digest_subscribers(enabled);
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
           
         `,
-      },
-      {
-        version: 7,
-        sql: `
+    },
+    {
+      version: 7,
+      sql: `
         ALTER TABLE transactions ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE transactions ADD COLUMN last_retry_time DATETIME;
         CREATE INDEX IF NOT EXISTS idx_transactions_retry_eligible
           ON transactions(status, type, retry_count, last_retry_time);
       `,
-      },
-      {
-        // #572: Role-Based Access Control — users and API key tables
-        version: 8,
-        sql: `
+    },
+    {
+      // #572: Role-Based Access Control  users and API key tables
+      version: 8,
+      sql: `
           CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             walletAddress TEXT UNIQUE,
@@ -215,29 +334,19 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_api_keys_keyHash ON api_keys(keyHash);
           CREATE INDEX IF NOT EXISTS idx_users_walletAddress ON users(walletAddress);
         `,
-      },
-      {
-        // #570: Add database index on transactions(status) column
-        // #597: CSV bulk import tracking, contributor tax, notifications
-        version: 9,
-        sql: `
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          
-        `,
-      },
-      {
-        // #596: Payment hold/release system
-        version: 10,
-        sql: `
+    },
+    {
+      // #570: Add database index on transactions(status) column
+      // #597: CSV bulk import tracking, contributor tax, notifications
+      version: 9,
+      sql: `
+          CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+      `,
+    },
+    {
+      // #596: Payment hold/release system
+      version: 10,
+      sql: `
           ALTER TABLE transactions ADD COLUMN hold_reason TEXT;
           ALTER TABLE transactions ADD COLUMN hold_until DATETIME;
           ALTER TABLE transactions ADD COLUMN hold_placed_at DATETIME;
@@ -248,19 +357,13 @@ export function initializeDatabase() {
           ALTER TABLE transactions ADD COLUMN hold_approved_at DATETIME;
           ALTER TABLE transactions ADD COLUMN hold_approval_note TEXT;
           ALTER TABLE transactions ADD COLUMN hold_status TEXT DEFAULT NULL CHECK(hold_status IN (NULL, 'active', 'released'));
-
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
           
         `,
-      },
-      {
-        // Cache warming: active contracts tracking
-        version: 11,
-        sql: `
+    },
+    {
+      // Cache warming: active contracts tracking
+      version: 11,
+      sql: `
           CREATE TABLE IF NOT EXISTS active_contracts (
             contractId TEXT PRIMARY KEY,
             accessCount INTEGER NOT NULL DEFAULT 0,
@@ -270,19 +373,16 @@ export function initializeDatabase() {
             PRIMARY KEY (contractId)
           );
           CREATE INDEX IF NOT EXISTS idx_active_contracts_accessCount ON active_contracts(accessCount DESC);
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
-          CREATE CONSTRAINT ID <//>
           
         `,
-      },
-      {
-        // Transaction finality tracking (#finality)
-        // Stores per-transaction Horizon polling state so contributors can
-        // query or subscribe via WebSocket to know when their transaction
-        // is confirmed, failed, or timed out.
-        version: 12,
-        sql: `
+    },
+    {
+      // Transaction finality tracking (#finality)
+      // Stores per-transaction Horizon polling state so contributors can
+      // query or subscribe via WebSocket to know when their transaction
+      // is confirmed, failed, or timed out.
+      version: 12,
+      sql: `
           CREATE TABLE IF NOT EXISTS transaction_finality (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             transaction_id INTEGER NOT NULL UNIQUE,
@@ -309,11 +409,11 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_transaction_finality_submission_at
             ON transaction_finality(submission_at);
         `,
-      },
-      {
-        // #818: Dead Letter Queue for failed webhooks
-        version: 13,
-        sql: `
+    },
+    {
+      // #818: Dead Letter Queue for failed webhooks
+      version: 13,
+      sql: `
           CREATE TABLE IF NOT EXISTS webhook_dlq (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             webhook_id INTEGER NOT NULL,
@@ -328,11 +428,11 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_webhook_dlq_contract_id ON webhook_dlq(contract_id);
           CREATE INDEX IF NOT EXISTS idx_webhook_dlq_created_at ON webhook_dlq(created_at);
         `,
-      },
-      {
-        // #874: centralized structured log aggregation and retention
-        version: 14,
-        sql: `
+    },
+    {
+      // #874: centralized structured log aggregation and retention
+      version: 14,
+      sql: `
           CREATE TABLE IF NOT EXISTS application_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -348,83 +448,841 @@ export function initializeDatabase() {
           CREATE INDEX IF NOT EXISTS idx_application_logs_correlation_id ON application_logs(correlation_id);
           CREATE INDEX IF NOT EXISTS idx_application_logs_request_id ON application_logs(request_id);
         `,
+    },
+    {
+      // #939: Salesforce CRM integration ÔÇö OAuth connections, collaborator Ôçä
+      // Contact mappings, sync progress, and the CRM activity audit trail.
+      // `contributor_status` is also created here (IF NOT EXISTS) because the
+      // inbound Salesforce webhook flips collaborator status and the table was
+      // otherwise only assumed to exist.
+      version: 15,
+      sql: `
+          CREATE TABLE IF NOT EXISTS contributor_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contractId TEXT NOT NULL,
+            address TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
+              CHECK(status IN ('active', 'suspended', 'deactivated')),
+            reason TEXT,
+            suspendedAt DATETIME,
+            deactivatedAt DATETIME,
+            updatedBy TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(contractId, address)
+          );
+          CREATE INDEX IF NOT EXISTS idx_contributor_status_contract
+            ON contributor_status(contractId);
+
+          CREATE TABLE IF NOT EXISTS crm_connections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contractId TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'salesforce',
+            instanceUrl TEXT NOT NULL,
+            orgId TEXT,
+            accessToken TEXT,
+            refreshToken TEXT,
+            accessTokenExpiresAt DATETIME,
+            connectedBy TEXT,
+            status TEXT NOT NULL DEFAULT 'connected'
+              CHECK(status IN ('connected', 'disconnected')),
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(contractId, provider)
+          );
+
+          CREATE TABLE IF NOT EXISTS crm_sync_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contractId TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'salesforce',
+            status TEXT NOT NULL DEFAULT 'idle'
+              CHECK(status IN ('idle', 'running', 'completed', 'failed')),
+            totalCollaborators INTEGER NOT NULL DEFAULT 0,
+            syncedCount INTEGER NOT NULL DEFAULT 0,
+            failedCount INTEGER NOT NULL DEFAULT 0,
+            lastSyncedAt DATETIME,
+            lastError TEXT,
+            startedAt DATETIME,
+            completedAt DATETIME,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(contractId, provider)
+          );
+
+          CREATE TABLE IF NOT EXISTS crm_contact_mappings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contractId TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'salesforce',
+            address TEXT NOT NULL,
+            externalId TEXT NOT NULL,
+            name TEXT,
+            email TEXT,
+            syncState TEXT NOT NULL DEFAULT 'synced',
+            lastDirection TEXT DEFAULT 'outbound'
+              CHECK(lastDirection IN ('outbound', 'inbound')),
+            lastSyncedAt DATETIME,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(contractId, provider, address)
+          );
+          CREATE INDEX IF NOT EXISTS idx_crm_contact_mappings_external
+            ON crm_contact_mappings(provider, externalId);
+
+          CREATE TABLE IF NOT EXISTS crm_activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contractId TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'salesforce',
+            address TEXT,
+            activityType TEXT NOT NULL,
+            externalId TEXT,
+            payload TEXT,
+            status TEXT NOT NULL DEFAULT 'success'
+              CHECK(status IN ('success', 'failed', 'skipped')),
+            error TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_crm_activity_log_contract
+            ON crm_activity_log(contractId, createdAt DESC);
+        `,
+    },
+    {
+      // #924: Stripe fiat payout integration ÔÇö linked Connect accounts and
+      // payout records (status tracked pending -> completed/failed via the
+      // Stripe webhook).
+      version: 16,
+      sql: `
+          CREATE TABLE IF NOT EXISTS stripe_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL UNIQUE,
+            stripeAccountId TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'pending'
+              CHECK(status IN ('pending', 'connected', 'disconnected')),
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_stripe_accounts_walletAddress
+            ON stripe_accounts(walletAddress);
+          CREATE INDEX IF NOT EXISTS idx_stripe_accounts_stripeAccountId
+            ON stripe_accounts(stripeAccountId);
+
+          CREATE TABLE IF NOT EXISTS stripe_payouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            walletAddress TEXT NOT NULL,
+            stripeAccountId TEXT NOT NULL,
+            stripePayoutId TEXT UNIQUE,
+            amountXlm TEXT NOT NULL,
+            amountUsdCents INTEGER NOT NULL,
+            xlmUsdRate TEXT NOT NULL,
+            frequency TEXT NOT NULL DEFAULT 'once'
+              CHECK(frequency IN ('once', 'weekly', 'monthly')),
+            status TEXT NOT NULL DEFAULT 'pending'
+              CHECK(status IN ('pending', 'in_transit', 'completed', 'failed')),
+            failureReason TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_stripe_payouts_walletAddress
+            ON stripe_payouts(walletAddress, createdAt DESC);
+          CREATE INDEX IF NOT EXISTS idx_stripe_payouts_stripePayoutId
+            ON stripe_payouts(stripePayoutId);
+          CREATE INDEX IF NOT EXISTS idx_stripe_payouts_status
+            ON stripe_payouts(status);
+
+          CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stripeEventId TEXT NOT NULL UNIQUE,
+            eventType TEXT NOT NULL,
+            payoutId INTEGER,
+            payload TEXT,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(payoutId) REFERENCES stripe_payouts(id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_type
+            ON stripe_webhook_events(eventType, createdAt DESC);
+        `,
+    },
+    {
+      version: 17,
+      sql: `
+        -- Marketplace webhook integrations ÔÇö OpenSea (#928) and Rarible (#954).
+        --
+        -- src/database/marketplace-events.js talks to src/database/core.js, but
+        -- marketplace_events / marketplace_settings were never part of this
+        -- migration chain: on a database created through initializeDatabase()
+        -- (src/database/index.js) every marketplace webhook failed with
+        -- "no such table: marketplace_events" before it could record anything.
+        CREATE TABLE IF NOT EXISTS marketplace_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT NOT NULL,
+          eventId TEXT NOT NULL,
+          contractId TEXT NOT NULL,
+          nftId TEXT NOT NULL,
+          salePrice TEXT,
+          royaltyAmount TEXT,
+          status TEXT NOT NULL DEFAULT 'recorded',
+          rawPayload TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, eventId)
+        );
+        CREATE INDEX IF NOT EXISTS idx_marketplace_events_contractId
+          ON marketplace_events(contractId, createdAt DESC);
+
+        -- Per-contract "marketplace auto-recording" toggle (#928), shared by
+        -- every marketplace provider.
+        CREATE TABLE IF NOT EXISTS marketplace_settings (
+          contractId TEXT PRIMARY KEY,
+          autoRecordingEnabled INTEGER NOT NULL DEFAULT 1,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- The marketplace write path records the resale through
+        -- database/secondary-royalties.js (recordSecondarySale) and the audit
+        -- entry through database/audit.js (addAuditLog). Both tables are
+        -- currently defined only in the legacy src/database.js schema, which
+        -- the app no longer initialises, so they are created here too ÔÇö
+        -- IF NOT EXISTS keeps this compatible with databases that already
+        -- have them from that schema.
+        CREATE TABLE IF NOT EXISTS secondary_sales (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          nftId TEXT NOT NULL,
+          previousOwner TEXT NOT NULL,
+          newOwner TEXT NOT NULL,
+          salePrice TEXT NOT NULL,
+          saleToken TEXT NOT NULL,
+          royaltyAmount TEXT NOT NULL,
+          royaltyRate INTEGER NOT NULL,
+          distributed INTEGER NOT NULL DEFAULT 0,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          transactionHash TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_contractId ON secondary_sales(contractId);
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_nftId ON secondary_sales(nftId);
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_timestamp ON secondary_sales(timestamp);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_secondary_sales_dedup
+          ON secondary_sales(contractId, nftId, previousOwner, newOwner, salePrice, saleToken);
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          action TEXT NOT NULL,
+          user TEXT,
+          details TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_contractId ON audit_log(contractId);
+        CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+      `,
+    },
+    {
+      // #950: Tax compliance reporting ÔÇö 1099-NEC, T4A, EU-VAT form storage.
+      version: 18,
+      sql: `
+        CREATE TABLE IF NOT EXISTS tax_forms (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          taxYear TEXT NOT NULL,
+          formType TEXT NOT NULL CHECK(formType IN ('1099-NEC', 'T4A', 'EU-VAT')),
+          country TEXT NOT NULL CHECK(country IN ('US', 'CA', 'EU')),
+          totalIncomeUsd INTEGER NOT NULL DEFAULT 0,
+          withheldUsd INTEGER NOT NULL DEFAULT 0,
+          formData TEXT NOT NULL DEFAULT '{}',
+          paymentBreakdown TEXT NOT NULL DEFAULT '[]',
+          status TEXT NOT NULL DEFAULT 'generated'
+            CHECK(status IN ('generated', 'void', 'amended')),
+          generatedBy TEXT NOT NULL DEFAULT 'system',
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_wallet_year
+          ON tax_forms(walletAddress, taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_year
+          ON tax_forms(taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_type
+          ON tax_forms(formType, taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_country
+          ON tax_forms(country, taxYear);
+        CREATE INDEX IF NOT EXISTS idx_tax_forms_status
+          ON tax_forms(status, taxYear);
+      `,
+    },
+    {
+      // #962: Collaborator reputation and trust score system
+      version: 19,
+      sql: `
+        CREATE TABLE IF NOT EXISTS collaborator_reputation (
+          walletAddress TEXT PRIMARY KEY,
+          totalPayoutsReceived INTEGER DEFAULT 0,
+          totalAmountReceived TEXT DEFAULT '0',
+          firstPayoutDate DATETIME,
+          lastPayoutDate DATETIME,
+          consecutiveMonthsActive INTEGER DEFAULT 0,
+          missedPayoutOpportunities INTEGER DEFAULT 0,
+          averagePayoutAmount TEXT DEFAULT '0',
+          trustScore INTEGER DEFAULT 0 CHECK(trustScore >= 0 AND trustScore <= 100),
+          reputationTier TEXT DEFAULT 'newcomer' CHECK(reputationTier IN ('newcomer', 'bronze', 'silver', 'gold', 'platinum')),
+          lastCalculated DATETIME DEFAULT CURRENT_TIMESTAMP,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS reputation_payout_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          contractId TEXT NOT NULL,
+          amount TEXT NOT NULL,
+          payoutDate DATETIME NOT NULL,
+          onTime INTEGER DEFAULT 1,
+          FOREIGN KEY(walletAddress) REFERENCES collaborator_reputation(walletAddress) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS reputation_activities (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          activityType TEXT NOT NULL CHECK(activityType IN ('dispute_opened', 'dispute_resolved', 'project_completed', 'endorsed_by_peer', 'flagged')),
+          impactScore INTEGER NOT NULL DEFAULT 0,
+          details TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(walletAddress) REFERENCES collaborator_reputation(walletAddress) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reputation_wallet ON collaborator_reputation(walletAddress);
+        CREATE INDEX IF NOT EXISTS idx_reputation_tier ON collaborator_reputation(reputationTier);
+        CREATE INDEX IF NOT EXISTS idx_reputation_score ON collaborator_reputation(trustScore);
+        CREATE INDEX IF NOT EXISTS idx_payout_events_wallet ON reputation_payout_events(walletAddress);
+        CREATE INDEX IF NOT EXISTS idx_payout_events_date ON reputation_payout_events(payoutDate);
+        CREATE INDEX IF NOT EXISTS idx_reputation_activities_wallet ON reputation_activities(walletAddress);
+        CREATE INDEX IF NOT EXISTS idx_reputation_activities_type ON reputation_activities(activityType);
+      `,
+    },
+    {
+      // #961: Advanced dispute resolution with AI-powered mediation
+      version: 20,
+      sql: `
+        -- Evidence collection for disputes
+        CREATE TABLE IF NOT EXISTS dispute_evidence (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          disputeId INTEGER NOT NULL,
+          submittedBy TEXT NOT NULL,
+          evidenceType TEXT NOT NULL CHECK(evidenceType IN ('document', 'transaction_proof', 'screenshot', 'other')),
+          fileUrl TEXT NOT NULL,
+          description TEXT,
+          metadata TEXT NOT NULL DEFAULT '{}',
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(disputeId) REFERENCES disputes(id) ON DELETE CASCADE
+        );
+
+        -- AI analysis results for disputes
+        CREATE TABLE IF NOT EXISTS dispute_ai_analysis (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          disputeId INTEGER NOT NULL,
+          analysisType TEXT NOT NULL CHECK(analysisType IN ('transaction_pattern', 'evidence_review', 'sentiment_analysis', 'fraud_detection')),
+          findings TEXT NOT NULL DEFAULT '{}',
+          confidenceScore INTEGER NOT NULL CHECK(confidenceScore >= 0 AND confidenceScore <= 100),
+          recommendations TEXT NOT NULL DEFAULT '{}',
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(disputeId) REFERENCES disputes(id) ON DELETE CASCADE
+        );
+
+        -- Mediation recommendations
+        CREATE TABLE IF NOT EXISTS dispute_mediation_recommendations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          disputeId INTEGER NOT NULL,
+          recommendationType TEXT NOT NULL CHECK(recommendationType IN ('automated', 'human_review_suggested', 'escalation_required')),
+          recommendation TEXT NOT NULL,
+          reasoning TEXT NOT NULL DEFAULT '{}',
+          priority INTEGER NOT NULL CHECK(priority >= 1 AND priority <= 5),
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'implemented', 'rejected')),
+          implementedBy TEXT,
+          implementedAt DATETIME,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(disputeId) REFERENCES disputes(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_dispute_evidence_dispute ON dispute_evidence(disputeId);
+        CREATE INDEX IF NOT EXISTS idx_dispute_evidence_submitted_by ON dispute_evidence(submittedBy);
+        CREATE INDEX IF NOT EXISTS idx_dispute_ai_analysis_dispute ON dispute_ai_analysis(disputeId);
+        CREATE INDEX IF NOT EXISTS idx_dispute_ai_analysis_type ON dispute_ai_analysis(analysisType);
+        CREATE INDEX IF NOT EXISTS idx_dispute_mediation_dispute ON dispute_mediation_recommendations(disputeId);
+        CREATE INDEX IF NOT EXISTS idx_dispute_mediation_status ON dispute_mediation_recommendations(status);
+        CREATE INDEX IF NOT EXISTS idx_dispute_mediation_priority ON dispute_mediation_recommendations(priority DESC);
+      `,
+    },
+    {
+      // #971: Advanced search API with full-text and semantic search
+      version: 21,
+      sql: `
+        -- Full-text search index for collaborators
+        CREATE VIRTUAL TABLE IF NOT EXISTS collaborators_fts USING fts5(
+          walletAddress,
+          name,
+          email,
+          notes,
+          contractId,
+          tokenize = 'porter unicode61'
+        );
+
+        -- Full-text search index for transactions
+        CREATE VIRTUAL TABLE IF NOT EXISTS transactions_fts USING fts5(
+          txHash,
+          contractId,
+          type,
+          initiatorAddress,
+          tokenId,
+          notes,
+          collaboratorAddresses,
+          tokenize = 'porter unicode61'
+        );
+
+        -- Full-text search index for disputes
+        CREATE VIRTUAL TABLE IF NOT EXISTS disputes_fts USING fts5(
+          ticketId,
+          walletAddress,
+          contractId,
+          category,
+          description,
+          status,
+          comments,
+          tokenize = 'porter unicode61'
+        );
+
+        -- Search history and analytics
+        CREATE TABLE IF NOT EXISTS search_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          query TEXT NOT NULL,
+          searchType TEXT NOT NULL,
+          resultsCount INTEGER NOT NULL DEFAULT 0,
+          userId TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Popular search terms
+        CREATE TABLE IF NOT EXISTS search_analytics (
+          query TEXT PRIMARY KEY,
+          searchCount INTEGER NOT NULL DEFAULT 0,
+          lastSearched DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_search_history_query ON search_history(query);
+        CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(userId);
+        CREATE INDEX IF NOT EXISTS idx_search_history_timestamp ON search_history(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_search_analytics_count ON search_analytics(searchCount DESC);
+      `,
+    },
+    {
+      // #972: Zero-knowledge proof implementation for privacy-preserving operations
+      version: 22,
+      sql: `
+        -- Private distribution proofs
+        CREATE TABLE IF NOT EXISTS zk_distribution_proofs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          transactionId INTEGER,
+          proofType TEXT NOT NULL DEFAULT 'private_distribution' CHECK(proofType IN ('private_distribution', 'range_proof', 'membership_proof')),
+          totalCommitment TEXT NOT NULL,
+          collaboratorCount INTEGER NOT NULL,
+          proofData TEXT NOT NULL,
+          verified INTEGER DEFAULT 0,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE SET NULL
+        );
+
+        -- Anonymous credentials for collaborators
+        CREATE TABLE IF NOT EXISTS zk_anonymous_credentials (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          credentialId TEXT NOT NULL UNIQUE,
+          walletAddress TEXT NOT NULL,
+          commitment TEXT NOT NULL,
+          attributes TEXT NOT NULL DEFAULT '{}',
+          signature TEXT NOT NULL,
+          revoked INTEGER DEFAULT 0,
+          issuedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          expiresAt DATETIME,
+          lastUsed DATETIME
+        );
+
+        -- Nullifier registry (prevents double-spending of proofs)
+        CREATE TABLE IF NOT EXISTS zk_nullifiers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          nullifier TEXT NOT NULL UNIQUE,
+          proofId INTEGER NOT NULL,
+          usedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(proofId) REFERENCES zk_distribution_proofs(id) ON DELETE CASCADE
+        );
+
+        -- Privacy audit log (records proof verification events)
+        CREATE TABLE IF NOT EXISTS zk_audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          proofId INTEGER,
+          credentialId TEXT,
+          action TEXT NOT NULL CHECK(action IN ('proof_generated', 'proof_verified', 'credential_issued', 'credential_used', 'credential_revoked')),
+          result TEXT,
+          metadata TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_zk_proofs_contract ON zk_distribution_proofs(contractId);
+        CREATE INDEX IF NOT EXISTS idx_zk_proofs_transaction ON zk_distribution_proofs(transactionId);
+        CREATE INDEX IF NOT EXISTS idx_zk_proofs_type ON zk_distribution_proofs(proofType);
+        CREATE INDEX IF NOT EXISTS idx_zk_credentials_wallet ON zk_anonymous_credentials(walletAddress);
+        CREATE INDEX IF NOT EXISTS idx_zk_credentials_id ON zk_anonymous_credentials(credentialId);
+        CREATE INDEX IF NOT EXISTS idx_zk_nullifiers_nullifier ON zk_nullifiers(nullifier);
+        CREATE INDEX IF NOT EXISTS idx_zk_audit_proof ON zk_audit_log(proofId);
+        CREATE INDEX IF NOT EXISTS idx_zk_audit_credential ON zk_audit_log(credentialId);
+      `,
+    },
+    {
+      // #984: Performance ÔÇö Query optimization and database indexing strategy
+      version: 23,
+      sql: `
+        -- Foreign key indexes
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_txId ON distribution_payouts(transactionId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_collab ON distribution_payouts(collaboratorAddress, transactionId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_contract ON distribution_payouts(contractId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_collab_contract ON distribution_payouts(collaboratorAddress, contractId);
+        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_txId ON secondary_royalty_distributions(transactionId);
+        CREATE INDEX IF NOT EXISTS idx_dispute_comments_dispute_created ON dispute_comments(disputeId, createdAt ASC);
+        CREATE INDEX IF NOT EXISTS idx_disputes_contract ON disputes(contractId);
+        CREATE INDEX IF NOT EXISTS idx_disputes_wallet_status ON disputes(walletAddress, status);
+        CREATE INDEX IF NOT EXISTS idx_crm_activity_log_address ON crm_activity_log(address, createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_crm_contact_mappings_contract_addr ON crm_contact_mappings(contractId, address);
+
+        -- Timestamp & date-range composite indexes
+        CREATE INDEX IF NOT EXISTS idx_transactions_contract_status_time ON transactions(contractId, status, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_transactions_contract_time ON transactions(contractId, timestamp DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_transactions_initiator_time ON transactions(initiatorAddress, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_contract_time ON secondary_sales(contractId, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contract_time ON secondary_royalty_distributions(contractId, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_reputation_events_wallet_date ON reputation_payout_events(walletAddress, payoutDate DESC);
+        CREATE INDEX IF NOT EXISTS idx_reputation_events_contract_date ON reputation_payout_events(contractId, payoutDate DESC);
+        CREATE INDEX IF NOT EXISTS idx_reputation_activities_wallet_time ON reputation_activities(walletAddress, timestamp DESC);
+
+        -- Partial indexes for hot status flags
+        CREATE INDEX IF NOT EXISTS idx_transactions_confirmed_payouts ON transactions(contractId, timestamp) WHERE status = 'confirmed';
+        CREATE INDEX IF NOT EXISTS idx_contributor_status_active ON contributor_status(contractId, address) WHERE status = 'active';
+        CREATE INDEX IF NOT EXISTS idx_disputes_open ON disputes(createdAt DESC) WHERE status IN ('open', 'under_review');
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_undistributed ON secondary_sales(contractId, timestamp) WHERE distributed = 0;
+        CREATE INDEX IF NOT EXISTS idx_transactions_active_holds ON transactions(contractId, hold_placed_at) WHERE hold_status = 'active';
+
+        -- Materialized summary table for Earnings Dashboard hot path (#984)
+        CREATE TABLE IF NOT EXISTS earnings_summary_mv (
+          contractId TEXT PRIMARY KEY,
+          totalTransactions INTEGER NOT NULL DEFAULT 0,
+          totalDistributed TEXT NOT NULL DEFAULT '0',
+          averagePayout TEXT NOT NULL DEFAULT '0',
+          uniqueCollaborators INTEGER NOT NULL DEFAULT 0,
+          lastPayoutAt DATETIME,
+          lastRefreshedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_earnings_summary_mv_refreshed ON earnings_summary_mv(lastRefreshedAt);
+        `,
+    },
+    {
+      // #991: distribution schedules, batch execution tracking
+      version: 24,
+      sql: `
+        CREATE TABLE IF NOT EXISTS distribution_schedules (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          walletAddress TEXT NOT NULL,
+          tokenId TEXT NOT NULL,
+          frequency TEXT NOT NULL CHECK(frequency IN ('weekly', 'biweekly', 'monthly')),
+          dayOfWeek INTEGER CHECK(dayOfWeek BETWEEN 0 AND 6),
+          dayOfMonth INTEGER CHECK(dayOfMonth BETWEEN 1 AND 28),
+          hourOfDay INTEGER NOT NULL DEFAULT 0 CHECK(hourOfDay BETWEEN 0 AND 23),
+          minuteOfHour INTEGER NOT NULL DEFAULT 0 CHECK(minuteOfHour BETWEEN 0 AND 59),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          nextRunAt DATETIME,
+          lastRunAt DATETIME,
+          lastRunStatus TEXT CHECK(lastRunStatus IN ('success', 'failed', 'partial') OR lastRunStatus IS NULL),
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS batch_executions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scheduleId INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+          totalItems INTEGER NOT NULL DEFAULT 0,
+          successCount INTEGER NOT NULL DEFAULT 0,
+          failureCount INTEGER NOT NULL DEFAULT 0,
+          startedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME,
+          errorMessage TEXT,
+          FOREIGN KEY(scheduleId) REFERENCES distribution_schedules(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS batch_execution_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batchExecutionId INTEGER NOT NULL,
+          transactionId INTEGER,
+          contractId TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'skipped')),
+          xdr TEXT,
+          errorMessage TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(batchExecutionId) REFERENCES batch_executions(id) ON DELETE CASCADE,
+          FOREIGN KEY(transactionId) REFERENCES transactions(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_distribution_schedules_contractId ON distribution_schedules(contractId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_schedules_enabled_next ON distribution_schedules(enabled, nextRunAt);
+        CREATE INDEX IF NOT EXISTS idx_batch_executions_scheduleId ON batch_executions(scheduleId);
+        CREATE INDEX IF NOT EXISTS idx_batch_execution_items_batchId ON batch_execution_items(batchExecutionId);
+      `,
+    },
+    {
+      // #993: contract backup and disaster recovery
+      version: 25,
+      sql: `
+        CREATE TABLE IF NOT EXISTS contract_backups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          snapshotVersion INTEGER NOT NULL DEFAULT 1,
+          ipfsCid TEXT,
+          ipfsGatewayUrl TEXT,
+          sizeBytes INTEGER NOT NULL DEFAULT 0,
+          transactionCount INTEGER NOT NULL DEFAULT 0,
+          collaboratorCount INTEGER NOT NULL DEFAULT 0,
+          secondarySaleCount INTEGER NOT NULL DEFAULT 0,
+          auditLogCount INTEGER NOT NULL DEFAULT 0,
+          weekNumber INTEGER NOT NULL,
+          yearNumber INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'uploading', 'completed', 'failed')),
+          errorMessage TEXT,
+          isRecoveryDrill INTEGER NOT NULL DEFAULT 0,
+          drillSucceeded INTEGER,
+          drillDurationMs INTEGER,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completedAt DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_contractId ON contract_backups(contractId);
+        CREATE INDEX IF NOT EXISTS idx_contract_backups_week ON contract_backups(contractId, yearNumber, weekNumber);
+         CREATE INDEX IF NOT EXISTS idx_contract_backups_status ON contract_backups(status);
+       `,
+     },
+     {
+       // #1066: Event sourcing and CQRS — append-only domain event store
+       version: 26,
+       sql: `
+         CREATE TABLE IF NOT EXISTS domain_events (
+           id         INTEGER PRIMARY KEY AUTOINCREMENT,
+           eventId    TEXT    NOT NULL UNIQUE,
+           eventType  TEXT    NOT NULL,
+           aggregateType TEXT NOT NULL,
+           aggregateId   TEXT NOT NULL,
+           contractId    TEXT,
+           actor         TEXT,
+           payload    TEXT    NOT NULL DEFAULT '{}',
+           metadata   TEXT    NOT NULL DEFAULT '{}',
+           version    INTEGER NOT NULL DEFAULT 1,
+           occurredAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE INDEX IF NOT EXISTS idx_domain_events_aggregateId
+           ON domain_events(aggregateType, aggregateId, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_contractId
+           ON domain_events(contractId, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_type
+           ON domain_events(eventType, occurredAt ASC);
+         CREATE INDEX IF NOT EXISTS idx_domain_events_occurredAt
+           ON domain_events(occurredAt ASC);
+       `,
+     },
+     {
+       // #1059: Advanced webhook system — delivery history for the status
+       // dashboard. Per-webhook event subscriptions + HMAC secrets live on
+       // the `webhooks` table and are added idempotently by
+       // ensureAdvancedWebhookColumns() below (ALTER TABLE has no
+       // IF NOT EXISTS, so a plain migration would break on databases
+       // where the columns already exist).
+       version: 25,
+       sql: `
+         CREATE TABLE IF NOT EXISTS webhook_deliveries (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           webhook_id INTEGER,
+           contract_id TEXT NOT NULL,
+           event TEXT NOT NULL,
+           url TEXT NOT NULL,
+           payload TEXT,
+           status TEXT NOT NULL DEFAULT 'pending'
+             CHECK(status IN ('pending', 'delivered', 'failed', 'exhausted')),
+           http_status INTEGER,
+           attempts INTEGER NOT NULL DEFAULT 0,
+           error TEXT,
+           duration_ms INTEGER,
+           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+         );
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id
+           ON webhook_deliveries(webhook_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_contract
+           ON webhook_deliveries(contract_id, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event
+           ON webhook_deliveries(event, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status
+           ON webhook_deliveries(status, created_at DESC);
+       `,
+     },
+     {
+       // Encrypt payout amounts at rest while preserving the existing read/write interface.
+       version: 25,
+       apply: migrateEncryptedPayouts,
+       beforeApply: () => db.pragma("secure_delete = ON"),
+       afterCommit: () => {
+         db.pragma("wal_checkpoint(TRUNCATE)");
+         db.pragma("secure_delete = OFF");
+       },
+        afterFailure: () => db.pragma("secure_delete = OFF"),
       },
       {
-        // #962, #961, #971, #972: trust, dispute intelligence, search, and privacy primitives
-        version: 15,
+        // #1046: Advanced notification system with user preferences
+        // Expanded notification types, per-type channel/frequency controls,
+        // quiet hours, and notification center (archive, search, mark-unread).
+        version: 27,
         sql: `
-          CREATE TABLE IF NOT EXISTS reputation_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            walletAddress TEXT NOT NULL,
-            eventType TEXT NOT NULL,
-            successful INTEGER NOT NULL DEFAULT 1,
-            occurredAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            metadata TEXT NOT NULL DEFAULT '{}'
-          );
-          CREATE INDEX IF NOT EXISTS idx_reputation_events_wallet ON reputation_events(walletAddress, occurredAt);
-          CREATE TABLE IF NOT EXISTS reputation_scores (
-            walletAddress TEXT PRIMARY KEY,
-            paymentReliability REAL NOT NULL DEFAULT 0,
-            activityConsistency REAL NOT NULL DEFAULT 0,
-            trustScore REAL NOT NULL DEFAULT 0,
-            totalEvents INTEGER NOT NULL DEFAULT 0,
-            updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-          );
-          CREATE TABLE IF NOT EXISTS dispute_evidence (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            disputeId INTEGER NOT NULL,
-            walletAddress TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            content TEXT NOT NULL,
-            contentHash TEXT NOT NULL,
-            createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(disputeId) REFERENCES disputes(id) ON DELETE CASCADE
-          );
-          CREATE INDEX IF NOT EXISTS idx_dispute_evidence_dispute ON dispute_evidence(disputeId, createdAt);
-          CREATE TABLE IF NOT EXISTS dispute_analyses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            disputeId INTEGER NOT NULL,
-            provider TEXT NOT NULL,
-            findings TEXT NOT NULL,
-            recommendation TEXT NOT NULL,
-            confidence REAL NOT NULL,
-            createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(disputeId) REFERENCES disputes(id) ON DELETE CASCADE
-          );
-          CREATE TABLE IF NOT EXISTS search_documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entityType TEXT NOT NULL,
-            entityId TEXT NOT NULL,
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
-            metadata TEXT NOT NULL DEFAULT '{}',
-            updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(entityType, entityId)
-          );
-          CREATE VIRTUAL TABLE IF NOT EXISTS search_documents_fts USING fts5(entityType UNINDEXED, entityId UNINDEXED, title, body);
-          CREATE TABLE IF NOT EXISTS private_proofs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            walletAddress TEXT NOT NULL,
-            proofType TEXT NOT NULL,
-            commitment TEXT NOT NULL,
-            proof TEXT NOT NULL,
-            publicSignals TEXT NOT NULL DEFAULT '[]',
-            createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-          );
-          CREATE INDEX IF NOT EXISTS idx_private_proofs_wallet ON private_proofs(walletAddress, createdAt);
+          -- Add archived + channel columns to notifications for #1046
+          ALTER TABLE notifications ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notifications ADD COLUMN channel TEXT NOT NULL DEFAULT 'in_app';
+          CREATE INDEX IF NOT EXISTS idx_notifications_archived
+            ON notifications(walletAddress, archived, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_notifications_type
+            ON notifications(walletAddress, type, created_at DESC);
+
+          -- Expanded notification preferences (#1046)
+          -- Per-type toggles for the new notification categories
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_dispute_created INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_dispute_resolved INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_reputation_changed INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_governance INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE notification_preferences
+            ADD COLUMN notify_security_alert INTEGER NOT NULL DEFAULT 1;
+
+          -- Frequency preference: immediate, daily_digest, weekly_digest
+          ALTER TABLE notification_preferences
+            ADD COLUMN frequency TEXT NOT NULL DEFAULT 'immediate'
+            CHECK(frequency IN ('immediate', 'daily_digest', 'weekly_digest'));
+
+          -- Quiet hours: pause notifications between quiet_hours_start and quiet_hours_end (local time)
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_start INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE notification_preferences
+            ADD COLUMN quiet_hours_end INTEGER NOT NULL DEFAULT 0;
+
+          -- Channel preferences stored as JSON for per-type channel routing
+          ALTER TABLE notification_preferences
+            ADD COLUMN channel_preferences TEXT NOT NULL DEFAULT '{}';
         `,
       },
-  ];
+    {
+      // #1064: Environmental impact tracking — per-transaction emissions,
+      // offset purchases, and per-wallet auto-offset settings.
+      version: 28,
+      sql: `
+        CREATE TABLE IF NOT EXISTS carbon_emissions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          contractId TEXT NOT NULL,
+          txHash TEXT,
+          transactionId INTEGER,
+          operationCount INTEGER NOT NULL DEFAULT 1,
+          gramsCo2 REAL NOT NULL,
+          recordedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(contractId, txHash, walletAddress)
+        );
+        CREATE INDEX IF NOT EXISTS idx_carbon_emissions_wallet
+          ON carbon_emissions(walletAddress, recordedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_carbon_emissions_contract
+          ON carbon_emissions(contractId, recordedAt DESC);
+
+        CREATE TABLE IF NOT EXISTS carbon_offsets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          walletAddress TEXT NOT NULL,
+          contractId TEXT,
+          tonnes REAL NOT NULL,
+          amountUsdCents INTEGER NOT NULL DEFAULT 0,
+          provider TEXT NOT NULL DEFAULT 'demo',
+          project TEXT NOT NULL DEFAULT 'mixed',
+          status TEXT NOT NULL DEFAULT 'completed'
+            CHECK(status IN ('pending', 'completed', 'failed')),
+          autoPurchase INTEGER NOT NULL DEFAULT 0,
+          txHash TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_carbon_offsets_wallet
+          ON carbon_offsets(walletAddress, createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_carbon_offsets_contract
+          ON carbon_offsets(contractId, createdAt DESC);
+
+        CREATE TABLE IF NOT EXISTS carbon_settings (
+          walletAddress TEXT PRIMARY KEY,
+          autoOffsetEnabled INTEGER NOT NULL DEFAULT 0,
+          offsetPercentage REAL NOT NULL DEFAULT 1.0,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `,
+    },
+    ];
 
   for (const migration of migrations) {
-    const current = db.prepare("SELECT version FROM schema_migrations WHERE version = ?").get(migration.version);
+    const current = db
+      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+      .get(migration.version);
     if (!current) {
-      const apply = db.transaction(() => {
-        db.exec(migration.sql);
-        db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
-      });
-      apply();
+      migration.beforeApply?.();
+      try {
+        const apply = db.transaction(() => {
+          if (migration.apply) migration.apply();
+          else db.exec(migration.sql);
+          db.prepare("INSERT INTO schema_migrations (version) VALUES (?)").run(migration.version);
+        });
+        apply();
+        migration.afterCommit?.();
+      } catch (error) {
+        migration.afterFailure?.();
+        throw error;
+      }
     }
+  }
+
+  ensureAdvancedWebhookColumns();
+}
+
+/**
+ * Idempotently add advanced-webhook columns (#1059) to the `webhooks`
+ * table: `events` (JSON array of subscribed event names, NULL = all),
+ * `secret` (per-webhook HMAC-SHA256 signing secret), plus the retry-state
+ * columns (`retry_count`, `next_retry_time`, `payload`) used by
+ * webhook-delivery.js / retry-failed-webhooks.js which predate this
+ * migration chain and were never added to it. Runs on every startup so
+ * fresh and long-lived databases converge to the same shape.
+ */
+export function ensureAdvancedWebhookColumns() {
+  try {
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'webhooks'")
+      .get();
+    if (!table) return;
+    const columns = new Set(
+      db.prepare("PRAGMA table_info(webhooks)").all().map((col) => col.name)
+    );
+    const missing = {
+      retry_count: "ALTER TABLE webhooks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+      next_retry_time: "ALTER TABLE webhooks ADD COLUMN next_retry_time DATETIME",
+      payload: "ALTER TABLE webhooks ADD COLUMN payload TEXT",
+      events: "ALTER TABLE webhooks ADD COLUMN events TEXT",
+      secret: "ALTER TABLE webhooks ADD COLUMN secret TEXT",
+    };
+    for (const [column, ddl] of Object.entries(missing)) {
+      if (!columns.has(column)) {
+        db.exec(ddl);
+      }
+    }
+  } catch (err) {
+    logger.error("Failed to ensure advanced webhook columns", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -441,7 +1299,7 @@ export function getMigrationVersion() {
 }
 
 /**
- * Quick database health check — returns connection status, response time,
+ * Quick database health check  returns connection status, response time,
  * migration version, WAL mode, and table count.
  */
 export function checkDatabase() {
@@ -457,7 +1315,8 @@ export function checkDatabase() {
     const responseTimeMs = Date.now() - start;
     const version = db.prepare("SELECT MAX(version) as v FROM schema_migrations").get()?.v ?? 0;
     const walMode = db.pragma("journal_mode", { simple: true }) === "wal";
-    const tableCount = db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table'").get()?.c ?? 0;
+    const tableCount =
+      db.prepare("SELECT COUNT(*) as c FROM sqlite_master WHERE type='table'").get()?.c ?? 0;
 
     return {
       connected: true,
@@ -480,27 +1339,36 @@ export function checkDatabase() {
  */
 export function pruneHealthHistory() {
   if (!db.open) return;
-  db.prepare(
-    "DELETE FROM health_history WHERE timestamp < datetime('now', '-90 days')"
-  ).run();
+  db.prepare("DELETE FROM health_history WHERE timestamp < datetime('now', '-90 days')").run();
 }
 
 /**
  * Insert a health snapshot into health_history.
  */
-export function recordHealthSnapshot({ ok, horizonConnected, horizonLatencyMs, contractStatus, dbOk, details }) {
+export function recordHealthSnapshot({
+  ok,
+  horizonConnected,
+  horizonLatencyMs,
+  contractStatus,
+  dbOk,
+  details,
+}) {
   if (!db.open) return;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     INSERT INTO health_history (overall_ok, horizon_connected, horizon_latency_ms, contract_status, db_ok, details)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    ok ? 1 : 0,
-    horizonConnected ? 1 : 0,
-    horizonLatencyMs ?? null,
-    contractStatus ?? "unknown",
-    dbOk ? 1 : 0,
-    details ? JSON.stringify(details) : null
-  );
+  `
+    )
+    .run(
+      ok ? 1 : 0,
+      horizonConnected ? 1 : 0,
+      horizonLatencyMs ?? null,
+      contractStatus ?? "unknown",
+      dbOk ? 1 : 0,
+      details ? JSON.stringify(details) : null
+    );
 }
 
 /**
@@ -508,12 +1376,16 @@ export function recordHealthSnapshot({ ok, horizonConnected, horizonLatencyMs, c
  */
 export function getHealthHistory(hours = 24) {
   if (!db.open) return [];
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT * FROM health_history
     WHERE timestamp > datetime('now', ? || ' hours')
     ORDER BY timestamp DESC
     LIMIT 500
-  `).all(`-${hours}`);
+  `
+    )
+    .all(`-${hours}`);
 }
 
 /**
@@ -531,7 +1403,9 @@ export function getSLAStats(days = 30) {
       maxLatencyMs: null,
     };
   }
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       COUNT(*) as total,
       SUM(overall_ok) as healthy_count,
@@ -540,7 +1414,9 @@ export function getSLAStats(days = 30) {
       MAX(horizon_latency_ms) as max_latency_ms
     FROM health_history
     WHERE timestamp > datetime('now', ? || ' days')
-  `).get(`-${days}`);
+  `
+    )
+    .get(`-${days}`);
 
   const total = rows?.total ?? 0;
   const healthyCount = rows?.healthy_count ?? 0;

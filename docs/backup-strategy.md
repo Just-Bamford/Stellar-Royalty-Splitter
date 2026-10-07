@@ -24,10 +24,54 @@ ledger, but the audit trail and operational metadata are unique to this database
 
 ## 2. Recovery Objectives
 
-| Metric | Target | Rationale |
-|--------|--------|-----------|
-| **RPO** (Recovery Point Objective) | < 24 hours | Daily backups ensure at most one day of data loss |
-| **RTO** (Recovery Time Objective) | < 1 hour | SQLite restore is fast; script-driven recovery |
+| Metric | Target | How it is achieved | How it is verified |
+|--------|--------|--------------------|--------------------|
+| **RPO** (Recovery Point Objective) | **< 15 minutes** | Encrypted point-in-time snapshot every 15 minutes (`backup-manager.js backup --type pitr`) | Freshness alarm when the newest snapshot is > 20 min old; the weekly recovery test fails if any gap between snapshots in the last 24h exceeded 20 min |
+| **RTO** (Recovery Time Objective) | **< 1 hour** | Scripted restore: download → decrypt → verify → install → restart (`infra/recovery-test.sh`) | The weekly recovery test times the whole procedure, service restart included, and fails (and alarms) above 3600s |
+
+The 5-minute grace on the RPO checks absorbs scheduling jitter; a snapshot
+that is merely a few minutes late does not page, one that is missed does.
+
+### 2a. Automated backups and recovery testing (#937)
+
+`infra/backup-manager.js` supersedes `scripts/automated-backup.sh`, whose
+`openssl enc -aes-256-gcm` call is rejected by OpenSSL ("AEAD ciphers not
+supported") so it never produced a restorable archive. The manager:
+
+- snapshots every configured database (the application DB **and** the
+  immutable audit trail, `audit-trail.db`) with SQLite's online backup API —
+  consistent while the API is writing, WAL included;
+- encrypts with AES-256-GCM (scrypt-derived key from `BACKUP_ENCRYPTION_KEY`),
+  so every restore authenticates the archive before trusting it;
+- records row counts and a SHA-256 checksum of every table in a manifest,
+  uploaded last — a manifest's existence means the backup is complete;
+- uploads to the versioned, KMS-encrypted backup bucket (`daily/`, `pitr/`, `manifests/`).
+
+| Job | Schedule | Command |
+|-----|----------|---------|
+| PITR snapshot | every 15 min | `node infra/backup-manager.js backup --type pitr` |
+| Daily backup | 02:00 UTC | `node infra/backup-manager.js backup --type daily` |
+| Freshness check | every 15 min | `node infra/backup-manager.js check-freshness` (alerts if daily > 24h or PITR > 20 min) |
+| Recovery test | Sundays 04:00 UTC, on **staging** | `RECOVERY_ENVIRONMENT=staging infra/recovery-test.sh --install` |
+
+The schedules and their CloudWatch alarms are defined in
+`infra/terraform/backup.tf` (EventBridge → SSM Run Command). The recovery test
+restores the newest backup into staging, checks `PRAGMA integrity_check`, row
+counts and per-table checksums against the manifest, restarts the staging API
+on the restored data, waits for `/health`, and records RPO/RTO. Any failure
+exits non-zero, posts to `BACKUP_ALERT_WEBHOOK`, and trips the
+`recovery-test-failed` alarm; a week with no successful test trips
+`recovery-test-missing`.
+
+**On-demand recovery** (production, operator-led — stop the API first):
+
+```bash
+node infra/backup-manager.js restore --latest --target-dir /tmp/restore          # verify only
+node infra/backup-manager.js restore --latest --target-dir /tmp/restore --install --force
+```
+
+`--install` refuses a restore that failed verification and keeps the replaced
+files as `*.pre-restore-<timestamp>`.
 
 ---
 

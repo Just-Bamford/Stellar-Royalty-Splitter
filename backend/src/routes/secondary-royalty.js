@@ -28,6 +28,12 @@ import {
 } from "../validation.js";
 import { sendError } from "../error-response.js";
 import { broadcastToContract } from "../websocket.js";
+import {
+  recordSecondaryRoyaltyAccrued,
+  recordSecondaryRoyaltyDistributed,
+  recordSecondarySaleProcessing,
+} from "../metrics.js";
+import { cacheGet, cacheSet, cacheKey, TTL } from "../cache.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -41,6 +47,11 @@ secondaryRoyaltyRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("secondaryRoyaltyPool", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
 
       // Call the contract method to fetch pool balance
       const result = await server.simulateTransaction({
@@ -48,7 +59,9 @@ secondaryRoyaltyRouter.get(
         function: "get_secondary_royalty_pool",
       });
 
-      res.json({ poolBalance: result });
+      const responsePayload = { poolBalance: result };
+      cacheSet(cKey, responsePayload, 30_000); // 30s TTL
+      res.json(responsePayload);
     } catch (err) {
       next(err);
     }
@@ -61,6 +74,7 @@ secondaryRoyaltyRouter.get(
  * Returns: { xdr, transactionId, royaltyAmount }
  */
 secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req, res, next) => {
+  const processingStart = Date.now();
   try {
     const {
       contractId,
@@ -130,6 +144,9 @@ secondaryRoyaltyRouter.post("/", validate(recordSecondarySaleSchema), async (req
       salePrice: salePrice.toString(),
       royaltyAmount: royaltyAmount.toString(),
     });
+
+    recordSecondaryRoyaltyAccrued(contractId, royaltyAmount);
+    recordSecondarySaleProcessing(Date.now() - processingStart);
 
     res.json({
       xdr: txXdr,
@@ -209,9 +226,16 @@ secondaryRoyaltyRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("secondaryRoyaltyRate", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
 
       const rate = await getRoyaltyRateFromContract(contractId);
-      res.json({ contractId, royaltyRate: rate });
+      const result = { contractId, royaltyRate: rate };
+      cacheSet(cKey, result, TTL.contractState);
+      res.json(result);
     } catch (err) {
       next(err);
     }
@@ -254,6 +278,7 @@ secondaryRoyaltyRouter.post(
 
       // Mark sales as distributed
       markSalesDistributed(pendingSales.map((s) => s.id));
+      recordSecondaryRoyaltyDistributed(contractId, totalRoyalties);
 
       addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
         transactionId,

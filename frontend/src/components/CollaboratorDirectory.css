@@ -1,0 +1,166 @@
+/* ── CollaboratorDirectory ────────────────────────────────────────────────── */
+.collaborator-directory {
+  position: relative;
+}
+
+/* ── Search ──────────────────────────────────────────────────────────────── */
+.cd-search-bar {
+  margin-bottom: 0.75rem;
+}
+
+.cd-search-bar input {
+  width: 100%;
+}
+
+/* ── Filter bar ──────────────────────────────────────────────────────────── */
+.cd-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.cd-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: relative;
+}
+
+.cd-filter-group label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-tertiary);
+}
+
+.cd-filter-group input,
+.cd-filter-group select {
+  min-width: 110px;
+}
+
+.cd-sort-direction-btn {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.35rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.cd-clear-filters-btn {
+  align-self: flex-end;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 6px;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+/* ── Result count ────────────────────────────────────────────────────────── */
+.cd-result-count {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.cd-result-count-badge {
+  font-weight: 700;
+  color: var(--text-primary, inherit);
+}
+
+/* ── Bulk actions ────────────────────────────────────────────────────────── */
+/* The bulk-action bar itself reuses BulkOperationsPanel.css's
+ * `.bulk-operations-panel` / `.bulk-header` / `.bulk-actions` /
+ * `.bulk-action-btn` classes for visual consistency (see CollaboratorDirectory.tsx). */
+
+.cd-inline-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.cd-inline-form textarea {
+  flex: 1;
+  min-width: 220px;
+}
+
+.cd-bulk-message {
+  font-size: 0.8rem;
+  margin: 0 0 0.75rem;
+}
+
+.cd-bulk-message--ok {
+  color: var(--success-color, #16a34a);
+}
+
+.cd-bulk-message--err {
+  color: var(--error-color);
+}
+
+.cd-comparison-section {
+  margin-bottom: 1rem;
+}
+
+/* ── No results ──────────────────────────────────────────────────────────── */
+.cd-no-results {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--text-secondary);
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.cd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cd-table th,
+.cd-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.cd-address-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 0.82rem;
+  padding: 0;
+  text-decoration: underline dotted;
+}
+
+.cd-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.cd-status-badge--active {
+  background: var(--success-light, rgba(34, 197, 94, 0.15));
+  color: var(--success-color, #16a34a);
+}
+
+.cd-status-badge--suspended {
+  background: var(--warning-light, rgba(245, 158, 11, 0.15));
+  color: var(--warning-color, #d97706);
+}
+
+.cd-status-badge--deactivated {
+  background: var(--error-light);
+  color: var(--error-color);
+}

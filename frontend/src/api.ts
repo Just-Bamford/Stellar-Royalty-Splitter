@@ -1,8 +1,8 @@
-// Thin client that talks to the Express backend
+﻿// Thin client that talks to the Express backend
 
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractContractError } from "./lib/contract-errors";
-import { signRequest, type SignatureHeaders } from "./utils/sign-request";
+import { signRequest } from "./utils/sign-request";
 
 const BASE = "/api";
 export const SESSION_EXPIRED_EVENT = "srs:session-expired";
@@ -118,6 +118,21 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+async function signedPost<T>(path: string, body: unknown, keypair?: Keypair): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (keypair) {
+    const signedHeaders = await signRequest(keypair, "POST", path, body);
+    Object.assign(headers, signedHeaders);
+  }
+
+  return request<T>(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+}
+
 async function patch<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method: "PATCH",
@@ -128,6 +143,14 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 
 async function get<T>(path: string): Promise<T> {
   return request<T>(path);
+}
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 async function del<T>(path: string): Promise<T> {
@@ -241,6 +264,15 @@ export interface HealthResponse {
     horizon: HealthComponent;
     contract: HealthComponent;
   };
+  dbMetrics?: {
+    transactions: {
+      total: number;
+      failed: number;
+      pending: number;
+      lastActivity: string | null;
+    };
+  };
+  generatedAt?: string;
   timestamp: string;
 }
 
@@ -265,16 +297,6 @@ export interface SLAStats {
 }
 
 export const api = {
-  getCollaboration: (contractId: string) =>
-    get<any>(`/v1/collaboration/${encodeURIComponent(contractId)}`),
-  applyCollaborationOperation: (contractId: string, body: any) =>
-    post<any>(`/v1/collaboration/${encodeURIComponent(contractId)}/operations`, body),
-  getOracleRecommendations: () => get<any>("/v1/royalty-oracle/recommendations"),
-  collectOracleMarketData: (body: any) => post<any>("/v1/royalty-oracle/collect", body),
-  decideOracleRecommendation: (collectionId: string, approved: boolean) =>
-    post<any>(`/v1/royalty-oracle/recommendations/${encodeURIComponent(collectionId)}/decision`, { approved }),
-  getComplianceAudit: (contractId: string) =>
-    get<any>(`/v1/compliance-audit/${encodeURIComponent(contractId)}`),
   initialize: (body: {
     contractId: string;
     walletAddress: string;
@@ -303,12 +325,46 @@ export const api = {
     amount?: string | number;
   }) => post<{ xdr: string; transactionId: number }>("/distribute", body),
 
+  buildBatchDistribution: (body: {
+    contractId: string;
+    walletAddress: string;
+    tokens: string[];
+    idempotencyKey?: string;
+  }) => post<{
+    xdr: string;
+    transactionId: number;
+    tokensIncluded: number;
+    estimate: {
+      individualCost: string;
+      batchCost: string;
+      savings: string;
+      savingsPercent: number;
+      source: string;
+    };
+  }>("/batch-distribute/tokens", body),
+
+  estimateBatchDistribution: (tokenCount: number, resourceMaxBatchSize?: number) =>
+    post<{
+      individualCost: string;
+      batchCost: string;
+      savings: string;
+      savingsPercent: number;
+      source: string;
+      optimalBatchSize: number;
+      remaining: number;
+    }>("/batch-distribute/tokens/estimate", { tokenCount, resourceMaxBatchSize }),
+
   getContractVersion: (contractId: string) =>
     get<{ version: string }>(`/contract/version/${contractId}`),
 
   getContractBalance: (contractId: string, tokenId: string) =>
     get<{ balance: string }>(
       `/contract/balance/${contractId}?tokenId=${encodeURIComponent(tokenId)}`,
+    ),
+
+  getPendingDistributions: (contractId: string) =>
+    get<{ distributions: Array<{ tokenId: string; amount: string; lastUpdated: string; recipientCount: number }> }>(
+      `/contract/pending-distributions/${contractId}`,
     ),
 
   getCollaborators: (contractId: string) =>
@@ -379,7 +435,7 @@ export const api = {
   // Read-only: there is no client-side write path for audit entries. Audit
   // records are created exclusively server-side as a side effect of real
   // configuration/administrative actions (initialize, distribute,
-  // secondary-royalty routes) — see backend/src/routes/history.js.
+  // secondary-royalty routes) ÔÇö see backend/src/routes/history.js.
   getAuditLog: (contractId: string, limit = 100, offset = 0) =>
     get<{ success: boolean; data: AuditLogEntry[] }>(
       `/audit/${contractId}?limit=${limit}&offset=${offset}`,
@@ -397,7 +453,7 @@ export const api = {
       saleToken: string;
       royaltyRate: number;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{ xdr: string; transactionId: number; royaltyAmount: number }>(
       "/secondary-royalty",
@@ -411,7 +467,7 @@ export const api = {
       walletAddress: string;
       royaltyRate: number;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{ xdr: string; transactionId: number }>(
       "/secondary-royalty/set-rate",
@@ -425,7 +481,7 @@ export const api = {
       walletAddress: string;
       maxPoolSize: number;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{ xdr: string; transactionId: number }>(
       "/secondary-royalty/set-pool-limit",
@@ -439,14 +495,14 @@ export const api = {
       walletAddress: string;
       tokenId: string;
     },
-    keypair: Keypair,
+    keypair?: Keypair,
   ) =>
     signedPost<{
       xdr: string;
       transactionId: number;
       numberOfSales: number;
       totalRoyalties: string;
-    }>("/secondary-royalty/distribute", body, keypair),
+    }> ("/secondary-royalty/distribute", body, keypair),
   getSecondarySales: (
     contractId: string,
     limit = 50,
@@ -481,6 +537,9 @@ export const api = {
   // NEW: Fetch secondary royalty pool balance
   getSecondaryRoyaltyPool: (contractId: string) =>
     get<{ poolBalance: string }>(`/secondary-royalty/pool/${contractId}`),
+
+  getRoyaltyStats: (contractId: string) =>
+    get<RoyaltyStats>(`/secondary-royalty/stats/${contractId}`),
 
   // NEW: Fetch contract status
   getContractStatus: (contractId: string) =>
@@ -604,6 +663,41 @@ export const api = {
   getMultiContractEarnings: (address: string, _dateRange?: { start?: string; end?: string } | string) =>
     get<any>(`/analytics/multi-contract?address=${address}`),
 
+  // Token economics & vesting analytics (#1062)
+  getTokenEconomicsModel: (config?: unknown, options?: unknown) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/model", {
+      config,
+      options,
+    }),
+
+  simulateTokenDistribution: (
+    config: unknown,
+    scenario?: unknown,
+    options?: unknown,
+  ) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/simulate", {
+      config,
+      scenario,
+      options,
+    }),
+
+  getVestingAnalytics: (schedules: unknown[], options?: unknown) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/vesting", {
+      schedules,
+      options,
+    }),
+
+  simulateVestingSchedule: (
+    schedule: unknown,
+    overrides?: unknown,
+    options?: unknown,
+  ) =>
+    post<{ success: boolean; data: any }>("/v1/tokenomics/vesting/simulate", {
+      schedule,
+      overrides,
+      options,
+    }),
+
   getNotifications: (walletAddress: string, _limit = 50, _offset = 0) =>
     get<{ success: boolean; data: any[]; unreadCount: number }>(`/v1/notifications/${walletAddress}`),
 
@@ -616,14 +710,33 @@ export const api = {
   markNotificationRead: (id: number) =>
     post<{ success: boolean }>(`/v1/notifications/read/${id}`, {}),
 
+  markNotificationUnread: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unread`, {}),
+
+  archiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/archive`, {}),
+
+  unarchiveNotification: (id: number) =>
+    post<{ success: boolean }>(`/v1/notifications/${id}/unarchive`, {}),
+
   deleteNotification: (id: number) =>
     del<{ success: boolean }>(`/v1/notifications/${id}`),
 
+  searchNotifications: (walletAddress: string, query: string) =>
+    get<{ success: boolean; data: any[]; count: number }>(
+      `/v1/notifications/${walletAddress}/search?q=${encodeURIComponent(query)}`
+    ),
+
+  getNotificationsByType: (walletAddress: string, type: string) =>
+    get<{ success: boolean; data: any[] }>(
+      `/v1/notifications/${walletAddress}/by-type/${type}`
+    ),
+
   getNotificationPreferences: (walletAddress: string) =>
-    get<{ email?: any; sms?: any; inApp?: any; push?: any; [key: string]: any }>(`/v1/preferences/notifications/${walletAddress}`),
+    get<{ success: boolean; data: any }>(`/v1/notifications/preferences/${walletAddress}`),
 
   saveNotificationPreferences: (walletAddress: string, prefs: any) =>
-    post<{ success: boolean }>(`/v1/preferences/notifications/${walletAddress}`, prefs),
+    post<{ success: boolean; data: any }>(`/v1/notifications/preferences`, { walletAddress, ...prefs }),
 
   getHeldTransactions: (contractId: string, _status = "active", _offset = 0) =>
     get<{ success: boolean; data: any[] }>(`/v1/payment-holds/${contractId}`),
@@ -645,14 +758,414 @@ export const api = {
 
   getVerification: (walletAddress: string) => get<any>(`/verification/${walletAddress}`),
   startVerification: (walletAddress: string, data?: any) => post<any>(`/verification/start`, { walletAddress, ...data }),
-  advanceVerification: (walletAddress: string, step?: any) => post<any>(`/verification/advance`, { walletAddress, step }),
+  advanceVerification: (
+    payload: { walletAddress: string; step?: any; status?: any; adminNote?: string | null } | string,
+    step?: any,
+  ) => {
+    if (typeof payload === "string") {
+      return post<any>(`/verification/advance`, { walletAddress: payload, step });
+    }
+    return post<any>(`/verification/advance`, payload);
+  },
 
   getContractFees: (contractId: string) => get<any>(`/fees/${contractId}`),
 
   getTaxComplianceReport: () => get<any>("/v1/contributor-tax/report"),
 
+  previewCsv: (file: File, contractId: string) =>
+    post<{ success: boolean; data: { validRows: any[]; errorRows: any[]; summary: { total: number; valid: number; errors: number } } }>(`/v1/contributors/preview-csv?contractId=${encodeURIComponent(contractId)}`, { fileName: file.name, size: file.size }),
+
+  importCsv: (file: File, contractId: string) =>
+    post<{ success: boolean; data: { importId: number; summary: { total: number; successCount: number; errorCount: number } } }>(`/v1/contributors/import-csv?contractId=${encodeURIComponent(contractId)}`, { fileName: file.name, size: file.size }),
+
+  downloadCsvTemplate: () => {
+    const url = `${BASE}/v1/contributors/csv-template`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    return Promise.resolve({ success: true });
+  },
+
+  upgradeContract: (body: { contractId: string; walletAddress: string; wasmHash: string }) =>
+    post<{ success: boolean; version: string; xdr: string }>("/contract/upgrade", body),
+
+  getContributorTax: (walletAddress: string) =>
+    get<{ success: boolean; data?: { tax_status?: string; tax_id?: string; w9_file_name?: string } }>(`/v1/contributor-tax/${walletAddress}`),
+
+  saveContributorTax: (walletAddress: string, taxStatus: string, taxId?: string) =>
+    post<{ success: boolean }>(`/v1/contributor-tax/${walletAddress}`, { taxStatus, taxId }),
+
+  uploadTaxDocument: (walletAddress: string, file: File) =>
+    post<{ success: boolean }>(`/v1/contributor-tax/${walletAddress}/document`, { walletAddress, fileName: file.name, size: file.size }),
+
+  getTaxDocument: (walletAddress: string) =>
+    get<{ success: boolean; url?: string }>(`/v1/contributor-tax/${walletAddress}/document`),
+
   getContributorsMissingTaxInfo: () => get<any>("/v1/contributor-tax/missing"),
+
+  // Contributor Tier APIs (#589) ÔÇö used by CollaboratorTable and the
+  // Collaborator Directory (#923) to read/assign VIP/regular/trial tiers.
+  getContractTiers: (contractId: string) =>
+    get<{ success: boolean; data: ContributorTier[]; validTiers: string[] }>(
+      `/tiers/${contractId}`,
+    ),
+
+  setContributorTier: (
+    contractId: string,
+    address: string,
+    tier: "vip" | "regular" | "trial",
+    notes?: string,
+  ) =>
+    put<{ success: boolean; message: string }>(
+      `/tiers/${contractId}/${address}`,
+      { tier, notes: notes ?? null },
+    ),
+
+  // Contributor Suspension / Deactivation APIs (#593) ÔÇö read by
+  // ContributorSuspension.tsx and the Collaborator Directory's bulk
+  // suspend/unsuspend action (#923).
+  getContributorStatuses: (contractId: string, includeActive = false) =>
+    get<{ success: boolean; data: ContributorStatusEntry[] }>(
+      `/contributor-status/${contractId}?includeActive=${includeActive}`,
+    ),
+
+  setContributorStatus: (
+    contractId: string,
+    address: string,
+    body: {
+      status: "active" | "suspended" | "deactivated";
+      reason?: string;
+      updatedBy?: string;
+    },
+  ) =>
+    post<{ success: boolean; message?: string }>(
+      `/contributor-status/${contractId}/${address}`,
+      body,
+    ),
+
+  // Notification send API (#927) ÔÇö reused by the Collaborator Directory's
+  // bulk "send message" action (#923) to message selected collaborators.
+  sendNotification: (
+    walletAddress: string,
+    type: string,
+    title: string,
+    message?: string,
+    data?: Record<string, unknown>,
+  ) =>
+    post<{ success: boolean; data: unknown }>("/v1/notifications/send", {
+      walletAddress,
+      type,
+      title,
+      message,
+      data,
+    }),
+
+  // Carbon tracking and offsets (#1064)
+  getCarbonFootprint: (walletAddress: string, params?: { start?: string; end?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.start) search.set("start", params.start);
+    if (params?.end) search.set("end", params.end);
+    const query = search.toString();
+    return get<{ success: boolean; data: CarbonFootprint }>(
+      `/v1/carbon/footprint/${walletAddress}${query ? `?${query}` : ""}`,
+    );
+  },
+
+  getCarbonProject: (contractId: string, params?: { start?: string; end?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.start) search.set("start", params.start);
+    if (params?.end) search.set("end", params.end);
+    const query = search.toString();
+    return get<{ success: boolean; data: CarbonProjectFootprint }>(
+      `/v1/carbon/project/${contractId}${query ? `?${query}` : ""}`,
+    );
+  },
+
+  recordCarbonEmission: (body: {
+    contractId: string;
+    walletAddress: string;
+    txHash?: string;
+    transactionId?: number;
+    operationCount?: number;
+  }) => post<{ success: boolean; emissionId: number; gramsCo2: number }>("/v1/carbon/record", body),
+
+  purchaseCarbonOffsets: (body: {
+    walletAddress: string;
+    contractId?: string;
+    tonnes?: number;
+    amountUsdCents?: number;
+    project?: string;
+  }) => post<{ success: boolean; data: CarbonOffsetPurchase }>("/v1/carbon/offsets", body),
+
+  getCarbonOffsets: (walletAddress: string, limit = 50, offset = 0) =>
+    get<{
+      success: boolean;
+      data: CarbonOffsetRecord[];
+      pagination: { total: number; limit: number; offset: number };
+    }>(`/v1/carbon/offsets/${walletAddress}?limit=${limit}&offset=${offset}`),
+
+  getCarbonSettings: (walletAddress: string) =>
+    get<{ success: boolean; data: CarbonSettings }>("/v1/carbon/settings/" + walletAddress),
+
+  saveCarbonSettings: (
+    walletAddress: string,
+    body: { autoOffsetEnabled: boolean; offsetPercentage: number },
+  ) => post<{ success: boolean; data: CarbonSettings }>(`/v1/carbon/settings/${walletAddress}`, body),
+
+  getCarbonProjects: () =>
+    get<{ success: boolean; data: CarbonProject[] }>("/v1/carbon/projects"),
+
+  getCarbonShare: (walletAddress: string) =>
+    get<{ success: boolean; data: CarbonSharePayload }>(`/v1/carbon/share/${walletAddress}`),
+
+  // Advanced webhook system (#1059) — external integrations with HMAC
+  // signatures, delivery history, and manual testing.
+  getWebhookEvents: () =>
+    get<{ success: boolean; data: string[] }>("/v1/webhooks/events"),
+
+  listWebhooks: (contractId: string) =>
+    get<{ success: boolean; data: WebhookEntry[] }>(
+      `/v1/webhooks/${contractId}`,
+    ),
+
+  registerWebhook: (contractId: string, url: string, events?: string[]) =>
+    post<{ success: boolean; webhookId: number; url: string; events?: string[]; secret?: string }>(
+      `/v1/webhooks/${contractId}`,
+      events ? { url, events } : { url },
+    ),
+
+  deregisterWebhook: (contractId: string, webhookId: number) =>
+    del<{ success: boolean }>(`/v1/webhooks/${contractId}/${webhookId}`),
+
+  testWebhook: (contractId: string, webhookId: number) =>
+    post<{ success: boolean; message?: string; deliveryId?: number | null; error?: string }>(
+      `/v1/webhooks/${contractId}/${webhookId}/test`,
+      {},
+    ),
+
+  rotateWebhookSecret: (contractId: string, webhookId: number) =>
+    post<{ success: boolean; webhookId: number; secret: string }>(
+      `/v1/webhooks/${contractId}/${webhookId}/rotate-secret`,
+      {},
+    ),
+
+  emitWebhookEvent: (contractId: string, event: string, data?: Record<string, unknown>) =>
+    post<{ success: boolean; event: string; delivered: number; failed: number; attempted: number }>(
+      `/v1/webhooks/${contractId}/emit`,
+      { event, data: data ?? {} },
+    ),
+
+  getWebhookDeliveries: (
+    contractId: string,
+    params?: { limit?: number; offset?: number; webhookId?: number; event?: string; status?: string },
+  ) => {
+    const search = new URLSearchParams();
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    if (params?.offset != null) search.set("offset", String(params.offset));
+    if (params?.webhookId != null) search.set("webhookId", String(params.webhookId));
+    if (params?.event) search.set("event", params.event);
+    if (params?.status) search.set("status", params.status);
+    const query = search.toString();
+    return get<{
+      success: boolean;
+      data: WebhookDelivery[];
+      pagination: { total: number; limit: number; offset: number };
+    }>(`/v1/webhooks/${contractId}/deliveries${query ? `?${query}` : ""}`);
+  },
+
+  getWebhookDeliveryStats: (contractId: string) =>
+    get<{ success: boolean; data: WebhookDeliveryStats }>(
+      `/v1/webhooks/${contractId}/delivery-stats`,
+    ),
 };
+
+export interface CarbonDayEntry {
+  date: string;
+  txCount: number;
+  grams: number;
+}
+
+export interface CarbonFootprint {
+  walletAddress: string;
+  txCount: number;
+  totalGrams: number;
+  totalKg: number;
+  offsetGrams: number;
+  offsetTonnes: number;
+  offsetPurchases: number;
+  offsetUsdCents: number;
+  netGrams: number;
+  offsetCoveragePercent: number;
+  byDay: CarbonDayEntry[];
+}
+
+export interface CarbonProjectFootprint {
+  contractId: string;
+  txCount: number;
+  totalGrams: number;
+  totalKg: number;
+  contributorCount: number;
+  offsetTonnes: number;
+  offsetPurchases: number;
+  offsetContributors: number;
+  byDay: CarbonDayEntry[];
+}
+
+export interface CarbonOffsetPurchase {
+  offsetId: number;
+  walletAddress: string;
+  tonnes: number;
+  amountUsdCents: number;
+  provider: string;
+  project: string;
+  status: string;
+}
+
+export interface CarbonOffsetRecord {
+  id: number;
+  walletAddress: string;
+  contractId: string | null;
+  tonnes: number;
+  amountUsdCents: number;
+  provider: string;
+  project: string;
+  status: string;
+  autoPurchase: number;
+  txHash: string | null;
+  createdAt: string;
+}
+
+export interface CarbonSettings {
+  walletAddress: string;
+  autoOffsetEnabled: boolean;
+  offsetPercentage: number;
+}
+
+export interface CarbonProject {
+  id: string;
+  name: string;
+  type: "forest" | "ocean";
+  location: string;
+  description: string;
+}
+
+export interface CarbonSharePayload {
+  text: string;
+  stats: {
+    totalKg: number;
+    txCount: number;
+    offsetCoveragePercent: number;
+    netGrams: number;
+  };
+  shareUrls: {
+    x: string;
+    facebook: string;
+    linkedin: string;
+  };
+}
+
+export interface FeatureFlagRule {
+  id: number;
+  flagId: number;
+  ruleType: "user" | "org" | "role";
+  value: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface FeatureFlag {
+  id: number;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  killed: boolean;
+  archived: boolean;
+  rolloutPercentage: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rules?: FeatureFlagRule[];
+}
+
+export interface FeatureFlagHistoryEntry {
+  id: number;
+  flagId: number;
+  flagName: string;
+  action: string;
+  changedBy: string | null;
+  oldValue: unknown;
+  newValue: unknown;
+  reason: string | null;
+  timestamp: string;
+}
+
+export interface FeatureFlagHealth {
+  flag: string;
+  healthy: boolean;
+  reasons: string[];
+  thresholds: { maxErrorRate: number; maxP95LatencyMs: number; windowMs: number };
+  metrics: {
+    flag: string;
+    windowMs: number;
+    requests: number;
+    errors: number;
+    errorRate: number;
+    sampleCount: number;
+    avgLatencyMs: number | null;
+    p95LatencyMs: number | null;
+    maxLatencyMs: number | null;
+  };
+}
+
+export interface ContributorTier {
+  walletAddress: string;
+  tier: "vip" | "regular" | "trial";
+  notes?: string | null;
+}
+
+export interface WebhookEntry {
+  id: number;
+  contractId: string;
+  url: string;
+  enabled: number;
+  events: string[];
+  hasSecret: boolean;
+  retryCount: number;
+  nextRetryTime: string | null;
+  createdAt: string;
+}
+
+export interface WebhookDelivery {
+  id: number;
+  webhookId: number | null;
+  contractId: string;
+  event: string;
+  url: string;
+  payload: string | null;
+  status: "pending" | "delivered" | "failed" | "exhausted";
+  httpStatus: number | null;
+  attempts: number;
+  error: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export interface WebhookDeliveryStats {
+  total: number;
+  delivered: number;
+  failed: number;
+  pending: number;
+  exhausted: number;
+}
+
+export interface ContributorStatusEntry {
+  contractId: string;
+  address: string;
+  status: "active" | "suspended" | "deactivated";
+  reason: string | null;
+  suspendedAt: string | null;
+  deactivatedAt: string | null;
+  updatedBy: string | null;
+  updatedAt?: string;
+}
 
 export interface OnboardingItem {
   id: string;
@@ -702,3 +1215,4 @@ export interface OnboardingReminderResponse {
     previewText: string;
   };
 }
+

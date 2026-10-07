@@ -57,3 +57,40 @@ output "nat_gateway_ips" {
   description = "Source addresses for outbound traffic — what an external allowlist needs."
   value       = module.network.nat_gateway_ips
 }
+
+# ── Inputs for the operations stack in infra/terraform/*.tf (#935–#938) ─────
+
+output "listener_arn" {
+  description = "Serving ALB listener, for the canary weighted-routing rule."
+  value       = module.compute.listener_arn
+}
+
+output "target_group_arn" {
+  description = "Stable target group ARN."
+  value       = module.compute.target_group_arn
+}
+
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix, for CloudWatch metric dimensions."
+  value       = module.compute.alb_arn_suffix
+}
+
+output "alb_security_group_id" {
+  description = "Load balancer security group."
+  value       = module.security.alb_security_group_id
+}
+
+output "app_security_group_id" {
+  description = "Application instance security group."
+  value       = module.security.app_security_group_id
+}
+
+output "instance_role_name" {
+  description = "Instance IAM role, for granting the audit-archive upload permission."
+  value       = module.security.instance_role_name
+}
+
+output "kms_key_arn" {
+  description = "Environment CMK (null when SSE-S3 is used)."
+  value       = module.storage.kms_key_arn
+}

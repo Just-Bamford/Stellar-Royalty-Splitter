@@ -11,9 +11,9 @@ import {
 } from "../stellar.js";
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
 import { sendError } from "../error-response.js";
-import { cacheGet, cacheSet, cacheKey, TTL, clearCache } from "../cache.js";
+import { cacheGet, cacheSet, cacheKey, TTL, clearCache, onCacheInvalidated } from "../cache.js";
 
-const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
+const { Address, Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account, scValToNative } = StellarSdk;
 
 export const contractRouter = Router();
 
@@ -21,7 +21,7 @@ export const contractRouter = Router();
 // This implements human friendly cache warming with stale data support.
 // Note: In a production system, this would query an "active-contracts" table
 // to determine which contracts to warm. Here we use access frequency as a proxy.
-const CACH_WARM_LEAD_TIME_MS = parseInt(process.env.CACHE_WARM_LEAD_TIME_MS || "30000", 10);
+const CACHE_WARM_LEAD_TIME_MS = parseInt(process.env.CACHE_WARM_LEAD_TIME_MS || "30000", 10);
 
 // Metadata for cache entries: tracks expiration, timers, stale value, etc.
 const cacheMetadata = new Map();
@@ -33,14 +33,34 @@ const metrics = {
   refreshLatencyMs: [],
 };
 
-// Log metrics periodically.
-setInterval(() => {
-  console.log(`[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`);
-  if (metrics.refreshLatencyMs.length > 0) {
-    console.log(`[cache-warm] avg refresh-latency: ${(metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length)} ms`);
+// Log metrics periodically (only outside Jest test environment)
+let metricsInterval = null;
+const isTestEnvironment = typeof global.jest !== "undefined";
+if (!isTestEnvironment) {
+  metricsInterval = setInterval(() => {
+    console.log(
+      `[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`
+    );
+    if (metrics.refreshLatencyMs.length > 0) {
+      console.log(
+        `[cache-warm] avg refresh-latency: ${metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length} ms`
+      );
+    }
+  }, 60 * 1000);
+
+  // Allow this interval to not block process exit
+  if (metricsInterval.unref) {
+    metricsInterval.unref();
   }
-}, 60 * 1000);
-if (setInterval.unref) setInterval.unref();
+}
+
+// Export cleanup function for tests
+export function cleanupMetricsInterval() {
+  if (metricsInterval) clearInterval(metricsInterval);
+}
+
+// Export for test cleanup
+export { metricsInterval };
 
 function getMetadata(key) {
   let meta = cacheMetadata.get(key);
@@ -83,10 +103,10 @@ async function refreshContractState(key, contractId, tokenId) {
     const now = Date.now();
     const expiresAt = now + TTL.contractState * 1000;
     meta.expiresAt = expiresAt;
-    meta.refreshAt = expiresAt - CACH_WARM_LEAD_TIME_MS;
+    meta.refreshAt = expiresAt - CACHE_WARM_LEAD_TIME_MS;
     meta.staleValue = null; // clear stale since fresh data is available
     // Schedule next refresh.
-    scheduleRefresh(key, contractId, tokenId, CACH_WARM_LEAD_TIME_MS);
+    scheduleRefresh(key, contractId, tokenId, CACHE_WARM_LEAD_TIME_MS);
     metrics.refreshLatencyMs.push(Date.now() - start);
   } catch (err) {
     // Graceful degradation: keep stale data if refresh fails.
@@ -136,17 +156,14 @@ function warmCacheSet(key, value, contractId, tokenId) {
   meta.staleValue = value; // snapshot for potential stale serving
   meta.contractId = contractId;
   meta.tokenId = tokenId;
-  scheduleRefresh(key, contractId, tokenId, CACH_WARM_LEAD_TIME_MS);
+  scheduleRefresh(key, contractId, tokenId, CACHE_WARM_LEAD_TIME_MS);
 }
 
 // ---- End of cache warming code ----
 
 function getConfiguredTokenId() {
   return (
-    process.env.ROYALTY_TOKEN_ID??
-    process.env.TOKEN_CONTRACT_ID??
-    process.env.TOKEN_ID??
-    null
+    process.env.ROYALTY_TOKEN_ID ?? process.env.TOKEN_CONTRACT_ID ?? process.env.TOKEN_ID ?? null
   );
 }
 
@@ -170,10 +187,7 @@ function decodeShareMap(scVal) {
 
 async function simulateContractRead(contractId, method, args = []) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account(
-    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
-    "0",
-  );
+  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN", "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -221,7 +235,7 @@ function resolveStateRequest(req, res) {
       res,
       400,
       "bad_request",
-      "contractId query param required when no default contract is configured",
+      "contractId query param required when no default contract is configured"
     );
     return null;
   }
@@ -233,7 +247,7 @@ function resolveStateRequest(req, res) {
       res,
       400,
       "bad_request",
-      "tokenId query param required when no default token is configured",
+      "tokenId query param required when no default token is configured"
     );
     return null;
   }
@@ -247,6 +261,26 @@ export function _resetContractStateCache() {
   clearCache();
   cacheMetadata.clear();
 }
+
+// Evict this module's local warm-cache metadata (which holds the last-known
+// staleValue served during the warm window) whenever a distribution or
+// admin action invalidates the cache (#926) — locally, or on another
+// backend instance via Redis pub/sub.
+onCacheInvalidated((key, { prefix }) => {
+  if (prefix) {
+    for (const k of cacheMetadata.keys()) {
+      if (k.startsWith(key)) {
+        const meta = cacheMetadata.get(k);
+        if (meta?.timer) clearTimeout(meta.timer);
+        cacheMetadata.delete(k);
+      }
+    }
+  } else {
+    const meta = cacheMetadata.get(key);
+    if (meta?.timer) clearTimeout(meta.timer);
+    cacheMetadata.delete(key);
+  }
+});
 
 contractRouter.get("/state", async (req, res, next) => {
   try {
@@ -342,8 +376,18 @@ contractRouter.get("/info", async (req, res, next) => {
 contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
+    const cKey = cacheKey("contractStatus", contractId);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const initialized = await isContractInitialized(contractId);
-    res.json({ initialized });
+    const result = { initialized };
+    if (initialized) {
+      cacheSet(cKey, result, TTL.contractState);
+    }
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -354,6 +398,40 @@ contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (r
  * Returns the contract's token balance via simulation.
  * Response: { balance: string }
  */
+contractRouter.get("/pending-distributions/:contractId", validateContractIdMiddleware, async (req, res, next) => {
+  try {
+    const contract = new Contract(req.params.contractId);
+    const dummyAccount = new Account("GAAzI4TCR3TY5OJHCTJ2C4Q4SY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+    const tx = new TransactionBuilder(dummyAccount, { fee: BASE_FEE, networkPassphrase })
+      .addOperation(contract.call("get_approved_tokens"))
+      .setTimeout(30)
+      .build();
+    const simulation = await server.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(simulation)) {
+      return sendError(res, 400, "contract_simulation_failed", simulation.error ?? "Unable to read pending distributions");
+    }
+
+    const tokens = (simulation.result?.retval?.vec?.() ?? []).map((entry) => Address.fromScVal(entry).toString());
+    const balances = await Promise.all(tokens.map(async (tokenId) => {
+      const token = new Contract(tokenId);
+      const balanceTx = new TransactionBuilder(dummyAccount, { fee: BASE_FEE, networkPassphrase })
+        .addOperation(token.call("balance", addressToScVal(req.params.contractId)))
+        .setTimeout(30)
+        .build();
+      const balanceSimulation = await server.simulateTransaction(balanceTx);
+      if (SorobanRpc.Api.isSimulationError(balanceSimulation)) return null;
+      const amount = BigInt(scValToNative(balanceSimulation.result?.retval));
+      return amount > 0n ? { tokenId, amount: amount.toString() } : null;
+    }));
+    // The contract has no per-collaborator claim queue: an approved token
+    // with a positive contract balance is the authoritative pending work.
+    const distributions = balances.filter(Boolean);
+    return res.json({ distributions });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;
@@ -361,11 +439,14 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
     if (!tokenId) return sendError(res, 400, "bad_request", "tokenId query param required");
     if (!validateContractId(tokenId, res)) return;
 
+    const cKey = cacheKey("contractBalance", contractId, tokenId);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const contract = new Contract(contractId);
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
-    );
+    const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN", "0");
     const tx = new TransactionBuilder(dummyAccount, {
       fee: BASE_FEE,
       networkPassphrase,
@@ -385,7 +466,9 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
       ? ((BigInt(retval.i128().hi()) << 64n) | BigInt(retval.i128().lo())).toString()
       : "0";
 
-    res.json({ balance });
+    const result = { balance };
+    cacheSet(cKey, result, 15_000); // 15s TTL for volatile balance
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -396,33 +479,45 @@ contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (
  * Returns the number of collaborators via simulation.
  * Response: { contractId, count: number }
  */
-contractRouter.get("/collaborator-count/:contractId", validateContractIdMiddleware, async (req, res, next) => {
-  try {
-    const { contractId } = req.params;
-    const contract = new Contract(contractId);
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
-    );
-    const tx = new TransactionBuilder(dummyAccount, {
-      fee: BASE_FEE,
-      networkPassphrase,
-    })
-      .addOperation(contract.call("collaborator_count"))
-      .setTimeout(30)
-      .build();
+contractRouter.get(
+  "/collaborator-count/:contractId",
+  validateContractIdMiddleware,
+  async (req, res, next) => {
+    try {
+      const { contractId } = req.params;
+      const cKey = cacheKey("contractCollaboratorCount", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
 
-    const sim = await server.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationError(sim)) {
-      return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
+      const contract = new Contract(contractId);
+      const dummyAccount = new Account(
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJ5IAJTGKIN2ER7LBNVKOCCWN",
+        "0"
+      );
+      const tx = new TransactionBuilder(dummyAccount, {
+        fee: BASE_FEE,
+        networkPassphrase,
+      })
+        .addOperation(contract.call("collaborator_count"))
+        .setTimeout(30)
+        .build();
+
+      const sim = await server.simulateTransaction(tx);
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        return sendError(res, 400, "contract_simulation_failed", sim.error ?? "Simulation failed");
+      }
+
+      const count = sim.result?.retval?.u32?.() ?? 0;
+      const result = { contractId, count };
+      cacheSet(cKey, result, TTL.contractState);
+      res.json(result);
+    } catch (err) {
+      next(err);
     }
-
-    const count = sim.result?.retval?.u32?.() ?? 0;
-    res.json({ contractId, count });
-  } catch (err) {
-    next(err);
   }
-});
+);
 
 /**
  * GET /api/contract/shares-total/:contractId
@@ -435,6 +530,12 @@ contractRouter.get(
   async (req, res, next) => {
     try {
       const { contractId } = req.params;
+      const cKey = cacheKey("contractSharesTotal", contractId);
+      const cached = cacheGet(cKey);
+      if (cached !== undefined) {
+        return res.json(cached);
+      }
+
       const contract = new Contract(contractId);
 
       const dummyAccount = new Account(
@@ -457,7 +558,9 @@ contractRouter.get(
       const resultVal = sim.result?.retval;
       const totalShares = resultVal?.u32?.() ?? 0;
 
-      res.json({ contractId, totalShares });
+      const result = { contractId, totalShares };
+      cacheSet(cKey, result, TTL.contractState);
+      res.json(result);
     } catch (err) {
       next(err);
     }
@@ -469,25 +572,30 @@ contractRouter.get(
  * Returns the on-chain contract version via simulation.
  * Response: { contractId, version: string }
  */
-contractRouter.get(
-  "/version/:contractId",
-  validateContractIdMiddleware,
-  async (req, res, next) => {
-    try {
-      const { contractId } = req.params;
-      const initialized = await isContractInitialized(contractId);
-      if (!initialized) {
-        return sendError(res, 404, "not_found", "contract not initialized");
-      }
-
-      const version = await getContractVersionFromContract(contractId);
-      if (!version) {
-        return sendError(res, 404, "not_found", "contract version unavailable");
-      }
-
-      res.json({ contractId, version });
-    } catch (err) {
-      next(err);
+contractRouter.get("/version/:contractId", validateContractIdMiddleware, async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+    const cKey = cacheKey("contractVersion", contractId);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
     }
-  },
-);
+
+    const initialized = await isContractInitialized(contractId);
+    if (!initialized) {
+      return sendError(res, 404, "not_found", "contract not initialized");
+    }
+
+    const version = await getContractVersionFromContract(contractId);
+    if (!version) {
+      return sendError(res, 404, "not_found", "contract version unavailable");
+    }
+
+    const result = { contractId, version };
+    cacheSet(cKey, result, TTL.contractState);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+

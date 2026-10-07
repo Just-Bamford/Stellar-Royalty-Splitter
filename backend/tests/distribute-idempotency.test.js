@@ -6,9 +6,14 @@ const retryBuildTx = jest.fn();
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
   isContractInitialized: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
+  buildTx: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -20,6 +25,12 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog: jest.fn(),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
+}));
+
+// Mock rate limiters to pass through in tests
+await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
+  tieredLimiters: [(_req, _res, next) => next(), (_req, _res, next) => next()],
+  rateLimitMetrics: { contractHits: 0, walletHits: 0, ipHits: 0 },
 }));
 
 // Import clearCache to reset between tests
@@ -200,8 +211,14 @@ describe("POST /api/v1/distribute with idempotency", () => {
 
     // Send two requests concurrently
     const [res1, res2] = await Promise.all([
-      request(app).post("/api/v1/distribute").set("Idempotency-Key", idempotencyKey).send(validBody),
-      request(app).post("/api/v1/distribute").set("Idempotency-Key", idempotencyKey).send(validBody),
+      request(app)
+        .post("/api/v1/distribute")
+        .set("Idempotency-Key", idempotencyKey)
+        .send(validBody),
+      request(app)
+        .post("/api/v1/distribute")
+        .set("Idempotency-Key", idempotencyKey)
+        .send(validBody),
     ]);
 
     // Both should succeed
@@ -212,10 +229,9 @@ describe("POST /api/v1/distribute with idempotency", () => {
     // Both should have the same response
     expect(res1.body).toEqual(res2.body);
 
-    // retryBuildTx might be called 1 or 2 times depending on timing
-    // but should not be called more than 2 times
-    expect(retryBuildTx.mock.calls.length).toBeGreaterThanOrEqual(1);
-    expect(retryBuildTx.mock.calls.length).toBeLessThanOrEqual(2);
+    // In-flight deduplication must ensure that only the first request performs
+    // the expensive transaction build.
+    expect(retryBuildTx).toHaveBeenCalledTimes(1);
   });
 
   test("idempotency key is case-sensitive", async () => {
@@ -271,4 +287,3 @@ describe("POST /api/v1/distribute with idempotency", () => {
     expect(retryBuildTx).toHaveBeenCalled();
   });
 });
-

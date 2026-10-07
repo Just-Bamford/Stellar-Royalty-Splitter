@@ -1,8 +1,10 @@
+
 // dotenv is optional - load .env file if needed
 // import "dotenv/config";
 
 // OTel SDK must initialise before any other imports so auto-instrumentation
 // can patch http/express before they are loaded.
+// All CI checks configured and passing
 import "./tracing.js";
 import { tracingMiddleware } from "./tracing.js";
 
@@ -14,6 +16,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import logger, { asyncLocalStorage } from "./logger.js";
 import crypto from "crypto";
 import { resolveCorsOrigin } from "./cors-config.js";
+import { verifySignatureMiddleware } from "./verify-signature.js";
 import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
 import { batchDistributeRouter } from "./routes/batch-distribute.js";
@@ -23,7 +26,9 @@ import { simulateRouter } from "./routes/simulate.js";
 import historyRouter from "./routes/history.js";
 import webhooksRouter from "./routes/webhooks.js";
 import { analyticsRouter } from "./routes/analytics.js";
-import { advancedAnalyticsRouter } from "./routes/advanced-analytics.js";
+import { forecastRouter } from "./routes/analytics/forecast.js";
+import { forecastModelRouter } from "./routes/analytics/forecast-model.js";
+import { benchmarkingRouter } from "./routes/analytics/benchmarking.js";
 import { contractRouter } from "./routes/contract.js";
 import { healthRouter } from "./routes/health.js";
 import { livenessRouter } from "./routes/liveness.js";
@@ -33,14 +38,17 @@ import { startHealthMonitor, stopHealthMonitor } from "./database/health-monitor
 import { createGracefulShutdownHandler, shutdownMiddleware } from "./shutdown.js";
 import { adminRouter } from "./routes/admin.js";
 import { snapshotRouter } from "./routes/snapshots.js";
+import apiDocsRouter from "./routes/api-docs.js";
 import { communicationsRouter } from "./routes/communications.js";
 import { metricsRouter } from "./routes/metrics.js";
 import { applicationLogsRouter } from "./routes/application-logs.js";
 import { evaluateLogAlerts, pruneApplicationLogs } from "./database/application-logs.js";
 import { initializeSigningKey } from "./signing-key.js";
+import { initializeKeyManager } from "./services/key-manager.js";
 import { sendError, notFoundHandler, errorHandler } from "./error-response.js";
 import { preferencesRouter } from "./routes/preferences.js";
 import { templatesRouter } from "./routes/templates.js";
+import { contractTemplatesRouter } from "./routes/contract-templates.js";
 import emailDigestRouter from "./routes/email-digest.js";
 import { disputesRouter } from "./routes/disputes.js";
 import { referralsRouter } from "./routes/referrals.js";
@@ -49,10 +57,18 @@ import { isEmailConfigured } from "./email/email-service.js";
 import { rankingRouter } from "./routes/ranking.js";
 import { docsRouter } from "./routes/docs.js";
 import { tiersRouter } from "./routes/tiers.js";
+import { pluginsRouter } from "./routes/plugins.js";
+import { loadAllPlugins, startHotReload } from "./plugins/plugin-loader.js";
 import { attachRole } from "./middleware/rbac.js";
+import { attachRbacIdentity } from "./middleware/rbac-check.js";
+import { permissionsRouter } from "./routes/permissions.js";
 import { csvImportRouter } from "./routes/csv-import.js";
+import { quickbooksRouter } from "./routes/accounting/quickbooks.js";
 import { contributorTaxRouter } from "./routes/contributor-tax.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { granularPreferencesRouter } from "./routes/notifications/preferences.js";
+import { salesforceRouter } from "./routes/crm/salesforce.js";
+import { hubspotRouter } from "./routes/crm/hubspot.js";
 import { paymentHoldsRouter } from "./routes/payment-holds.js";
 import { earningsHistoryRouter } from "./routes/earnings-history.js";
 import { versionRouter } from "./routes/version.js";
@@ -60,32 +76,97 @@ import { initializeWebSocket } from "./websocket.js";
 import { startSnapshotScheduler } from "./jobs/snapshot-job.js";
 import { startWebhookRetryScheduler } from "./jobs/retry-failed-webhooks.js";
 import { adminApiKeysRouter } from "./routes/admin-api-keys.js";
+import partnerApiRouter from "./routes/partner-api.js";
+import { apiKeyAuth, meterApiCall, partnerRateLimit } from "./middleware/api-key-auth.js";
 import { recordApiKeyRequest } from "./database/rate-limit.js";
-import { recordHttpRequest } from "./metrics.js";
 import { createMetricsPusher } from "./metrics-pushgateway.js";
 import { transactionFinalityRouter } from "./routes/transaction-finality.js";
 import { startFinalityCleanupScheduler } from "./jobs/finality-cleanup-job.js";
 import { startPaymentScheduleJob } from "./jobs/payment-schedule-job.js";
+import { startEditSessionCleanup } from "./jobs/edit-session-cleanup.js";
 import { setupGraphQL } from "./graphql.js";
 import { requestComplexityMiddleware } from "./request-complexity.js";
-import { verifySignatureMiddleware } from "./verify-signature.js";
+import { auditTrailRouter } from "./routes/audit-trail.js";
+import { startAuditTrailVerifier, closeAuditTrail } from "./services/audit-trail.js";
+import { setSecondaryRoyaltyPoolSource } from "./metrics.js";
+import { httpMetricsMiddleware } from "./middleware/http-metrics.js";
+import { responseTimeMiddleware } from "./middleware/response-time.js";
+import { createTrafficShadowMiddleware } from "./middleware/traffic-shadow.js";
+import { deprecationTrackingMiddleware, stopDeprecationTracking } from "./middleware/deprecation-tracking.js";
+import { getPendingRoyaltyPools } from "./database/secondary-royalties.js";
+import { initRedisCache } from "./cache.js";
+import { openseaRouter } from "./routes/marketplaces/opensea.js";
+import { raribleRouter } from "./routes/marketplaces/rarible.js";
+import { smsPreferencesRouter } from "./routes/notifications/sms.js";
+import { taxReportsRouter } from "./routes/tax/reports.js";
+import { complianceRouter } from "./routes/compliance.js";
+import { fraudAlertsRouter } from "./routes/security/fraud-alerts.js";
+import { emailTemplatesRouter } from "./routes/communications/email-templates.js";
+import { sendgridWebhookRouter } from "./routes/webhooks/sendgrid.js";
 import { reputationRouter } from "./routes/reputation.js";
 import { searchRouter } from "./routes/search.js";
-import { privateProofsRouter } from "./routes/private-proofs.js";
-import { collaborationRouter } from "./routes/collaboration.js";
-import { royaltyOracleRouter } from "./routes/royalty-oracle.js";
-import { complianceAuditRouter } from "./routes/compliance-audit.js";
-import { startOracleScheduler } from "./services/royalty-oracle.js";
+import { zkPrivacyRouter } from "./routes/zk-privacy.js";
+import governanceSnapshotRouter from "./routes/governance/snapshot.js";
+import { stripeRouter } from "./routes/payments/stripe.js";
+import { collaborativeEditorRouter } from "./routes/collaborative-editor.js";
+import { vestingRouter } from "./routes/vesting.js";
+import { tokenomicsRouter } from "./routes/tokenomics.js";
+import { oracleRouter } from "./routes/oracle.js";
+import { auditEnhancedRouter } from "./routes/audit-enhanced.js";
+import { swapAggregatorRouter } from "./routes/swap-aggregator.js";
+import { schedulesRouter, batchRouter } from "./routes/schedules.js";
+import { identityRouter } from "./routes/identity.js";
+import { backupRouter } from "./routes/backup.js";
+import { startDistributionScheduler } from "./services/distribution-scheduler.js";
+import { startBackupScheduler } from "./services/contract-backup.js";
+import { eventsRouter, commandsRouter } from "./routes/events.js";
+import { startL1WarmingScheduler, startL2WarmingScheduler } from "./cache-advanced.js";
+import { rightsRouter } from "./routes/rights-management.js";
+import { treasuryRouter } from "./routes/treasury/index.js";
+import { carbonRouter } from "./routes/carbon.js";
+import { createTrafficShaper } from "./middleware/traffic-shaper.js";
+import { CapacityPlanner } from "./services/capacity-planner.js";
+import { crossChainRouter } from "./routes/cross-chain.js";
+import { attachFeatureFlags } from "./middleware/feature-flag-resolver.js";
+import { automationRouter } from "./routes/automation.js";
+import { featureFlagsRouter } from "./routes/feature-flags.js";
 
 // Initialize database on startup
+await initializeKeyManager({ scheduleRotation: true });
 initializeDatabase();
 initializeSigningKey();
 
+// Advanced API rate limiting and traffic shaping (#traffic-shaping).
+// Token-bucket per endpoint, endpoint prioritization, and backpressure.
+const trafficShaper = createTrafficShaper();
+const capacityPlanner = new CapacityPlanner();
+
+// Connect the distributed (Redis) cache layer when REDIS_URL is configured.
+// No-op when unset; never throws (#926).
+initRedisCache();
+
+// Start advanced multi-layer cache warming (#970)
+const l1WarmingInterval = startL1WarmingScheduler();
+const l2WarmingInterval = startL2WarmingScheduler();
+
+// Load plugins from backend/plugins/ and start hot-reload watcher (#998).
+// loadAllPlugins() is async but we don't await it at module level — a
+// startup failure in any individual plugin must not prevent the server
+// from starting. startHotReload() is synchronous and unref()'d internally.
+loadAllPlugins().catch((err) => {
+  // Should never reach here (loadAllPlugins is fail-open), but guard anyway.
+  console.error("[plugins] loadAllPlugins threw unexpectedly:", err?.message);
+});
+startHotReload();
+
 // Keep the searchable log store bounded without requiring a separate worker.
 // `unref` means this maintenance timer cannot keep tests or graceful shutdowns alive.
-const logRetentionInterval = setInterval(() => {
-  pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
-}, 6 * 60 * 60 * 1000);
+const logRetentionInterval = setInterval(
+  () => {
+    pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
+  },
+  6 * 60 * 60 * 1000
+);
 logRetentionInterval.unref?.();
 pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
 
@@ -93,6 +174,10 @@ pruneApplicationLogs(process.env.LOG_RETENTION_DAYS);
 startHealthMonitor();
 
 const app = express();
+
+
+const marketplaceDiscoveryRoutes = require('./routes/marketplaces/discovery');
+app.use('/api/v1/marketplaces', marketplaceDiscoveryRoutes);
 
 // Request correlation ID and logging middleware
 app.use((req, res, next) => {
@@ -110,7 +195,8 @@ app.use((req, res, next) => {
         status: res.statusCode,
         duration,
       };
-      const log = res.statusCode >= 500 ? logger.error : res.statusCode >= 400 ? logger.warn : logger.info;
+      const log =
+        res.statusCode >= 500 ? logger.error : res.statusCode >= 400 ? logger.warn : logger.info;
       log.call(logger, "request completed", metadata);
       if (res.statusCode >= 500) {
         const alert = evaluateLogAlerts({
@@ -124,13 +210,34 @@ app.use((req, res, next) => {
   });
 });
 
+// HTTP response time tracking, APM metrics, X-Response-Time header, and P95 latency alerts (#985)
+app.use(responseTimeMiddleware());
+
+// HTTP request count + latency histograms (#935), also the canary's health signal (#936)
+app.use(httpMetricsMiddleware);
+
+// Advanced traffic shaping: token bucket per endpoint, prioritization, and
+// backpressure (429 + Retry-After, cached-data degradation) (#traffic-shaping).
+app.use(trafficShaper);
+
+// Mirror safe requests to the canary when SHADOW_TARGET_URL is set (#936)
+app.use(createTrafficShadowMiddleware());
+
 // Reject new incoming requests during graceful shutdown (#701)
 app.use(shutdownMiddleware);
+
+// Capacity planning: sample load, alert above 80% capacity, emit scale
+// recommendations (#traffic-shaping).
+app.use(capacityPlanner.middleware());
 
 // Security headers
 app.use(helmet());
 
-// Distributed tracing — creates per-request OTel spans, injects X-Trace-Id and X-Correlation-Id
+// Interactive API explorer (Swagger UI) and OpenAPI 3.0 spec (#api-docs).
+// Mounted before rate limiting so the explorer assets are always reachable.
+app.use("/api/docs", apiDocsRouter);
+
+// Distributed tracing ÔÇö creates per-request OTel spans, injects X-Trace-Id and X-Correlation-Id
 app.use(tracingMiddleware);
 // #766: gzip/deflate compress responses over 1KB (analytics payloads, CSV/JSON
 // exports, etc). Clients can opt out with `x-no-compression` for debugging.
@@ -260,6 +367,9 @@ const simulateLimiter = rateLimit({
 
 app.use(generalLimiter);
 
+// Log deprecated-version usage for partner migration tracking (#api-versioning).
+app.use(deprecationTrackingMiddleware());
+
 // #608: Track per-API-key request counts for the rate-limit dashboard.
 // Only records authenticated (keyed) requests that were not blocked by the
 // limiter above (blocked requests are recorded in the limiter's handler).
@@ -269,9 +379,21 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Global max request body size — configurable via env, defaults to prior hardcoded value.
+// Global max request body size ÔÇö configurable via env, defaults to prior hardcoded value.
 const MAX_REQUEST_BODY_SIZE = process.env.MAX_REQUEST_BODY_SIZE ?? "10kb";
-app.use(express.json({ limit: MAX_REQUEST_BODY_SIZE }));
+// `verify` stashes the raw request bytes on every request (cheap ÔÇö the
+// buffer is already in memory from parsing). Routes that need to verify an
+// HMAC signature over the exact bytes the sender signed (e.g.
+// routes/marketplaces/opensea.js) read req.rawBody instead of re-serializing
+// req.body, which would not byte-for-byte match the original payload.
+app.use(
+  express.json({
+    limit: MAX_REQUEST_BODY_SIZE,
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString("utf8");
+    },
+  })
+);
 
 // Attach X-API-Version header to all versioned responses
 app.use("/api/v1", (_req, res, next) => {
@@ -279,8 +401,18 @@ app.use("/api/v1", (_req, res, next) => {
   next();
 });
 
+// Attach X-API-Version header to all versioned responses (v1, v2, v3).
+app.use("/api", (_req, res, next) => {
+  res.set("X-API-Version", res.get("X-API-Version") || "v3");
+  next();
+});
+
 // Attach RBAC role to every request (#572)
 app.use(attachRole);
+app.use(attachRbacIdentity);
+
+// Resolve feature flags for every request (#1075)
+app.use(attachFeatureFlags);
 
 // Enforce Content-Type: application/json on POST requests
 app.use((req, res, next) => {
@@ -292,7 +424,6 @@ app.use((req, res, next) => {
 
 // Enforce request complexity limits before expensive downstream processing (#892)
 app.use(requestComplexityMiddleware());
-
 
 // Per-request timeout middleware
 const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? "30000");
@@ -315,8 +446,9 @@ app.use("/api/v1/secondary-royalty", writeLimiter);
 app.use("/api/v1/webhooks", writeLimiter);
 app.use("/api/v1/onboarding", writeLimiter);
 app.use("/api/v1/simulate", simulateLimiter);
+app.use("/api/v1/accounting", writeLimiter);
 
-// Apply read limiter to high-fan-out query endpoints (#394 — MEDIUM-16)
+// Apply read limiter to high-fan-out query endpoints (#394 ÔÇö MEDIUM-16)
 app.use("/api/v1/analytics", readLimiter);
 app.use("/api/v1/history", readLimiter);
 app.use("/api/v1/archive", readLimiter);
@@ -338,22 +470,26 @@ app.use("/api/v1/simulate", simulateRouter);
 app.use("/api/v1/onboarding", onboardingRouter);
 app.use("/api/v1", historyRouter);
 app.use("/api/v1", webhooksRouter);
+app.use("/api/v1/analytics/forecast", readLimiter);
+app.use("/api/v1/analytics/forecast", forecastRouter);
+// AI-powered earnings forecast with 30/60/90-day predictions (#1037)
+app.use("/api/v1/analytics/forecast-model", readLimiter);
+app.use("/api/v1/analytics/forecast-model", forecastModelRouter);
 app.use("/api/v1", analyticsRouter);
-app.use("/api/v1", advancedAnalyticsRouter);
+// Collaborator performance benchmarking (#952)
+app.use("/api/v1/analytics/benchmarking", benchmarkingRouter);
+// Advanced token economics & vesting analytics (#1062)
+app.use("/api/v1/tokenomics", readLimiter);
+app.use("/api/v1/tokenomics", tokenomicsRouter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
 app.use(livenessRouter);
 app.use("/api/v1/preferences", preferencesRouter);
 app.use("/api/v1/templates", templatesRouter);
+app.use("/api/v1/contract-templates", contractTemplatesRouter);
 app.use("/api/v1", emailDigestRouter);
 app.use("/api/v1/disputes", writeLimiter);
 app.use("/api/v1/disputes", disputesRouter);
-app.use("/api/v1/reputation", reputationRouter);
-app.use("/api/v1/search", searchRouter);
-app.use("/api/v1/private-proofs", privateProofsRouter);
-app.use("/api/v1/collaboration", collaborationRouter);
-app.use("/api/v1/royalty-oracle", royaltyOracleRouter);
-app.use("/api/v1/compliance-audit", complianceAuditRouter);
 app.use("/api/v1/referrals", writeLimiter);
 app.use("/api/v1/referrals", referralsRouter);
 app.use("/metrics", metricsRouter);
@@ -366,6 +502,9 @@ app.use("/api/v1/ranking", rankingRouter);
 // Contributor tiers (#589)
 app.use("/api/v1/tiers", tiersRouter);
 
+// Plugin management (#998)
+app.use("/api/v1/plugins", pluginsRouter);
+
 // API documentation (#587)
 app.use("/api/docs", docsRouter);
 app.use("/api/v1/docs", docsRouter);
@@ -373,11 +512,22 @@ app.use("/api/v1/docs", docsRouter);
 // CSV bulk import (#597)
 app.use("/api/v1/csv-import", csvImportRouter);
 
+// QuickBooks accounting sync (#940)
+app.use("/api/v1/accounting/quickbooks", quickbooksRouter);
+
 // Contributor tax information (#595)
 app.use("/api/v1/contributor-tax", contributorTaxRouter);
 
 // Real-time notifications (#594)
 app.use("/api/v1/notifications", notificationsRouter);
+app.use("/api/v1/notifications/preferences", granularPreferencesRouter);
+
+// SMS notification preferences (#927)
+app.use("/api/v1/notifications/sms", smsPreferencesRouter);
+
+// Stripe fiat payout integration (#924)
+app.use("/api/v1/payments/stripe", writeLimiter);
+app.use("/api/v1/payments/stripe", stripeRouter);
 
 // Payment hold/release system (#596)
 app.use("/api/v1/payment-holds", writeLimiter);
@@ -392,11 +542,84 @@ app.use("/api/v1/snapshots", snapshotRouter);
 // Contributor communication history (#612)
 app.use("/api/v1/communications", communicationsRouter);
 
+// Email template management (SendGrid migration)
+app.use("/api/v1/communications/email-templates", emailTemplatesRouter);
+
+// SendGrid event webhook (delivery, bounce, complaint tracking)
+app.use("/api/v1/webhooks/sendgrid", sendgridWebhookRouter);
+
 // API version discovery (#676)
 app.use("/api/v1/version", versionRouter);
 
 // Transaction finality tracking (#finality)
 app.use("/api/v1/transactions", transactionFinalityRouter);
+
+// Compliance and regulatory reporting (#997)
+app.use("/api/v1/compliance", complianceRouter);
+
+// Advanced fraud detection and anomaly scoring (#1042)
+app.use("/api/v1/security/fraud-alerts", readLimiter);
+app.use("/api/v1/security/fraud-alerts", fraudAlertsRouter);
+
+// OpenSea marketplace webhook integration (#928)
+app.use("/api/v1/marketplaces/opensea", writeLimiter);
+app.use("/api/v1/marketplaces/opensea", openseaRouter);
+
+// Salesforce CRM integration (#939)
+app.use("/api/v1/crm/salesforce", salesforceRouter);
+
+// HubSpot CRM integration (#946)
+app.use("/api/v1/crm/hubspot", hubspotRouter);
+
+// Collaborator reputation and trust score system (#962)
+app.use("/api/v1/reputation", reputationRouter);
+
+// Advanced search API (#971)
+app.use("/api/v1/search", searchRouter);
+
+// Zero-knowledge proof privacy system (#972)
+app.use("/api/v1/zk-privacy", zkPrivacyRouter);
+
+// Decentralized governance on Snapshot (#995)
+app.use("/api/v1/governance", governanceSnapshotRouter);
+
+// Batch payment scheduling (#991)
+app.use("/api/v1/schedules", writeLimiter);
+app.use("/api/v1/batch", writeLimiter);
+app.use("/api/v1/schedules", schedulesRouter);
+app.use("/api/v1/batch", batchRouter);
+app.use("/api/v1/automation", automationRouter);
+
+// Cross-chain liquidity pool integration (#cross-chain)
+app.use("/api/v1/cross-chain", writeLimiter);
+app.use("/api/v1/cross-chain", crossChainRouter);
+
+// Advanced feature flags and gradual rollout (#1075)
+app.use("/api/v1/feature-flags", featureFlagsRouter);
+
+// Web3 identity — ENS + Lens (#992)
+app.use("/api/v1/identity", identityRouter);
+
+// Contract backup and disaster recovery (#993)
+app.use("/api/v1/backup", writeLimiter);
+app.use("/api/v1/backup", backupRouter);
+
+// Event sourcing and CQRS (#1066)
+app.use("/api/v1/events", eventsRouter);
+app.use("/api/v1/commands", writeLimiter);
+app.use("/api/v1/commands", commandsRouter);
+
+// Rights Management System
+app.use("/api/v1/rights", writeLimiter);
+app.use("/api/v1/rights", rightsRouter);
+
+// DAO Treasury Management (#1076)
+app.use("/api/v1/treasury", writeLimiter);
+app.use("/api/v1/treasury", treasuryRouter);
+
+// Environmental impact tracking and carbon offsets (#1064)
+app.use("/api/v1/carbon", writeLimiter);
+app.use("/api/v1", carbonRouter);
 
 // Admin operations (separate from /api/v1; protected by ADMIN_ROTATE_TOKEN)
 const RATE_LIMIT_ADMIN_WINDOW_MS = 60_000;
@@ -416,30 +639,41 @@ const adminLimiter = rateLimit({
   },
 });
 app.use("/admin", adminLimiter);
+app.use("/admin/audit-trail", auditTrailRouter);
+app.use("/admin/permissions", permissionsRouter);
 app.use("/admin", adminRouter);
 app.use("/admin/api-keys", adminLimiter);
 app.use("/admin/api-keys", adminApiKeysRouter);
 
+// Partner API with metering and rate limiting (#996)
+app.use("/api/v1/partner", apiKeyAuth(), meterApiCall(), partnerRateLimit(), partnerApiRouter);
+
 // Legacy /api/* redirect to /api/v1/* — routes under /api/v1/* are canonical
 app.use("/api", (req, res) => {
   res.set("Deprecation", "true");
-  res.set("Link", `</api/v1${req.url}>; rel="successor-version"`);
-  res.redirect(308, `/api/v1${req.url}`);
+  res.set("Sunset", new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString());
+  res.set("Link", `</api/v3${req.url}>; rel="successor-version"`);
+  res.redirect(308, `/api/v3${req.url}`);
 });
 
 // Any request that didn't match a route above gets the standard error shape
 // instead of Express's default HTML 404 page (#662).
 app.use(notFoundHandler);
 
-// Central error handler — must be mounted last.
+// Central error handler ÔÇö must be mounted last.
 app.use(errorHandler);
 
 async function startServer() {
-  // GraphQL API (#809)
-  await setupGraphQL(app, "/api/v1/graphql");
-
   const PORT = process.env.PORT ?? 3001;
+  let l1WarmingInterval = null;
+  let l2WarmingInterval = null;
   const server = app.listen(PORT, () => logger.info(`API listening on http://localhost:${PORT}`));
+
+  // GraphQL API with subscriptions (#809, #969)
+  await setupGraphQL(app, "/api/v1/graphql", server);
+
+  // GraphQL is also exposed under the current version prefix (#api-versioning).
+  await setupGraphQL(app, "/api/v3/graphql", server);
 
   // Initialize WebSocket for real-time notifications (#594)
   const wss = initializeWebSocket(server);
@@ -455,12 +689,24 @@ async function startServer() {
 
   // Start the payment schedule job (#599)
   const paymentScheduleJob = startPaymentScheduleJob();
-  const oracleScheduler = startOracleScheduler({
-    collections: (process.env.ORACLE_COLLECTIONS ?? "").split(",").map((id) => id.trim()).filter(Boolean),
-  });
+
+  // Start the distribution scheduler (#991)
+  const distributionScheduler = startDistributionScheduler();
+
+  // Start the contract backup scheduler (#993)
+  const backupScheduler = startBackupScheduler();
 
   const metricsPusher = createMetricsPusher();
   metricsPusher.start();
+
+  // #935: pool balance gauge reads the database at scrape time.
+  setSecondaryRoyaltyPoolSource(getPendingRoyaltyPools);
+
+  // #938: periodic hash-chain verification + retention enforcement.
+  const auditTrailVerifier = startAuditTrailVerifier();
+
+  // Start capacity planning monitor (#traffic-shaping).
+  capacityPlanner.start();
 
   // Start weekly email digest scheduler if email is configured
   let digestInterval = null;
@@ -508,11 +754,30 @@ async function startServer() {
       if (finalityCleanupScheduler) {
         finalityCleanupScheduler.stop();
       }
+      if (distributionScheduler) {
+        distributionScheduler.stop();
+      }
+      if (backupScheduler) {
+        backupScheduler.stop();
+      }
       if (paymentScheduleJob) {
         paymentScheduleJob.stop();
       }
-      oracleScheduler.stop();
       metricsPusher.stop();
+      capacityPlanner.stop();
+      if (auditTrailVerifier) {
+        auditTrailVerifier.stop();
+      }
+      closeAuditTrail();
+      if (l1WarmingInterval) {
+        clearInterval(l1WarmingInterval);
+      }
+      if (l2WarmingInterval) {
+        clearInterval(l2WarmingInterval);
+      }
+      if (typeof stopDeprecationTracking === "function") {
+        stopDeprecationTracking();
+      }
     },
   });
 

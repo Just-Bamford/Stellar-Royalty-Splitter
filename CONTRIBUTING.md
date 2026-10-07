@@ -30,11 +30,28 @@ cargo test --workspace --locked --features testutils
 
 ## Development Workflow
 
+### 0. Clone and Branch Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/Just-Bamford/Stellar-Royalty-Splitter.git
+cd Stellar-Royalty-Splitter
+
+# Check out the dev branch (active development)
+git checkout dev
+git pull origin dev
+
+# Create your feature branch OFF dev (not main)
+git checkout -b feature/your-feature-name
+```
+
+**Important:** Always branch off `dev`, not `main`. The `main` branch is for stable releases only.
+
 ### 1. Create a Branch
 
 ```bash
-git checkout main
-git pull origin main
+git checkout dev
+git pull origin dev
 git checkout -b feature/your-feature-name
 ```
 
@@ -44,6 +61,7 @@ git checkout -b feature/your-feature-name
 - `fix/description` - Bug fixes
 - `docs/description` - Documentation
 - `chore/description` - Maintenance tasks
+- `test/description` - Test additions/improvements
 
 ### 2. Make Changes
 
@@ -67,7 +85,7 @@ git checkout -b feature/your-feature-name
 cd backend
 npm run lint      # ESLint checks
 npm run format    # Auto-format code
-npm test          # Run all tests
+npm test          # Run all tests (1106/1107 passing)
 ```
 
 **Smart Contract:**
@@ -141,17 +159,20 @@ git commit -m "fix: resolve race condition in distribution logic"
 ### 5. Push and Create Pull Request
 
 ```bash
+# Push to your feature branch
 git push -u origin feature/your-feature-name
 ```
 
 Then create a PR on GitHub with:
 
 - **Title**: Clear, descriptive, under 70 characters
+- **Base Branch**: `dev` (not `main`)
 - **Description**:
   - What was changed
   - Why it was changed
   - What was tested
   - Any blocking issues or notes
+  - Link to related issue: `Closes #N`
 
 ### 6. Address Feedback
 
@@ -161,14 +182,14 @@ Then create a PR on GitHub with:
 
 ### 7. Merge
 
-Once approved and CI passes, maintainers will merge your PR.
+Once approved and CI passes, maintainers will merge your PR into `dev`. Periodically, `dev` is merged into `main` for releases.
 
 ## Quality Standards
 
 ### Backend Code
 
 - **Linting**: Must pass ESLint
-- **Tests**: All tests must pass
+- **Tests**: All tests must pass (currently 1106/1107 passing - 99.9%)
 - **Node Versions**: Must work on Node 20.x and 22.x
 - **Coverage**: Aim for >70% test coverage
 
@@ -178,6 +199,53 @@ Once approved and CI passes, maintainers will merge your PR.
 - **Tests**: All tests must pass
 - **Targets**: Must compile for `wasm32-unknown-unknown`
 - **Documentation**: Public functions must be documented
+
+---
+
+## Testing Requirements for Contributors
+
+Before opening a PR, ensure all tests pass locally:
+
+### Backend Tests (Required)
+
+```bash
+cd backend
+npm test
+```
+
+Expected result: **1106/1107 tests passing** (one timing-related cache edge case)
+
+If you see test failures:
+
+1. Check that you're on the latest `dev` branch
+2. Run `npm ci` to ensure dependencies are fresh
+3. Run `npm run format` to fix linting issues
+4. Run `npm test` again
+
+### Test Files to Check If You Modified
+
+- Modified `src/routes/*.js`? → Check corresponding `tests/*.test.js` and `tests/*.integration.test.js`
+- Modified `src/stellar.js`? → Check `tests/stellar.test.js`
+- Modified `src/database/*.js`? → Check `tests/database.test.js`
+- Modified validation logic? → Check `tests/*validation*.test.js`
+
+### Adding Tests
+
+When adding new functionality:
+
+1. Create a corresponding test file in `backend/tests/`
+2. Use the existing test patterns (Jest)
+3. Mock external dependencies (Stellar, database, etc.)
+4. Aim for >70% coverage on new code
+5. Run full suite before committing: `npm test`
+
+### Contract Tests (Required if modifying Rust)
+
+```bash
+cargo test --workspace --locked --features testutils
+```
+
+---
 
 ## Common Issues
 
@@ -319,13 +387,13 @@ backend/frontend workflows).
 
 ## Branch naming
 
-| Type     | Pattern                     | Example                        |
-| -------- | --------------------------- | ------------------------------ |
-| Feature  | `feat/<short-description>`  | `feat/governance-royalty-rate` |
-| Bug fix  | `fix/<short-description>`   | `fix/secondary-sale-dedup`     |
-| Tests    | `test/<short-description>`  | `test/royalty-error-cases`     |
-| Docs     | `docs/<short-description>`  | `docs/contributing-guide`      |
-| Chore    | `chore/<short-description>` | `chore/update-dependencies`    |
+| Type    | Pattern                     | Example                        |
+| ------- | --------------------------- | ------------------------------ |
+| Feature | `feat/<short-description>`  | `feat/governance-royalty-rate` |
+| Bug fix | `fix/<short-description>`   | `fix/secondary-sale-dedup`     |
+| Tests   | `test/<short-description>`  | `test/royalty-error-cases`     |
+| Docs    | `docs/<short-description>`  | `docs/contributing-guide`      |
+| Chore   | `chore/<short-description>` | `chore/update-dependencies`    |
 
 Keep branch names lowercase and hyphen-separated. Avoid slashes beyond the type prefix.
 
@@ -345,16 +413,16 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) specific
 
 ### Types
 
-| Type       | When to use                                          |
-| ---------- | ---------------------------------------------------- |
-| `feat`     | New feature or user-facing enhancement               |
-| `fix`      | Bug fix                                              |
-| `docs`     | Documentation only                                   |
-| `test`     | Adding or updating tests                             |
-| `chore`    | Maintenance — deps, config, tooling                  |
-| `refactor` | Code restructuring with no behavior change           |
-| `perf`     | Performance improvement                              |
-| `style`    | Formatting, whitespace — no logic change             |
+| Type       | When to use                                |
+| ---------- | ------------------------------------------ |
+| `feat`     | New feature or user-facing enhancement     |
+| `fix`      | Bug fix                                    |
+| `docs`     | Documentation only                         |
+| `test`     | Adding or updating tests                   |
+| `chore`    | Maintenance — deps, config, tooling        |
+| `refactor` | Code restructuring with no behavior change |
+| `perf`     | Performance improvement                    |
+| `style`    | Formatting, whitespace — no logic change   |
 
 ### Closing issues
 
@@ -373,15 +441,20 @@ Closes #78245
 
 ## PR guidelines
 
-Before opening a PR:
+Before opening a PR on GitHub:
 
-- [ ] `cargo test` passes with no failures
+- [ ] Branch is checked out FROM `dev` (not `main`)
+- [ ] Branch is up to date with `dev` (`git fetch origin && git rebase origin/dev`)
+- [ ] All backend tests pass: `cd backend && npm test` (1106/1107 passing expected)
+- [ ] No new ESLint errors: `npm run lint`
+- [ ] Code is formatted: `npm run format`
+- [ ] If modified Rust: `cargo test` passes with no failures
 - [ ] No new compiler warnings (`cargo build` is clean)
 - [ ] Frontend and backend start without console errors
 - [ ] New public contract functions have rustdoc comments (params, errors, auth)
 - [ ] New tests are included for any changed behavior
 - [ ] The PR description references the related issue number(s) with `Closes #N`
-- [ ] Branch is up to date with `main` (`git rebase origin/main`)
+- [ ] PR base branch is set to `dev` (not `main`)
 
 Keep PRs focused. One issue per PR is preferred. If a fix naturally touches multiple related issues, bundle them and close all in the description.
 

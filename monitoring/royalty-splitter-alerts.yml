@@ -71,3 +71,39 @@ groups:
         annotations:
           summary: API process memory exceeds 85 percent of the heap limit
           action: Check for traffic or cache growth, capture a heap profile if available, and scale or restart under the deployment policy.
+
+  # Immutable compliance audit trail (#938).
+  - name: royalty-splitter-audit-trail
+    interval: 1m
+    rules:
+      - alert: RoyaltySplitterAuditTrailTampered
+        expr: min(stellar_audit_trail_integrity_ok) == 0
+        labels:
+          severity: critical
+          owner: security
+          runbook: audit-trail-integrity
+        annotations:
+          summary: Audit trail hash-chain verification failed
+          description: The immutable audit trail no longer verifies — an entry was modified, removed, or reordered outside the application.
+          action: Treat as a potential breach. Preserve the audit-trail file and host, compare against the last shipped checkpoint, and open a security incident.
+
+      - alert: RoyaltySplitterAuditTrailVerificationStale
+        expr: time() - max(stellar_audit_trail_last_verified_timestamp_seconds) > 3 * 3600
+        for: 15m
+        labels:
+          severity: warning
+          owner: security
+          runbook: audit-trail-integrity
+        annotations:
+          summary: Audit trail has not been verified in over three hours
+          action: Check that the API is running and AUDIT_TRAIL_VERIFY_INTERVAL_MS is sane; run POST /admin/audit-trail/verify manually.
+
+      - alert: RoyaltySplitterAuditTrailWriteFailures
+        expr: increase(stellar_audit_trail_write_failures_total[10m]) > 0
+        labels:
+          severity: critical
+          owner: security
+          runbook: audit-trail-integrity
+        annotations:
+          summary: State changes are not reaching the immutable audit trail
+          action: Check disk space and permissions on AUDIT_TRAIL_DB_PATH; state changes made while this fires are missing from the compliance record.

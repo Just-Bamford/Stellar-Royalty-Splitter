@@ -19,7 +19,6 @@
  */
 import StellarSdk from "@stellar/stellar-sdk";
 import logger from "./logger.js";
-import { chaos } from "./chaos/faultInjection.js";
 import { recordHorizonResponseTime } from "./metrics.js";
 import { sleep, parsePositiveInt } from "./utils.js";
 import { withRetry } from "./rpc-retry.js";
@@ -70,21 +69,18 @@ export function getConfiguredContractId() {
  * shape so the route layer can pass the error straight through.
  */
 export function withTimeout(promise, ms, label) {
-  const guarded = () => {
-    let timer;
-    const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => {
-        reject({
-          status: 504,
-          message: `${label} did not respond within ${ms}ms`,
-        });
-      }, ms);
-    });
-    return Promise.race([promise, timeout]).finally(() => {
-      if (timer) clearTimeout(timer);
-    });
-  };
-  return chaos.run("rpc-timeout", guarded, { label });
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject({
+        status: 504,
+        message: `${label} did not respond within ${ms}ms`,
+      });
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 /**

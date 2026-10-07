@@ -1,0 +1,45 @@
+/* ── CollaboratorComparison ───────────────────────────────────────────────── */
+.cc {
+  overflow-x: auto;
+}
+
+.cc-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.cc-overflow-notice {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  margin: 0 0 0.5rem;
+}
+
+.cc-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cc-table th,
+.cc-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  font-size: 0.85rem;
+}
+
+.cc-table thead th {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.cc-table tbody th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cc-table code {
+  font-size: 0.78rem;
+}

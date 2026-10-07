@@ -14,9 +14,14 @@ const isContractInitialized = jest.fn();
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
   isContractInitialized,
+  buildTx: jest.fn(),
+  pollHorizonTransaction: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
+  bytes32ToScVal: jest.fn((v) => v),
+  i128ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
@@ -83,7 +88,7 @@ describe("POST /api/v1/initialize – integration", () => {
       .post("/api/v1/initialize")
       .send({ ...validBody, collaborators: [], shares: [] });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/collaborators array must be non-empty/i);
+    expect(res.body.error).toMatch(/at least one collaborator required/i);
   });
 
   test("413 when initialize payload is too large", async () => {

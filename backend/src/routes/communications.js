@@ -8,6 +8,9 @@
  *   - POST   /communications/search           — search communications
  *   - GET    /communications/timeline/:wallet — chronological timeline
  *   - POST   /communications/internal-note    — add admin internal note
+ *   - GET    /communications/segments         — list user segments and sizes
+ *   - POST   /communications/campaigns        — create a targeted campaign
+ *   - GET    /communications/campaigns/:id/analytics — campaign performance
  */
 
 import { Router } from "express";
@@ -26,6 +29,18 @@ import {
   countCommunications,
 } from "../database/contributor-communications.js";
 import { requireAdminBearerOrRole } from "../middleware/rbac.js";
+import {
+  buildSegments,
+  getSegmentMembers,
+  getSegmentSizes,
+} from "../services/user-segmentation.js";
+import {
+  createCampaign,
+  getCampaign,
+  getCampaignAnalytics,
+  listCampaigns,
+  recordCampaignEvent,
+} from "../services/campaign-manager.js";
 
 export const communicationsRouter = Router();
 
@@ -57,6 +72,39 @@ const internalNoteSchema = z.object({
   contractId: z.string().optional().nullable(),
   body: z.string().min(1, "Note body is required").max(10000),
   createdBy: z.string().optional().nullable(),
+});
+
+const segmentQuerySchema = z.object({
+  earnings: z.enum(["high", "medium", "low"]).optional(),
+  activity: z.enum(["active", "inactive", "churned"]).optional(),
+  tenure: z.enum(["new", "established", "veteran"]).optional(),
+  geography: z.string().max(100).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+const campaignSchema = z.object({
+  name: z.string().min(1, "Campaign name is required").max(200),
+  segment: segmentQuerySchema,
+  variants: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(100),
+        subject: z.string().max(500).optional().nullable(),
+        body: z.string().min(1, "Variant body is required").max(10000),
+        weight: z.number().min(0).max(1).optional(),
+      }),
+    )
+    .min(1, "At least one variant is required"),
+  createdBy: z.string().optional().nullable(),
+});
+
+const campaignEventSchema = z.object({
+  campaignId: z.string().min(1, "Campaign id is required").max(200),
+  variantId: z.string().min(1, "Variant id is required").max(100),
+  walletAddress: z.string().regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar address"),
+  event: z.enum(["sent", "delivered", "opened", "clicked", "converted", "unsubscribed"]),
+  metadata: z.record(z.unknown()).optional().nullable(),
 });
 
 // ─── Routes ────────────────────────────────────────────────────────────────────
@@ -227,6 +275,153 @@ communicationsRouter.post(
     } catch (err) {
       logger.error("Error adding internal note", { error: err.message });
       sendError(res, 500, "internal_note_failed", "Failed to add internal note");
+    }
+  },
+);
+
+/**
+ * GET /communications/segments
+ * List user segments with sizes.
+ * Requires operator or admin role.
+ */
+communicationsRouter.get(
+  "/segments",
+  requireAdminBearerOrRole("operator"),
+  (req, res) => {
+    try {
+      const sizes = getSegmentSizes();
+      res.json({ success: true, data: sizes });
+    } catch (err) {
+      logger.error("Error listing segments", { error: err.message });
+      sendError(res, 500, "segment_list_failed", "Failed to list segments");
+    }
+  },
+);
+
+/**
+ * POST /communications/segments/members
+ * Get members of a segment matching targeting rules.
+ * Requires operator or admin role.
+ */
+communicationsRouter.post(
+  "/segments/members",
+  requireAdminBearerOrRole("operator"),
+  validate(segmentQuerySchema),
+  (req, res) => {
+    try {
+      const { limit, offset, ...rules } = req.body;
+      const members = getSegmentMembers(rules, { limit: limit || 100, offset: offset || 0 });
+      res.json({
+        success: true,
+        data: members,
+        pagination: { limit: limit || 100, offset: offset || 0 },
+      });
+    } catch (err) {
+      logger.error("Error fetching segment members", { error: err.message });
+      sendError(res, 500, "segment_members_failed", "Failed to fetch segment members");
+    }
+  },
+);
+
+/**
+ * POST /communications/campaigns
+ * Create a targeted campaign for a specific segment with A/B variants.
+ * Requires operator or admin role.
+ */
+communicationsRouter.post(
+  "/campaigns",
+  requireAdminBearerOrRole("operator"),
+  validate(campaignSchema),
+  (req, res) => {
+    try {
+      const campaign = createCampaign(req.body);
+
+      try {
+        addAuditLog("__global__", "campaign_created", req.body.createdBy, {
+          campaignId: campaign.id,
+          segment: campaign.segment,
+          variants: campaign.variants.map((v) => v.id),
+        });
+      } catch (_) { /* non-fatal */ }
+
+      logger.info("Campaign created", {
+        event: "campaign_created",
+        campaignId: campaign.id,
+      });
+
+      res.status(201).json({ success: true, data: campaign });
+    } catch (err) {
+      logger.error("Error creating campaign", { error: err.message });
+      sendError(res, 500, "campaign_create_failed", "Failed to create campaign");
+    }
+  },
+);
+
+/**
+ * GET /communications/campaigns
+ * List campaigns.
+ * Requires operator or admin role.
+ */
+communicationsRouter.get(
+  "/campaigns",
+  requireAdminBearerOrRole("operator"),
+  (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 500);
+      const offset = Number(req.query.offset) || 0;
+      const campaigns = listCampaigns({ limit, offset });
+      res.json({
+        success: true,
+        data: campaigns,
+        pagination: { limit, offset },
+      });
+    } catch (err) {
+      logger.error("Error listing campaigns", { error: err.message });
+      sendError(res, 500, "campaign_list_failed", "Failed to list campaigns");
+    }
+  },
+);
+
+/**
+ * GET /communications/campaigns/:campaignId/analytics
+ * Get performance analytics for a campaign, including A/B variant breakdown.
+ * Requires operator or admin role.
+ */
+communicationsRouter.get(
+  "/campaigns/:campaignId/analytics",
+  requireAdminBearerOrRole("operator"),
+  (req, res) => {
+    try {
+      const { campaignId } = req.params;
+      const campaign = getCampaign(campaignId);
+      if (!campaign) {
+        return sendError(res, 404, "campaign_not_found", "Campaign not found");
+      }
+      const analytics = getCampaignAnalytics(campaignId);
+      res.json({ success: true, data: analytics });
+    } catch (err) {
+      logger.error("Error fetching campaign analytics", { error: err.message });
+      sendError(res, 500, "campaign_analytics_failed", "Failed to fetch campaign analytics");
+    }
+  },
+);
+
+/**
+ * POST /communications/campaigns/events
+ * Record a campaign engagement/conversion event for A/B tracking.
+ * Requires operator or admin role.
+ */
+communicationsRouter.post(
+  "/campaigns/events",
+  requireAdminBearerOrRole("operator"),
+  validate(campaignEventSchema),
+  (req, res) => {
+    try {
+      const event = recordCampaignEvent(req.body);
+      res.status(201).json({ success: true, data: event });
+    } catch (err) {
+      logger.error("Error recording campaign event", { error: err.message });
+      sendError(res, 500, "campaign_event_failed", "Failed to record campaign event");
     }
   },
 );

@@ -5,6 +5,10 @@
   min-height: 100vh;
   background: var(--bg-secondary);
   transition: background-color var(--transition-base);
+  /* #920 — contain accidental child overflow (long contract IDs, wide
+     tables) so no page ever scrolls horizontally. */
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 .session-toast {
@@ -407,6 +411,15 @@
     padding: 0.6rem 0.8rem;
     font-size: 0.9rem;
   }
+
+  /* #920 — 48px touch targets for sidebar controls on mobile. */
+  .quick-action-btn {
+    min-height: 48px;
+  }
+
+  .contract-input-row {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 480px) {
@@ -509,6 +522,38 @@
   .quick-action-btn {
     padding: 0.5rem 0.75rem;
     font-size: 0.85rem;
+  }
+
+  /* ── #920 — phone-specific hardening ─────────────────────────────── */
+  /* Notched devices: respect safe areas. */
+  .app-content {
+    padding-left: max(var(--spacing-xs), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--spacing-xs), env(safe-area-inset-right, 0px));
+  }
+
+  /* Sticky nav height used by the mobile drawer (Navigation.css). */
+  :root {
+    --nav-height: 60px;
+  }
+
+  /* Inputs stay ≥16px to prevent iOS Safari auto-zoom on focus. */
+  .contract-input,
+  .app-sidebar input,
+  .app-sidebar select {
+    font-size: 16px;
+    min-height: 48px; /* 48px touch target */
+  }
+
+  /* Sidebar toggle is a primary mobile control — comfortable to tap. */
+  .sidebar-toggle-btn {
+    min-height: 48px; /* 48px touch target */
+  }
+
+  /* Session toast fits on the narrowest screens. */
+  .session-toast {
+    left: var(--spacing-xs);
+    right: var(--spacing-xs);
+    max-width: none;
   }
 }
 

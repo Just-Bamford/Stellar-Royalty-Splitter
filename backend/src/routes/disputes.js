@@ -39,32 +39,12 @@ import {
   disputeSubmittedEmail,
   disputeStatusUpdateEmail,
 } from "../email/templates/dispute-notification.js";
-import { addEvidence, analyzeDispute, getLatestAnalysis, listEvidence } from "../database/dispute-intelligence.js";
+import { sendEventSms } from "../services/sms-notifications.js";
+import { runHook } from "../plugins/plugin-framework.js";
+import { requirePermission } from "../middleware/rbac-check.js";
+import { PERMISSIONS } from "../models/rbac.js";
 
 export const disputesRouter = Router();
-
-disputesRouter.post("/:ticketId/evidence", (req, res) => {
-  const dispute = resolveDispute(req.params.ticketId, res);
-  if (!dispute) return;
-  const { walletAddress, kind, content } = req.body ?? {};
-  const validKinds = ["transaction_proof", "receipt", "agreement", "contract", "tx_hash", "other"];
-  if (walletAddress !== dispute.walletAddress || !validKinds.includes(kind) || typeof content !== "string" || content.length < 1 || content.length > 10000) {
-    return sendError(res, 400, "invalid_evidence", "Valid walletAddress, kind, and content are required");
-  }
-  return res.status(201).json({ success: true, data: addEvidence({ disputeId: dispute.id, walletAddress, kind, content }) });
-});
-
-disputesRouter.get("/:ticketId/evidence", (req, res) => {
-  const dispute = resolveDispute(req.params.ticketId, res);
-  if (!dispute) return;
-  return res.json({ success: true, data: listEvidence(dispute.id), analysis: getLatestAnalysis(dispute.id) });
-});
-
-disputesRouter.post("/:ticketId/analyze", (req, res) => {
-  const dispute = resolveDispute(req.params.ticketId, res);
-  if (!dispute) return;
-  return res.status(201).json({ success: true, data: analyzeDispute(dispute.id) });
-});
 
 // ─── Admin auth middleware ────────────────────────────────────────────────────
 
@@ -130,6 +110,25 @@ disputesRouter.post("/", validate(disputeSubmitSchema), async (req, res, next) =
       category,
     });
 
+    // Plugin hook: onDispute — notify plugins of new dispute (#998).
+    // Fail-open: errors caught inside runHook; never blocks dispute creation.
+    await runHook("onDispute", dispute);
+
+    // Record reputation activity for dispute opened (#962)
+    try {
+      const { recordReputationActivity } = await import("../database/reputation.js");
+      recordReputationActivity(walletAddress, "dispute_opened", -5, {
+        disputeTicketId: dispute.ticketId,
+        category,
+        contractId,
+      });
+    } catch (err) {
+      logger.warn("Failed to record reputation activity for dispute", {
+        walletAddress,
+        error: err.message,
+      });
+    }
+
     // Confirmation email — contributor must have registered an email elsewhere;
     // if req.body carries one we use it, otherwise we skip silently.
     const contributorEmail = req.body.email ?? null;
@@ -144,6 +143,19 @@ disputesRouter.post("/", validate(disputeSubmitSchema), async (req, res, next) =
         })
       );
     }
+
+    // SMS confirmation (#927) — no-op unless the wallet has opted in with a
+    // phone number on file; never throws.
+    await sendEventSms(walletAddress, "dispute_opened", { ticketId: dispute.ticketId });
+
+    // Advanced webhooks (#1059): notify subscribers of the new dispute.
+    emitDisputeWebhook(contractId, "dispute.created", {
+      ticketId: dispute.ticketId,
+      walletAddress,
+      category,
+      description,
+      status: dispute.status,
+    });
 
     return res.status(201).json({ success: true, data: dispute });
   } catch (err) {
@@ -180,7 +192,7 @@ disputesRouter.get("/", (req, res) => {
 // NOTE: this route must be registered before /:ticketId to avoid "admin" being
 // matched as a ticketId.
 
-disputesRouter.get("/admin/all", requireAdminToken, (req, res) => {
+disputesRouter.get("/admin/all", requirePermission(PERMISSIONS.DISPUTES_READ), (req, res) => {
   const { status } = req.query;
 
   const VALID_STATUSES = ["open", "under_review", "resolved", "closed"];
@@ -210,7 +222,7 @@ disputesRouter.get("/admin/all", requireAdminToken, (req, res) => {
 
 disputesRouter.patch(
   "/admin/:ticketId/status",
-  requireAdminToken,
+  requirePermission(PERMISSIONS.DISPUTES_APPROVE),
   validate(disputeAdminReviewSchema),
   async (req, res, next) => {
     try {
@@ -230,6 +242,23 @@ disputesRouter.patch(
         newStatus: status,
       });
 
+      // Record reputation activity when dispute is resolved (#962)
+      if (status === "resolved" && existing.status !== "resolved") {
+        try {
+          const { recordReputationActivity } = await import("../database/reputation.js");
+          recordReputationActivity(existing.walletAddress, "dispute_resolved", 3, {
+            disputeTicketId: ticketId,
+            resolution: status,
+            adminNote,
+          });
+        } catch (err) {
+          logger.warn("Failed to record reputation activity for dispute resolution", {
+            walletAddress: existing.walletAddress,
+            error: err.message,
+          });
+        }
+      }
+
       // Notify contributor if we have a contact email on file.
       // The email_digest_subscribers table stores wallet→email mappings;
       // we attempt a best-effort lookup via the database module.
@@ -239,6 +268,18 @@ disputesRouter.patch(
           contributorEmail,
           disputeStatusUpdateEmail({ ticketId, newStatus: status, adminNote })
         );
+      }
+
+      // Advanced webhooks (#1059): notify subscribers when a dispute is
+      // resolved or closed.
+      if ((status === "resolved" || status === "closed") && existing.status !== status) {
+        emitDisputeWebhook(existing.contractId, "dispute.resolved", {
+          ticketId,
+          walletAddress: existing.walletAddress,
+          previousStatus: existing.status,
+          newStatus: status,
+          adminNote: adminNote ?? null,
+        });
       }
 
       return res.json({ success: true, data: updated });
@@ -252,7 +293,7 @@ disputesRouter.patch(
 
 disputesRouter.post(
   "/admin/:ticketId/comments",
-  requireAdminToken,
+  requirePermission(PERMISSIONS.DISPUTES_APPROVE),
   validate(disputeAdminCommentSchema),
   async (req, res, next) => {
     try {
@@ -335,6 +376,24 @@ disputesRouter.post(
   }
 );
 
+/**
+ * Fire-and-forget webhook event emission (#1059). Never throws — delivery
+ * problems must never fail the dispute response.
+ */
+async function emitDisputeWebhook(contractId, event, data) {
+  if (!contractId) return;
+  try {
+    const { emitWebhookEvent } = await import("../services/webhook-manager.js");
+    await emitWebhookEvent({ contractId, event, data });
+  } catch (err) {
+    logger.warn("Failed to emit dispute webhook event", {
+      event,
+      contractId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // ─── Internal: resolve contributor email from digest subscribers ──────────────
 
 /**
@@ -354,3 +413,151 @@ async function resolveContributorEmail(walletAddress) {
     return null;
   }
 }
+
+
+// ─── Evidence submission (#961) ────────────────────────────────────────────────
+
+disputesRouter.post("/:ticketId/evidence", async (req, res, next) => {
+  try {
+    const { ticketId } = req.params;
+    const { walletAddress, evidenceType, fileUrl, description, metadata } = req.body;
+
+    const dispute = resolveDispute(ticketId, res);
+    if (!dispute) return;
+
+    // Only the owning wallet or admin can submit evidence
+    const isOwner = dispute.walletAddress === walletAddress;
+    const isAdmin = req.headers.authorization?.startsWith("Bearer ");
+
+    if (!isOwner && !isAdmin) {
+      return sendError(res, 403, "forbidden", "You do not have permission to submit evidence for this dispute");
+    }
+
+    if (!evidenceType || !['document', 'transaction_proof', 'screenshot', 'other'].includes(evidenceType)) {
+      return sendError(res, 400, "invalid_evidence_type", "Evidence type must be one of: document, transaction_proof, screenshot, other");
+    }
+
+    if (!fileUrl) {
+      return sendError(res, 400, "missing_file_url", "fileUrl is required");
+    }
+
+    const { addDisputeEvidence } = await import("../database/disputes.js");
+    const evidence = addDisputeEvidence(
+      dispute.id,
+      walletAddress,
+      evidenceType,
+      fileUrl,
+      description || '',
+      metadata || {}
+    );
+
+    logger.info("Evidence submitted for dispute", { ticketId, evidenceId: evidence.id });
+
+    return res.status(201).json({ success: true, data: evidence });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Get evidence for a dispute (#961) ─────────────────────────────────────────
+
+disputesRouter.get("/:ticketId/evidence", async (req, res, next) => {
+  try {
+    const { ticketId } = req.params;
+
+    const dispute = resolveDispute(ticketId, res);
+    if (!dispute) return;
+
+    const { getDisputeEvidence } = await import("../database/disputes.js");
+    const evidence = getDisputeEvidence(dispute.id);
+
+    return res.json({ success: true, data: evidence });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Admin: Trigger AI analysis (#961) ─────────────────────────────────────────
+
+disputesRouter.post("/admin/:ticketId/analyze", requireAdminToken, async (req, res, next) => {
+  try {
+    const { ticketId } = req.params;
+
+    const dispute = resolveDispute(ticketId, res);
+    if (!dispute) return;
+
+    logger.info("Starting AI analysis for dispute", { ticketId });
+
+    const { analyzeDispute } = await import("../services/ai-dispute-analyzer.js");
+    const result = await analyzeDispute(ticketId);
+
+    logger.info("AI analysis completed", { ticketId, result: result.success });
+
+    return res.json({
+      success: true,
+      data: result,
+      message: "AI analysis completed successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Admin: Get AI analysis results (#961) ─────────────────────────────────────
+
+disputesRouter.get("/admin/:ticketId/analysis", requireAdminToken, async (req, res, next) => {
+  try {
+    const { ticketId } = req.params;
+
+    const dispute = resolveDispute(ticketId, res);
+    if (!dispute) return;
+
+    const { getDisputeAnalysisReport } = await import("../services/ai-dispute-analyzer.js");
+    const report = getDisputeAnalysisReport(ticketId);
+
+    return res.json({ success: true, data: report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Admin: Update mediation recommendation status (#961) ──────────────────────
+
+disputesRouter.patch(
+  "/admin/:ticketId/recommendations/:recommendationId",
+  requireAdminToken,
+  async (req, res, next) => {
+    try {
+      const { ticketId, recommendationId } = req.params;
+      const { status, implementedBy } = req.body;
+
+      const dispute = resolveDispute(ticketId, res);
+      if (!dispute) return;
+
+      if (!status || !['pending', 'implemented', 'rejected'].includes(status)) {
+        return sendError(res, 400, "invalid_status", "Status must be one of: pending, implemented, rejected");
+      }
+
+      const { updateMediationRecommendationStatus } = await import("../database/disputes.js");
+      const updated = updateMediationRecommendationStatus(
+        parseInt(recommendationId),
+        status,
+        implementedBy || 'admin'
+      );
+
+      if (!updated) {
+        return sendError(res, 404, "recommendation_not_found", "Recommendation not found");
+      }
+
+      logger.info("Mediation recommendation status updated", {
+        ticketId,
+        recommendationId,
+        status,
+      });
+
+      return res.json({ success: true, data: updated });
+    } catch (err) {
+      next(err);
+    }
+  }
+);

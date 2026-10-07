@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "../context/ThemeContext";
 import { useNetwork } from "../context/NetworkContext";
 import { useUIStore } from "../store/uiStore";
 import { NotificationBell } from "./NotificationBell";
+import { LanguageSelector } from "./LanguageSelector";
 import "./Navigation.css";
 
 interface NavigationProps {
@@ -24,18 +24,26 @@ export const Navigation: React.FC<NavigationProps> = ({
   const { t } = useTranslation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const connectionLabel = wsConnected ? "WebSocket connected" : "WebSocket disconnected";
   const isDark = useUIStore((s) => s.isDark);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
   const { network, setNetwork } = useNetwork();
 
-  // Close mobile menu on Escape and prevent body scroll while open
+  // Close mobile drawer on Escape and lock body scroll while open (#920).
+  // The drawer overlays the page on small screens, so background content
+  // must not scroll underneath it.
   useEffect(() => {
     if (!isMobileMenuOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setIsMobileMenuOpen(false);
     }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [isMobileMenuOpen]);
 
   const navItems = [
@@ -46,15 +54,23 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: "transactions", labelKey: "transactions", icon: "📋" },
     { id: "timeline", labelKey: "timeline", icon: "🕐" },
     { id: "forecast", labelKey: "forecast", icon: "📈" },
+    { id: "tokenomics", labelKey: "tokenomics", icon: "🪙" },
     { id: "earnings", labelKey: "earnings", icon: "💎" },
     { id: "admin", labelKey: "admin", icon: "👑" },
+    { id: "feature-flags", labelKey: "featureFlags", icon: "🚩" },
     { id: "initialize", labelKey: "initialize", icon: "⚙️" },
     { id: "distribute", labelKey: "distribute", icon: "💰" },
     { id: "secondary", labelKey: "secondary", icon: "🔄" },
     { id: "health", labelKey: "health", icon: "🏥" },
+    { id: "disputes", labelKey: "disputes", icon: "⚖️" },
+    { id: "impact", labelKey: "impact", icon: "🌱" },
+    { id: "webhooks", labelKey: "webhooks", icon: "🔔" },
     { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
     { id: "tax-info", labelKey: "taxInfo", icon: "📋" },
     { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },
+    { id: "profile", labelKey: "userProfile", icon: "👤" },
+    { id: "feed", labelKey: "activityFeed", icon: "📡" },
+    { id: "forum", labelKey: "communityForum", icon: "💬" },
     { id: "settings", labelKey: "settings", icon: "⚡" },
   ];
 
@@ -99,6 +115,17 @@ export const Navigation: React.FC<NavigationProps> = ({
           {isMobileMenuOpen ? "✕" : "☰"}
         </button>
 
+        {/* #920 — slide-in drawer: backdrop click closes, drawer slides in
+            from the left on small screens (CSS media queries). On desktop
+            widths this renders inline as before and the backdrop is hidden. */}
+        {isMobileMenuOpen && (
+          <div
+            className="nav-drawer-backdrop"
+            aria-hidden="true"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+        )}
+
          <ul
           id="mobile-nav-links"
           className={`nav-links ${isMobileMenuOpen ? "active" : ""}`}
@@ -118,7 +145,8 @@ export const Navigation: React.FC<NavigationProps> = ({
           ))}
         </ul>
 
-        <div className="nav-wallet">
+        <div className="nav-wallet" title={connectionLabel}>
+          <LanguageSelector compact />
           {/* Network toggle — issue #231 */}
           <button
             className={`network-toggle network-toggle--${network}`}

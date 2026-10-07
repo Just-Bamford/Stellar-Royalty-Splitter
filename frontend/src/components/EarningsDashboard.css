@@ -455,12 +455,48 @@
     align-items: flex-start;
   }
 
+  .contract-selector {
+    width: 100%;
+  }
+
+  .contract-selector select {
+    flex: 1;
+    width: 100%;
+    min-height: 48px; /* 48px touch target (#920) */
+  }
+
   .kpi-grid {
     grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+  }
+
+  .kpi-card {
+    padding: 0.9rem;
+  }
+
+  .kpi-card .kpi-value {
+    font-size: 1.35rem;
+    word-break: break-word;
   }
 
   .search-box input {
     width: 100%;
+    min-height: 48px; /* 48px touch target (#920) */
+  }
+
+  /* Section headers stack so the search box gets the full row width. */
+  .dashboard-section .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tabs-bar {
+    width: 100%;
+  }
+
+  .tabs-bar .tab-btn {
+    flex: 1;
+    min-height: 48px; /* 48px touch target (#920) */
   }
 
   .earnings-table th,
@@ -473,11 +509,116 @@
   .payouts-table td {
     padding: 0.5rem;
   }
+
+  .export-dashboard,
+  .refresh-dashboard-btn {
+    width: 100%;
+  }
+
+  .export-dashboard-btn,
+  .refresh-dashboard-btn {
+    min-height: 48px; /* 48px touch target (#920) */
+  }
+}
+
+/* #920 — card-style tables: each row becomes a stacked card with the
+   header text supplied via each cell's data-label attribute, mirroring the
+   pattern already used by Dashboard.css (.stats-table-responsive). Tables
+   never overflow horizontally on small screens. */
+@media (max-width: 640px) {
+  .table-responsive {
+    overflow-x: visible;
+  }
+
+  .earnings-table,
+  .payouts-table {
+    display: block;
+  }
+
+  .earnings-table thead,
+  .payouts-table thead {
+    display: none;
+  }
+
+  .earnings-table tbody,
+  .payouts-table tbody {
+    display: block;
+  }
+
+  .earnings-table tr,
+  .payouts-table tr {
+    display: block;
+    margin-bottom: 0.75rem;
+    padding: 0.65rem 0.75rem;
+    background: var(--bg-secondary, #f7fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+  }
+
+  .earnings-table tr:hover {
+    background: var(--bg-secondary, #f7fafc);
+  }
+
+  .earnings-table td,
+  .payouts-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border-color, #edf2f7);
+    text-align: right;
+  }
+
+  .earnings-table td::before,
+  .payouts-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary, #718096);
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  .earnings-table td:last-child,
+  .payouts-table td:last-child {
+    border-bottom: none;
+  }
+
+  .earnings-table td.table-empty,
+  .payouts-table td.table-empty {
+    display: block;
+    text-align: center;
+  }
+
+  .earnings-table td.table-empty::before,
+  .payouts-table td.table-empty::before {
+    content: none;
+  }
+
+  .table-responsive tr.highlight-user-row {
+    background: rgba(66, 153, 225, 0.08);
+  }
 }
 
 @media (max-width: 480px) {
+  .earnings-dashboard {
+    padding: 0.75rem;
+  }
+
   .kpi-grid {
     grid-template-columns: 1fr;
+  }
+
+  .earnings-header h1 {
+    font-size: 1.35rem;
+  }
+
+  .earnings-dashboard-empty .empty-card,
+  .earnings-dashboard-error .error-alert {
+    padding: 2rem 1.25rem;
   }
 }
 

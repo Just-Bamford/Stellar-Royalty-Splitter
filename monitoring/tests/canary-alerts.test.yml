@@ -1,0 +1,48 @@
+# promtool test rules monitoring/tests/canary-alerts.test.yml
+rule_files:
+  - ../canary-alerts.yml
+
+evaluation_interval: 30s
+
+tests:
+  # Canary at 5% traffic starts failing 20% of requests; stable stays clean.
+  - interval: 30s
+    input_series:
+      - series: 'http_requests_total{deployment="stable",route="/api/v1/history/:contractId",status="200"}'
+        values: '0+300x40'
+      - series: 'http_requests_total{deployment="canary",route="/api/v1/history/:contractId",status="200"}'
+        values: '0+12x40'
+      - series: 'http_requests_total{deployment="canary",route="/api/v1/history/:contractId",status="500"}'
+        values: '0x10 0+3x30'
+      - series: 'canary_traffic_percent'
+        values: '5x40'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: RoyaltySplitterCanaryErrorRateHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: RoyaltySplitterCanaryErrorRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              owner: platform
+              runbook: canary-rollback
+              deployment: canary
+            exp_annotations:
+              summary: Canary 5xx ratio is above 5% while it is receiving traffic
+              description: "Canary error ratio 20%."
+              action: "Confirm the canary controller rolled back; if not, run `node infra/canary-controller.js set-weight 0 --router alb ...` immediately."
+
+  # Same failing canary, but already rolled back to 0%: no page.
+  - interval: 30s
+    input_series:
+      - series: 'http_requests_total{deployment="canary",route="/api/v1/history/:contractId",status="200"}'
+        values: '0+12x40'
+      - series: 'http_requests_total{deployment="canary",route="/api/v1/history/:contractId",status="500"}'
+        values: '0+3x40'
+      - series: 'canary_traffic_percent'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: RoyaltySplitterCanaryErrorRateHigh
+        exp_alerts: []

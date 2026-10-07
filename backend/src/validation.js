@@ -2,7 +2,7 @@ import { z } from "zod";
 import { sendError, sendValidationError } from "./error-response.js";
 import { isValidStellarAccountAddress } from "../../shared/stellar-address.js";
 
-// ── Size limits ──────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Size limits ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 // Soroban instance storage limit is 64 KB. These caps prevent single large
 // requests from bloating on-chain storage or exhausting backend processing.
 export const MAX_COLLABORATORS = 10;
@@ -54,7 +54,7 @@ export const initializeSchema = z
 export const INITIALIZE_PAYLOAD_LIMIT_BYTES = 10 * 1024;
 export const INITIALIZE_COLLABORATORS_PAYLOAD_LIMIT_BYTES = 8 * 1024;
 
-// Named size limits — kept in sync with on-chain MAX_COLLABORATORS / MAX_RECIPIENTS constants.
+// Named size limits ÔÇö kept in sync with on-chain MAX_COLLABORATORS / MAX_RECIPIENTS constants.
 export const MAX_COLLABORATORS_BACKEND = 20;
 
 // `.finite()` is load-bearing, not defensive: z.number().positive() is a plain
@@ -78,7 +78,7 @@ export const distributeSchema = z.object({
 });
 
 // Soroban simulation footprint limits the practical size of a single ledger
-// entry write set — 50 operations per batch keeps each request well within
+// entry write set ÔÇö 50 operations per batch keeps each request well within
 // that limit (#759).
 export const MAX_BATCH_OPERATIONS = 50;
 
@@ -152,6 +152,21 @@ export const emailDigestPreferencesSchema = z.object({
   hourOfDay: z.number().int().min(0).max(23).optional(),
 });
 
+export const WEBHOOK_EVENT_NAMES = [
+  "distribution.completed",
+  "distribute.confirmed",
+  "dispute.created",
+  "dispute.resolved",
+  "governance.vote.started",
+  "governance.vote.ended",
+  "contract.status.changed",
+];
+
+export const webhookEventsSchema = z
+  .array(z.enum(WEBHOOK_EVENT_NAMES))
+  .min(1, "events must contain at least one event name")
+  .max(WEBHOOK_EVENT_NAMES.length, "events contains duplicate or unknown entries");
+
 export const webhookRegisterSchema = z.object({
   url: z
     .string()
@@ -159,6 +174,51 @@ export const webhookRegisterSchema = z.object({
     .refine((value) => value.startsWith("https://"), {
       message: "Webhook URL must use HTTPS",
     }),
+  // #1059: optional per-webhook event subscription. Omitted (or empty) =
+  // subscribe to all events (legacy behavior preserved).
+  events: z.array(z.enum(WEBHOOK_EVENT_NAMES)).optional(),
+});
+
+export const webhookEmitSchema = z.object({
+  event: z.enum(WEBHOOK_EVENT_NAMES),
+  data: z.record(z.any()).optional().default({}),
+});
+
+/**
+ * Query params for GET /webhooks/:contractId/deliveries (#1059).
+ * Extends the standard pagination shape with optional delivery filters.
+ * NOTE: a dedicated schema (rather than `paginationSchema`) is required
+ * because validateQuery() replaces req.query with the parsed value and
+ * zod strips unknown keys — using paginationSchema here would silently
+ * drop webhookId/event/status.
+ */
+export const webhookDeliveriesQuerySchema = z.object({
+  limit: z.coerce
+    .number({ invalid_type_error: "limit must be a number" })
+    .int("limit must be an integer")
+    .min(1, "limit must be at least 1")
+    .max(100, "limit must be at most 100")
+    .default(10),
+  offset: z.coerce
+    .number({ invalid_type_error: "offset must be a number" })
+    .int("offset must be an integer")
+    .min(0, "offset must be >= 0")
+    .default(0),
+  webhookId: z.coerce
+    .number({ invalid_type_error: "webhookId must be a number" })
+    .int("webhookId must be an integer")
+    .positive("webhookId must be positive")
+    .optional(),
+  event: z
+    .enum([...WEBHOOK_EVENT_NAMES, "webhook.test"], {
+      errorMap: () => ({ message: "Invalid event filter" }),
+    })
+    .optional(),
+  status: z
+    .enum(["pending", "delivered", "failed", "exhausted"], {
+      errorMap: () => ({ message: "status must be one of: pending, delivered, failed, exhausted" }),
+    })
+    .optional(),
 });
 
 export const transactionConfirmSchema = z.object({
@@ -168,7 +228,48 @@ export const transactionConfirmSchema = z.object({
   status: z.enum(["pending", "confirmed", "failed"]).optional(),
 });
 
-// ─── Dispute / ticket schemas (#607) ──────────────────────────────────────────
+// ─── Carbon tracking schemas (#1064) ─────────────────────────────────────────
+
+export const carbonRecordSchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  txHash: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, "txHash must be 64 hexadecimal characters")
+    .optional(),
+  transactionId: z.number().int().positive().optional(),
+  operationCount: z.number().int().min(1).max(1000).optional().default(1),
+});
+
+export const CARBON_OFFSET_PROJECTS = [
+  "forest",
+  "ocean",
+  "mixed",
+  "amazon-reforestation",
+  "congo-basin-conservation",
+  "pacific-blue-carbon",
+  "kelp-restoration",
+];
+
+export const carbonOffsetSchema = z
+  .object({
+    walletAddress: stellarAddress,
+    contractId: contractAddress.optional(),
+    tonnes: z.number().finite().positive("tonnes must be positive").optional(),
+    amountUsdCents: z.number().int().positive("amountUsdCents must be positive").optional(),
+    project: z.enum(CARBON_OFFSET_PROJECTS).optional().default("mixed"),
+    provider: z.string().min(1).max(64).optional(),
+  })
+  .refine((d) => d.tonnes != null || d.amountUsdCents != null, {
+    message: "Provide tonnes or amountUsdCents",
+  });
+
+export const carbonSettingsSchema = z.object({
+  autoOffsetEnabled: z.boolean(),
+  offsetPercentage: z.number().finite().min(0).max(100),
+});
+
+// ÔöÇÔöÇÔöÇ Dispute / ticket schemas (#607) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 export const DISPUTE_CATEGORIES = ["wrong_amount", "missing_payment", "other"];
 export const DISPUTE_STATUSES = ["open", "under_review", "resolved", "closed"];
@@ -215,7 +316,7 @@ export const disputeAdminCommentSchema = z.object({
     .max(2000, "message must not exceed 2000 characters"),
 });
 
-// ─── Referral schemas (#603) ───────────────────────────────────────────────────
+// ÔöÇÔöÇÔöÇ Referral schemas (#603) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 /**
  * Referral code format: "REF-" followed by 12 uppercase hex characters.
@@ -271,10 +372,22 @@ export const AUDIT_ACTIONS = [
   "secondary_sale_recorded",
   "royalty_rate_set",
   "secondary_distribution_initiated",
-  "collaboration_change_applied",
-  "oracle_market_data_collected",
-  "oracle_recommendation_approved",
-  "oracle_recommendation_rejected",
+  "quickbooks_connected",
+  "quickbooks_distributions_synced",
+  "quickbooks_invoice_paid",
+  // Event sourcing (#1066)
+  "ContractInitialized",
+  "DistributionInitiated",
+  "DistributionConfirmed",
+  "DistributionFailed",
+  "SecondarySaleRecorded",
+  "SecondaryRoyaltyDistributed",
+  "DisputeOpened",
+  "DisputeResolved",
+  "DisputeEscalated",
+  "CollaboratorAdded",
+  "CollaboratorStatusChanged",
+  "CommandRejected",
 ];
 
 export function validate(schema) {
@@ -336,7 +449,7 @@ export function validateContractIdMiddleware(req, res, next) {
  * Returns true if valid, otherwise sends a 400 and returns false.
  */
 export function validateContractId(contractId, res) {
-  // Same type guard as validateContractIdMiddleware — the two must agree, or
+  // Same type guard as validateContractIdMiddleware ÔÇö the two must agree, or
   // whichever route uses the looser one becomes a validation bypass (#866).
   if (typeof contractId !== "string" || !/^C[A-Z2-7]{55}$/.test(contractId)) {
     sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
@@ -359,7 +472,7 @@ export function validateStellarAddress(address, res) {
 
 /**
  * Zod schema for paginated query params.
- * limit: integer 1–100, defaults to 10.
+ * limit: integer 1ÔÇô100, defaults to 10.
  * offset: non-negative integer, defaults to 0.
  *
  * Query strings arrive as plain strings, so coerce with z.coerce.number().
@@ -381,7 +494,7 @@ export const paginationSchema = z.object({
 /**
  * Zod schema for analytics date-range query params.
  * start / end: optional ISO 8601 date strings.
- * topLimit: integer 1–100, defaults to 10 (caps the topEarners list).
+ * topLimit: integer 1ÔÇô100, defaults to 10 (caps the topEarners list).
  */
 export const analyticsQuerySchema = z
   .object({
@@ -497,7 +610,7 @@ export function encodeCursor(timestamp, id) {
   return Buffer.from(JSON.stringify({ timestamp, id })).toString("base64");
 }
 
-// ── Request Complexity Budgeting (#892) ──────────────────────────────────────
+// ÔöÇÔöÇ Request Complexity Budgeting (#892) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 export {
   calculateComplexity,
   DEFAULT_COMPLEXITY_LIMIT,
@@ -505,3 +618,178 @@ export {
   getComplexityLimit,
   requestComplexityMiddleware,
 } from "./request-complexity.js";
+
+// ── Schedule schemas (#991) ────────────────────────────────────────────────────
+
+function validateScheduleTiming(data, ctx) {
+  if ((data.frequency === "weekly" || data.frequency === "biweekly") && data.dayOfWeek == null) {
+    ctx.addIssue({ code: "custom", path: ["dayOfWeek"], message: "dayOfWeek (0-6) is required for weekly and biweekly schedules" });
+  }
+  if (data.frequency === "monthly" && data.dayOfMonth == null) {
+    ctx.addIssue({ code: "custom", path: ["dayOfMonth"], message: "dayOfMonth (1-28) is required for monthly schedules" });
+  }
+}
+
+export const createScheduleSchema = z.object({
+  contractId: contractAddress,
+  walletAddress: stellarAddress,
+  tokenId: contractAddress,
+  frequency: z.enum(["weekly", "biweekly", "monthly"]),
+  dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  hourOfDay: z.number().int().min(0).max(23).optional().default(0),
+  minuteOfHour: z.number().int().min(0).max(59).optional().default(0),
+}).superRefine(validateScheduleTiming);
+
+export const updateScheduleSchema = z.object({
+  frequency: z.enum(["weekly", "biweekly", "monthly"]).optional(),
+  dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  hourOfDay: z.number().int().min(0).max(23).optional(),
+  minuteOfHour: z.number().int().min(0).max(59).optional(),
+  enabled: z.boolean().optional(),
+}).superRefine((data, ctx) => { if (data.frequency != null) validateScheduleTiming(data, ctx); });
+
+export const executeBatchSchema = z.object({
+  items: z.array(z.object({
+    contractId: contractAddress,
+    walletAddress: stellarAddress,
+    tokenId: contractAddress,
+  })).min(1, "items array must contain at least one entry").max(50, "items array must not exceed 50 entries per batch"),
+});
+
+// ── Rights Management Schemas ──────────────────────────────────────────────────
+
+export const createRightSchema = z.object({
+  contractId: contractAddress,
+  rightType: z.enum(["composition", "performance", "mechanical", "sync"]),
+  ownerAddress: stellarAddress,
+  percentage: z.number().min(0).max(100),
+  licenseTerms: z.enum(["commercial", "personal", "non-commercial"]).optional().default("commercial"),
+  effectiveDate: z.string().optional().nullable(),
+  expirationDate: z.string().optional().nullable(),
+});
+
+export const updateRightSchema = z.object({
+  rightType: z.enum(["composition", "performance", "mechanical", "sync"]).optional(),
+  percentage: z.number().min(0).max(100).optional(),
+  licenseTerms: z.enum(["commercial", "personal", "non-commercial"]).optional(),
+  effectiveDate: z.string().optional().nullable(),
+  expirationDate: z.string().optional().nullable(),
+});
+
+export const setRightsMetadataSchema = z.object({
+  ddex: z.object({
+    iswc: z.string().optional().nullable(),
+    isrc: z.string().optional().nullable(),
+    partyId: z.string().optional().nullable(),
+    territory: z.string().optional().nullable(),
+    musicalWorkId: z.string().optional().nullable(),
+    resourceType: z.string().optional().nullable(),
+  }).optional().nullable(),
+  iso20022: z.object({
+    messageIdentifier: z.string().optional().nullable(),
+    businessService: z.string().optional().nullable(),
+    financialInstrument: z.string().optional().nullable(),
+    paymentContext: z.string().optional().nullable(),
+  }).optional().nullable(),
+  customFields: z.record(z.any()).optional().nullable(),
+});
+
+export const submitProofSchema = z.object({
+  documentName: z.string().min(1),
+  documentType: z.enum(["contract", "copyright_cert", "split_sheet", "other"]),
+  documentUrl: z.string().url("Must be a valid URL"),
+  documentHash: z.string().optional().nullable(),
+  ownerAddress: stellarAddress.optional(),
+});
+
+export const verifyOwnershipSchema = z.object({
+  proofId: z.number().int().optional().nullable(),
+  approved: z.boolean(),
+  verifierAddress: z.string().optional().default("admin"),
+  verifierNotes: z.string().optional(),
+});
+
+export const linkRightDisputeSchema = z.object({
+  ticketId: z.string().min(1),
+  notes: z.string().optional(),
+});
+
+// ── DAO Treasury Management Schemas (#1076) ───────────────────────────────────
+
+export const treasuryCategorySchema = z.object({
+  name: z.string().min(1).max(64),
+  description: z.string().max(500).optional().nullable(),
+  percentage: z.number().min(0).max(100),
+});
+
+export const treasurySetCategoriesSchema = z
+  .object({
+    categories: z.array(treasuryCategorySchema).min(1).max(50),
+  })
+  .superRefine((d, ctx) => {
+    const total = d.categories.reduce((sum, category) => sum + category.percentage, 0);
+    if (Math.abs(total - 100) > 0.01) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categories"],
+        message: `Category percentages must sum to 100 (got ${Math.round(total * 100) / 100})`,
+      });
+    }
+    const names = d.categories.map((category) => category.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categories"],
+        message: "Duplicate category names are not allowed",
+      });
+    }
+  });
+
+// Omit `category`/`categoryId` to contribute to the general treasury pool,
+// which is split across categories by their configured percentages.
+export const treasuryAllocationSchema = z.object({
+  category: z.string().min(1).max(64).optional().nullable(),
+  categoryId: z.number().int().positive().optional().nullable(),
+  amount: z.number().finite().positive("Allocation amount must be positive"),
+  period: z.string().min(1).max(32).optional().default("all-time"),
+  note: z.string().max(500).optional().nullable(),
+});
+
+export const treasuryExpenseSchema = z
+  .object({
+    category: z.string().min(1).max(64).optional(),
+    categoryId: z.number().int().positive().optional(),
+    amount: z.number().finite().positive("Expense amount must be positive"),
+    description: z.string().min(1).max(500),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be formatted as YYYY-MM-DD")
+      .optional(),
+    requiresApproval: z.boolean().optional(),
+    receiptCid: z.string().max(256).optional().nullable(),
+    receiptUrl: z.string().url("receiptUrl must be a valid URL").optional().nullable(),
+    receiptName: z.string().max(256).optional().nullable(),
+    receiptHash: z.string().max(256).optional().nullable(),
+  })
+  .refine((d) => d.category != null || d.categoryId != null, {
+    message: "Either category (name) or categoryId is required",
+  });
+
+export const treasuryApprovalSchema = z.object({
+  approver: z.string().min(1).max(128).optional(),
+  notes: z.string().max(500).optional().nullable(),
+});
+
+export const treasuryReceiptSchema = z
+  .object({
+    ipfsCid: z.string().min(1).max(256).optional().nullable(),
+    url: z.string().url("url must be a valid URL").optional().nullable(),
+    fileName: z.string().min(1).max(256).optional().nullable(),
+    documentHash: z.string().max(256).optional().nullable(),
+  })
+  .refine((d) => d.ipfsCid != null || d.url != null, {
+    message: "Either ipfsCid or url is required",
+  });
+

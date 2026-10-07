@@ -35,7 +35,7 @@ describe("ContributorPerformanceComparison", () => {
   });
 
   it("renders summary metrics and changes ordering when sort changes", () => {
-    render(<ContributorPerformanceComparison collaborators={collaborators} currency="XLM" />);
+    render(<ContributorPerformanceComparison collaborators={collaborators} currency="XLM" now={NOW} />);
     expect(screen.getByTestId("top-earner")).toHaveTextContent("GAAAAAAA");
     expect(screen.getByTestId("inactive-count")).toHaveTextContent("1");
 

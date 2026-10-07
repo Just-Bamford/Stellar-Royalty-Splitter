@@ -683,6 +683,60 @@ When a distribute transaction is confirmed, each registered webhook receives:
 
 Failed deliveries are retried with exponential backoff (`WEBHOOK_MAX_RETRIES`, default 3).
 
+## QuickBooks accounting sync (#940)
+
+Automates synchronising SRS distributions to QuickBooks Online. Requires an
+Intuit OAuth app; see `QUICKBOOKS_*` variables in `.env.example`. All endpoints
+(other than the QuickBooks webhook receiver) require an admin API key.
+
+### `POST /api/v1/accounting/quickbooks/connect`
+
+OAuth connect. With an empty body it returns the Intuit consent URL:
+
+**Response:** `{ "success": true, "data": { "authUrl": "...", "state": "..." } }`
+
+With `{ "state", "code", "realmId" }` it completes the authorization-code
+exchange, persists the connection (tokens are refreshed automatically), and
+returns:
+
+**Response:** `{ "success": true, "data": { "connected": true, "realmId": "...", "expiresAt": "..." } }`
+
+### `GET /api/v1/accounting/quickbooks/callback`
+
+OAuth redirect destination (`QUICKBOOKS_REDIRECT_URI`). Exchanges the code and
+redirects the browser to `FRONTEND_ORIGIN?quickbooks=connected`.
+
+### `POST /api/v1/accounting/quickbooks/sync-distributions`
+
+Sync unsynced distributions to QuickBooks. For each distribution the API
+creates one **invoice per collaborator payout** (customer auto-created from the
+Stellar address) and one **journal entry** for the royalty-pool /
+distribution-fees transfer.
+
+**Body (optional):** `{ "transactionIds": [1, 2, 3] }` — restrict to specific
+distribution transactions; omit to sync all unsynced.
+
+**Response:** `{ "success": true, "data": { "syncId": 1, "status": "completed", "distributions": 3, "invoicesCreated": 3, "journalEntriesCreated": 3, "successCount": 6, "failureCount": 0 } }`
+
+### `POST /api/v1/accounting/quickbooks/webhook`
+
+QuickBooks subscription delivery endpoint. Anonymous (server-to-server).
+Validates the `intuit-signature` HMAC-SHA256 header (via
+`QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN`), then resolves `Invoice` Create/Update
+events; an invoice with a zero balance is marked **confirmed** in the SRS sync
+record. Always responds `200` immediately (Intuit retries non-2xx).
+
+### `GET /api/v1/accounting/quickbooks/status`
+
+Connection state plus the latest and recent sync runs.
+
+**Response:** `{ "success": true, "data": { "connected": true, "connection": { "realmId": "...", "status": "connected", "connectedAt": "...", "tokenExpiresAt": "..." }, "latestSync": { ... }, "recentSyncs": [ ... ] } }`
+
+### `GET /api/v1/accounting/quickbooks/syncs/:syncId`
+
+Detailed view of one sync run including per-entity (`invoice` | `journal_entry`)
+status and QuickBooks ids.
+
 ## Operational configuration
 
 The Soroban RPC and Horizon clients are configurable via the following

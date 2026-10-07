@@ -76,6 +76,9 @@ describe("deliverDistributeWebhooks (#295)", () => {
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
 
+    // Give async operations time to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [, init] = global.fetch.mock.calls[0];
     const body = JSON.parse(init.body);
@@ -117,7 +120,8 @@ describe("deliverDistributeWebhooks (#295)", () => {
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Give async operations time to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(updateWebhookRetryStateWithPayload).toHaveBeenCalledTimes(1);
@@ -159,6 +163,9 @@ describe("deliverDistributeWebhooks (#295)", () => {
       timestamp: "2026-05-31T12:00:00.000Z",
       payouts: [{ collaboratorAddress: "GAAA", amountReceived: "500" }],
     });
+
+    // Give async operations time to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(resetWebhookRetryCount).toHaveBeenCalledTimes(1);

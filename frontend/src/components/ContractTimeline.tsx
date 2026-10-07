@@ -161,7 +161,7 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
         <div className="timeline-loading">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="timeline-skeleton-item">
-              <Skeleton width="1rem" height="1rem" style={{ borderRadius: "50%", flexShrink: 0 }} />
+              <Skeleton width="1rem" height="1rem" circle className="timeline-skeleton-dot" />
               <div style={{ flex: 1 }}>
                 <Skeleton width="40%" height="0.875rem" className="mb-2" />
                 <Skeleton width="70%" height="1rem" />

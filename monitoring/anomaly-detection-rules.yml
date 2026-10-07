@@ -1,0 +1,117 @@
+# Anomaly detection for the distribution analytics dashboard (#935).
+#
+# Each signal is first recorded at 5m resolution, then compared with a
+# baseline taken from the hour that ended 10 minutes ago:
+#
+#   z = (now - mean_baseline) / max(stddev_baseline, floor)
+#
+# The 10-minute offset keeps a spike out of its own baseline — otherwise the
+# first minutes of a spike inflate the mean and standard deviation and hide
+# it. The per-signal floor on the standard deviation stops a very steady
+# signal from turning a trivial wobble into a huge z-score, and lets a
+# perfectly flat baseline still alert when it jumps. A |z| above 3 is roughly
+# a 1-in-370 event for a normally distributed signal. The absolute floors on
+# each alert stop a quiet service from paging when, e.g., latency "spikes"
+# from 5ms to 20ms.
+#
+# The dashboard's "Anomaly z-scores" panel plots the :zscore1h series.
+# Unit tests: promtool test rules monitoring/tests/anomaly-detection-rules.test.yml
+
+groups:
+  - name: royalty-splitter-anomaly-recording
+    interval: 1m
+    rules:
+      - record: royalty_splitter:distribution_rate:rate5m
+        expr: sum(rate(stellar_distributions_total{outcome="built"}[5m]))
+      - record: royalty_splitter:distribution_rate:zscore1h
+        expr: |
+          (
+            royalty_splitter:distribution_rate:rate5m
+            - avg_over_time(royalty_splitter:distribution_rate:rate5m[1h] offset 10m)
+          )
+          / clamp_min(stddev_over_time(royalty_splitter:distribution_rate:rate5m[1h] offset 10m), 0.01)
+
+      - record: royalty_splitter:http_p95_latency:5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+      - record: royalty_splitter:http_p95_latency:zscore1h
+        expr: |
+          (
+            royalty_splitter:http_p95_latency:5m
+            - avg_over_time(royalty_splitter:http_p95_latency:5m[1h] offset 10m)
+          )
+          / clamp_min(stddev_over_time(royalty_splitter:http_p95_latency:5m[1h] offset 10m), 0.01)
+
+      - record: royalty_splitter:distribution_gas_avg:5m
+        expr: |
+          sum(rate(stellar_distribution_gas_stroops_sum[5m]))
+          / (sum(rate(stellar_distribution_gas_stroops_count[5m])) > 0)
+      - record: royalty_splitter:distribution_gas_avg:zscore1h
+        expr: |
+          (
+            royalty_splitter:distribution_gas_avg:5m
+            - avg_over_time(royalty_splitter:distribution_gas_avg:5m[1h] offset 10m)
+          )
+          / clamp_min(stddev_over_time(royalty_splitter:distribution_gas_avg:5m[1h] offset 10m), 100)
+
+      - record: royalty_splitter:http_error_ratio:5m
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / (sum(rate(http_requests_total[5m])) > 0)
+      - record: royalty_splitter:http_error_ratio:zscore1h
+        expr: |
+          (
+            royalty_splitter:http_error_ratio:5m
+            - avg_over_time(royalty_splitter:http_error_ratio:5m[1h] offset 10m)
+          )
+          / clamp_min(stddev_over_time(royalty_splitter:http_error_ratio:5m[1h] offset 10m), 0.005)
+
+  - name: royalty-splitter-anomaly-alerts
+    interval: 1m
+    rules:
+      - alert: RoyaltySplitterDistributionRateAnomaly
+        expr: royalty_splitter:distribution_rate:zscore1h > 3 and royalty_splitter:distribution_rate:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: anomaly-distribution-rate
+        annotations:
+          summary: Distribution volume spiked well above its trailing-hour baseline
+          description: "z-score {{ $value | printf \"%.1f\" }} — distributions are being built far faster than usual."
+          action: Check for a retry storm or scripted client, confirm the traffic is legitimate, and review idempotency and rate-limit hit counters.
+
+      - alert: RoyaltySplitterLatencyAnomaly
+        expr: royalty_splitter:http_p95_latency:zscore1h > 3 and royalty_splitter:http_p95_latency:5m > 0.25
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: request-latency
+        annotations:
+          summary: API p95 latency spiked relative to the last hour
+          description: "z-score {{ $value | printf \"%.1f\" }}."
+          action: Compare the request latency heatmap with the RPC and database panels to find the slow dependency.
+
+      - alert: RoyaltySplitterGasAnomaly
+        expr: royalty_splitter:distribution_gas_avg:zscore1h > 3
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+          runbook: anomaly-gas
+        annotations:
+          summary: Simulated gas per distribution jumped relative to the last hour
+          description: "z-score {{ $value | printf \"%.1f\" }} — a contract change, a growing collaborator list, or network fee pressure."
+          action: Compare collaborator counts and recent contract upgrades; check Soroban network fee conditions.
+
+      - alert: RoyaltySplitterErrorRatioAnomaly
+        expr: royalty_splitter:http_error_ratio:zscore1h > 3 and royalty_splitter:http_error_ratio:5m > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform
+          runbook: elevated-errors
+        annotations:
+          summary: API 5xx ratio spiked relative to the last hour
+          description: "z-score {{ $value | printf \"%.1f\" }}."
+          action: Correlate with recent deploys and canary status; roll back if the spike follows a release.

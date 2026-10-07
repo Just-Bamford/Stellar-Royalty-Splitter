@@ -1,17 +1,26 @@
 import { useState, useRef, useEffect } from "react";
 import { useNotifications, Notification } from "../context/NotificationContext";
-import { formatNumber } from "../utils/format";
+import { NotificationCenter } from "./NotificationCenter";
+import { formatDateTime } from "../utils/format";
 import "./NotificationBell.css";
 
 export function NotificationBell() {
-  const { notifications, unreadCount, markAsRead, clearNotification, clearAllNotifications } =
-    useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    clearAllNotifications,
+  } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
+  const [isCenterOpen, setIsCenterOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
@@ -24,7 +33,7 @@ export function NotificationBell() {
       window.open(
         `https://stellar.expert/explorer/testnet/tx/${notification.txHash}`,
         "_blank",
-        "noopener,noreferrer"
+        "noopener,noreferrer",
       );
     }
     markAsRead(notification.id);
@@ -42,7 +51,7 @@ export function NotificationBell() {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return formatDateTime(date, { dateStyle: "short" });
   };
 
   const getNotificationIcon = (type: Notification["type"]) => {
@@ -72,9 +81,14 @@ export function NotificationBell() {
         aria-haspopup="true"
         type="button"
       >
-        <span className="bell-icon" aria-hidden="true">🔔</span>
+        <span className="bell-icon" aria-hidden="true">
+          🔔
+        </span>
         {unreadCount > 0 && (
-          <span className="notification-badge" aria-label={`${unreadCount} unread notifications`}>
+          <span
+            className="notification-badge"
+            aria-label={`${unreadCount} unread notifications`}
+          >
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -93,7 +107,7 @@ export function NotificationBell() {
                 }}
                 type="button"
               >
-                Clear all
+                Clear read
               </button>
             )}
           </div>
@@ -123,9 +137,15 @@ export function NotificationBell() {
                       {getNotificationIcon(notification.type)}
                     </span>
                     <div className="notification-text">
-                      <div className="notification-title">{notification.title}</div>
-                      <div className="notification-message">{notification.message}</div>
-                      <div className="notification-time">{formatTime(notification.timestamp)}</div>
+                      <div className="notification-title">
+                        {notification.title}
+                      </div>
+                      <div className="notification-message">
+                        {notification.message}
+                      </div>
+                      <div className="notification-time">
+                        {formatTime(notification.timestamp)}
+                      </div>
                     </div>
                     {!notification.read && (
                       <span className="unread-dot" aria-label="Unread" />
@@ -133,13 +153,42 @@ export function NotificationBell() {
                   </div>
                 </div>
               ))}
+
               {notifications.length > 20 && (
                 <div className="notification-more">
                   <p>And {notifications.length - 20} more...</p>
                 </div>
               )}
+
+              <button
+                type="button"
+                className="view-all-notifications-btn"
+                onClick={() => {
+                  setIsOpen(false);
+                  setIsCenterOpen(true);
+                }}
+              >
+                View all notifications
+              </button>
             </div>
           )}
+        </div>
+      )}
+
+      {isCenterOpen && (
+        <div className="notification-center-modal">
+          <div className="notification-center-modal-content">
+            <button
+              type="button"
+              className="notification-center-close"
+              onClick={() => setIsCenterOpen(false)}
+              aria-label="Close notifications"
+            >
+              ×
+            </button>
+
+            <NotificationCenter />
+          </div>
         </div>
       )}
     </div>

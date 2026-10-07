@@ -13,31 +13,21 @@
  * the impending limit without yet being blocked.
  */
 
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import logger from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const CONTRACT_WINDOW_MS = parseInt(
-  process.env.RATE_LIMIT_CONTRACT_WINDOW_MS ?? "60000", 10,
-);
-const CONTRACT_MAX = parseInt(
-  process.env.RATE_LIMIT_CONTRACT_MAX ?? "10", 10,
-);
+const CONTRACT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_CONTRACT_WINDOW_MS ?? "60000", 10);
+const CONTRACT_MAX = parseInt(process.env.RATE_LIMIT_CONTRACT_MAX ?? "10", 10);
 
-const WALLET_WINDOW_MS = parseInt(
-  process.env.RATE_LIMIT_WALLET_WINDOW_MS ?? "60000", 10,
-);
-const WALLET_MAX = parseInt(
-  process.env.RATE_LIMIT_WALLET_MAX ?? "50", 10,
-);
+const WALLET_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WALLET_WINDOW_MS ?? "60000", 10);
+const WALLET_MAX = parseInt(process.env.RATE_LIMIT_WALLET_MAX ?? "50", 10);
 
 /** Warn clients once they've consumed this fraction of their quota. */
-const WARN_THRESHOLD = parseFloat(
-  process.env.RATE_LIMIT_WARN_THRESHOLD ?? "0.8",
-);
+const WARN_THRESHOLD = parseFloat(process.env.RATE_LIMIT_WARN_THRESHOLD ?? "0.8");
 
 // ---------------------------------------------------------------------------
 // Metrics
@@ -55,12 +45,16 @@ export const rateLimitMetrics = {
 
 function contractKeyGenerator(req) {
   const contractId = req.body?.contractId;
-  return contractId ? `contract:${contractId}` : `ip:${req.ip}`;
+  if (contractId) return `contract:${contractId}`;
+  // Use ipKeyGenerator helper for IPv6 compliance
+  return `ip:${ipKeyGenerator(req.ip)}`;
 }
 
 function walletKeyGenerator(req) {
   const walletAddress = req.body?.walletAddress;
-  return walletAddress ? `wallet:${walletAddress}` : `ip:${req.ip}`;
+  if (walletAddress) return `wallet:${walletAddress}`;
+  // Use ipKeyGenerator helper for IPv6 compliance
+  return `ip:${ipKeyGenerator(req.ip)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,10 +63,7 @@ function walletKeyGenerator(req) {
 
 function warnOnApproach(req, res, next, max, current) {
   if (current >= Math.floor(max * WARN_THRESHOLD)) {
-    res.setHeader(
-      "X-RateLimit-Warning",
-      `Approaching rate limit (${current}/${max})`,
-    );
+    res.setHeader("X-RateLimit-Warning", `Approaching rate limit (${current}/${max})`);
   }
   next();
 }
@@ -91,16 +82,13 @@ export const contractLimiter = rateLimit({
     rateLimitMetrics.contractHits++;
     logger.warn(
       { contractId: req.body?.contractId, ip: req.ip },
-      "Per-contract rate limit exceeded",
+      "Per-contract rate limit exceeded"
     );
     const retryAfterSec = Math.ceil(CONTRACT_WINDOW_MS / 1000);
-    res
-      .status(429)
-      .set("Retry-After", String(retryAfterSec))
-      .json({
-        error: "Per-contract rate limit exceeded. Please retry later.",
-        retryAfterSeconds: retryAfterSec,
-      });
+    res.status(429).set("Retry-After", String(retryAfterSec)).json({
+      error: "Per-contract rate limit exceeded. Please retry later.",
+      retryAfterSeconds: retryAfterSec,
+    });
   },
   skip: (req) => !req.body?.contractId,
 });
@@ -119,16 +107,13 @@ export const walletLimiter = rateLimit({
     rateLimitMetrics.walletHits++;
     logger.warn(
       { walletAddress: req.body?.walletAddress, ip: req.ip },
-      "Per-wallet rate limit exceeded",
+      "Per-wallet rate limit exceeded"
     );
     const retryAfterSec = Math.ceil(WALLET_WINDOW_MS / 1000);
-    res
-      .status(429)
-      .set("Retry-After", String(retryAfterSec))
-      .json({
-        error: "Per-wallet rate limit exceeded. Please retry later.",
-        retryAfterSeconds: retryAfterSec,
-      });
+    res.status(429).set("Retry-After", String(retryAfterSec)).json({
+      error: "Per-wallet rate limit exceeded. Please retry later.",
+      retryAfterSeconds: retryAfterSec,
+    });
   },
   skip: (req) => !req.body?.walletAddress,
 });
@@ -142,7 +127,13 @@ export function rateLimitWarnMiddleware(req, res, next) {
   const walletCurrent = res.getHeader("X-RateLimit-Remaining-wallet");
 
   if (contractCurrent !== undefined) {
-    warnOnApproach(req, res, next, CONTRACT_MAX, CONTRACT_MAX - parseInt(String(contractCurrent), 10));
+    warnOnApproach(
+      req,
+      res,
+      next,
+      CONTRACT_MAX,
+      CONTRACT_MAX - parseInt(String(contractCurrent), 10)
+    );
   } else if (walletCurrent !== undefined) {
     warnOnApproach(req, res, next, WALLET_MAX, WALLET_MAX - parseInt(String(walletCurrent), 10));
   } else {

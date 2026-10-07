@@ -289,6 +289,34 @@ thing.
 
 ---
 
+## Operations stack (#935–#938)
+
+The `.tf` files at this directory's top level are a second root module,
+layered on top of an environment. It owns operational processes rather than
+infrastructure, and is planned and applied separately:
+
+| File | Issue | What it adds |
+|---|---|---|
+| `backup.tf` | #937 | EventBridge → SSM Run Command schedules for 15-minute PITR snapshots, daily backups, freshness checks and the weekly recovery test on staging; alarms for stale backups, failed or missing recovery tests, RTO and RPO breaches |
+| `audit-service.tf` | #938 | S3 Object Lock (COMPLIANCE, 7 years) archive for daily audit-trail exports, put-only instance grant, tamper / write-failure / unverified alarms from the API's logs |
+| `canary-deployment.tf` | #936 | Canary target group on port 3002 of the same instance, weighted listener rule (weights owned by `infra/canary-controller.js`), canary CloudWatch alarms, least-privilege controller policy |
+| `grafana.tf` | #935 | Provisions every dashboard in `monitoring/grafana-dashboards/` (opt-in) |
+| `providers.tf` | — | Providers, shared inputs, the scheduled-jobs role |
+
+```bash
+cd infra/terraform
+cp operations.tfvars.example prod.tfvars        # fill from environments/prod outputs
+terraform init -backend-config=backend.hcl      # state key e.g. operations/prod.tfstate
+terraform plan -var-file=prod.tfvars
+```
+
+The environments expose everything it needs as outputs (`listener_arn`,
+`target_group_arn`, `alb_arn_suffix`, security group ids, `instance_role_name`,
+`kms_key_arn`, …). The storage module's lifecycle rules also expire the
+`pitr/` snapshots after `pitr_retention_days` (default 3).
+
+---
+
 ## Verifying a change
 
 Every module and environment validates with no AWS access at all, which is what
@@ -298,7 +326,7 @@ the CI `validate` job relies on:
 cd infra/terraform
 terraform fmt -check -recursive
 
-for dir in modules/*/ environments/*/; do
+for dir in ./ modules/*/ environments/*/; do
   echo "── $dir"
   ( cd "$dir" && terraform init -backend=false >/dev/null && terraform validate )
 done

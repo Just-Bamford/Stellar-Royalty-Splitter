@@ -204,6 +204,8 @@ export const EarningsDashboard: React.FC<EarningsDashboardProps> = ({
           totalEarned: stats.totalEarned,
           payoutCount: stats.payoutCount,
           avgPayout: stats.payoutCount > 0 ? stats.totalEarned / stats.payoutCount : 0,
+          firstActivity: null,
+          lastActivity: null,
         };
       });
     }
@@ -214,6 +216,8 @@ export const EarningsDashboard: React.FC<EarningsDashboardProps> = ({
         totalEarned: stats.totalEarned,
         payoutCount: stats.payoutCount,
         avgPayout: stats.payoutCount > 0 ? stats.totalEarned / stats.payoutCount : 0,
+        firstActivity: null,
+        lastActivity: null,
       }));
     }
     return [];

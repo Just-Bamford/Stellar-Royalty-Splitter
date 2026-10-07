@@ -16,6 +16,7 @@ import logger from "../logger.js";
 import { validate } from "../validation.js";
 import { sendError } from "../error-response.js";
 import { addAuditLog } from "../database/index.js";
+import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   createSnapshot,
   listSnapshots,
@@ -78,14 +79,23 @@ snapshotRouter.get("/:contractId", (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 50, 500);
     const offset = Number(req.query.offset) || 0;
 
+    const cKey = cacheKey("snapshots", contractId, limit, offset);
+    const cached = cacheGet(cKey);
+    if (cached !== undefined) {
+      return res.json(cached);
+    }
+
     const snapshots = listSnapshots(contractId, { limit, offset });
     const total = countSnapshots(contractId);
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: snapshots,
       pagination: { total, limit, offset },
-    });
+    };
+
+    cacheSet(cKey, responsePayload, 30_000); // 30s TTL
+    res.json(responsePayload);
   } catch (err) {
     logger.error("Error listing snapshots", { error: err.message });
     sendError(res, 500, "snapshot_list_failed", "Failed to list snapshots");

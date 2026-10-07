@@ -1,518 +1,415 @@
-/**
- * Multi-layer cache with predictive warming and fine-grained invalidation (#970).
- *
- * Architecture:
- *   L1 — Hot cache      : up to HOT_MAX (default 10) most-accessed keys, refreshed every 30s
- *   L2 — Warm cache     : recently accessed keys, refreshed on-demand via stale-while-revalidate
- *   L3 — Cold storage   : Redis when REDIS_URL is set; falls back to an in-process Map with
- *                         long TTL so the three-layer model works without a Redis deployment.
- *
- * Invalidation:
- *   invalidateKey(key)        – remove a single key from all layers
- *   invalidatePattern(prefix) – remove all keys whose string starts with prefix
- *   invalidateTag(tag)        – remove all keys registered under a tag
- *
- * Access-pattern tracking drives predictive warming:
- *   recordAccess(key) increments a counter; the hot-cache scheduler promotes the
- *   HOT_MAX most-accessed keys and keeps them refreshed every HOT_REFRESH_MS.
- *
- * Public API (backwards-compatible with previous single-layer API):
- *   configureCache(fn)                           – set the async fetch function
- *   cacheGet(key)                                – read (L1 → L2 → L3)
- *   cacheSet(key, value, ttlMs?, tags?)          – write to all layers
- *   refreshContract(key)                         – force a background refresh
- *   recordAccess(key)                            – track access for hot promotion
- *   invalidateKey(key)                           – targeted invalidation
- *   invalidatePattern(prefix)                    – prefix-based invalidation
- *   invalidateTag(tag)                           – tag-based invalidation
- *   startCacheWarmingScheduler(fn, ms, batch)    – background warming loop
- *   getMetrics() / resetMetrics()                – observability
- */
-
 import logger from "./logger.js";
+import { RedisCacheClient, namespacedKey, REDIS_TTL_MS } from "./cache-redis.js";
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
+const DEFAULT_TTL_MS = 60_000;
+const DEFAULT_WARM_LEAD_TIME_MS = 30_000;
 
-const DEFAULT_TTL_MS        = 60_000;
-const DEFAULT_WARM_LEAD_MS  = 30_000;
-const DEFAULT_L3_TTL_MS     = 600_000; // 10 min cold TTL
-const HOT_MAX               = parseInt(process.env.CACHE_HOT_MAX        ?? "10",     10);
-const HOT_REFRESH_MS        = parseInt(process.env.CACHE_HOT_REFRESH_MS ?? "30000",  10);
-const L3_TTL_MS             = parseInt(process.env.CACHE_L3_TTL_MS      ?? String(DEFAULT_L3_TTL_MS), 10);
+const TTL_MS = parseInt(process.env.CACHE_TTL_MS ?? DEFAULT_TTL_MS, 10);
+const WARM_LEAD_TIME_MS = parseInt(
+  process.env.CACHE_WARM_LEAD_TIME_MS ?? DEFAULT_WARM_LEAD_TIME_MS,
+  10
+);
 
-const TTL_MS           = parseInt(process.env.CACHE_TTL_MS           ?? String(DEFAULT_TTL_MS),      10);
-const WARM_LEAD_TIME_MS = parseInt(process.env.CACHE_WARM_LEAD_TIME_MS ?? String(DEFAULT_WARM_LEAD_MS), 10);
-const WARMING_ENABLED  = WARM_LEAD_TIME_MS < TTL_MS;
+// If warm lead time is >= TTL, disable warming to preserve existing behavior.
+const WARMING_ENABLED = WARM_LEAD_TIME_MS < TTL_MS;
 
-// ---------------------------------------------------------------------------
-// Layer stores
-// ---------------------------------------------------------------------------
+const cacheStore = new Map(); // key -> { value, expiresAt, fetchedAt }
+const refreshInFlight = new Map(); // key -> Promise
+const accessCount = new Map(); // key -> number of accesses
 
-/** L1 — hot set (most-accessed keys, size-bounded). */
-const hotStore  = new Map(); // key → { value, expiresAt, fetchedAt }
-
-/** L2 — warm store (all recently written keys). */
-const warmStore = new Map(); // key → { value, expiresAt, fetchedAt }
-
-/**
- * L3 — cold store.
- * When Redis is configured (REDIS_URL env) we delegate to a thin async wrapper;
- * otherwise we use a local Map so the three-layer contract is always satisfied.
- */
-const coldStore = new Map(); // key → { value, expiresAt }   (in-process fallback)
-
-// ---------------------------------------------------------------------------
-// Tag → key index (for tag-based invalidation)
-// ---------------------------------------------------------------------------
-
-const tagIndex = new Map(); // tag → Set<key>
-
-// ---------------------------------------------------------------------------
-// Inflight / access tracking
-// ---------------------------------------------------------------------------
-
-const refreshInFlight = new Map(); // key → Promise
-const accessCount     = new Map(); // key → number
-
-// ---------------------------------------------------------------------------
-// Fetch function (injected by caller)
-// ---------------------------------------------------------------------------
-
-let fetchFunction = null;
-
-// ---------------------------------------------------------------------------
-// Metrics
-// ---------------------------------------------------------------------------
+let fetchFunction = null; // async (key) => Promise<value>
 
 const metrics = {
-  hits:              0,
-  misses:            0,
-  staleServes:       0,
-  l1Hits:            0,
-  l2Hits:            0,
-  l3Hits:            0,
-  refreshLatencyMs:  0,
-  invalidations:     0,
+  hits: 0,
+  misses: 0,
+  staleServes: 0,
+  refreshLatencyMs: 0,
 };
 
 // ---------------------------------------------------------------------------
-// Redis adapter (optional)
+// Redis-backed distributed cache (#926)
 // ---------------------------------------------------------------------------
+// The in-memory Map above only ever sees the current process, so it breaks
+// down across multiple backend instances (each has its own cache, and an
+// invalidation on one instance never reaches the others). When REDIS_URL is
+// set, we mirror every cacheSet()/invalidateContract() into Redis (write-
+// through, fire-and-forget) and publish an invalidation message so sibling
+// instances can evict their own local Map entries too. If Redis is not
+// configured, fails to connect, or errors at runtime, every Redis operation
+// below is a no-op/logged-warning — the in-memory Map remains fully
+// functional as the fallback and no caller-visible behavior changes.
+//
+// cacheGet()/cacheSet() stay synchronous so none of the existing call sites
+// (collaborators.js, contract.js, history.js) need to change. Callers that
+// want a cross-instance-consistent read can use the async cacheGetAsync(),
+// which checks Redis first and falls back to the local Map.
+
+let redisClient = null;
+let redisConnectAttempted = false;
+
+function getRedisClient() {
+  if (!process.env.REDIS_URL) return null;
+  if (!redisClient) {
+    redisClient = new RedisCacheClient();
+  }
+  return redisClient;
+}
 
 /**
- * Thin async wrapper around an ioredis/redis client.
- * Only instantiated when REDIS_URL is present and the package is available.
+ * Kick off (idempotent, non-blocking) Redis connection + invalidation
+ * subscription. Safe to call multiple times; safe to call when REDIS_URL is
+ * unset (no-ops). Never throws or produces an unhandled rejection.
  */
-let _redis = null;
+export function initRedisCache() {
+  const client = getRedisClient();
+  if (!client) return;
+  if (redisConnectAttempted) return;
+  redisConnectAttempted = true;
 
-async function _initRedis() {
-  const url = process.env.REDIS_URL;
-  if (!url) return;
-  try {
-    // Dynamic import so the module loads fine when redis is not installed.
-    const { default: Redis } = await import("ioredis");
-    _redis = new Redis(url, { lazyConnect: true, enableReadyCheck: false });
-    _redis.on("error", (err) =>
-      logger.warn("Redis cache error (L3 falling back to in-process Map)", { error: err.message })
-    );
-    await _redis.connect().catch(() => {});
-    logger.info("Cache L3: Redis connected", { url: url.replace(/\/\/.*@/, "//***@") });
-  } catch {
-    logger.info("Cache L3: ioredis not available, using in-process fallback Map");
-  }
+  client
+    .connect()
+    .then((connected) => {
+      if (!connected) return;
+      return client.subscribeToInvalidation((message) => {
+        // Messages carry Redis-namespaced keys (srs:...); translate back to
+        // the local unprefixed key shape before touching the in-memory Map
+        // or notifying local listeners (collaborators.js / contract.js).
+        if (message?.key) {
+          const localKey = fromRedisKey(message.key);
+          invalidateContract(localKey);
+          for (const fn of _invalidationListeners) {
+            try {
+              fn(localKey, { prefix: false });
+            } catch (err) {
+              logger.warn("Cache invalidation listener threw", { error: err.message });
+            }
+          }
+        } else if (message?.prefix) {
+          const localPrefix = fromRedisKey(message.prefix);
+          for (const k of cacheStore.keys()) {
+            if (k.startsWith(localPrefix)) invalidateContract(k);
+          }
+          for (const fn of _invalidationListeners) {
+            try {
+              fn(localPrefix, { prefix: true });
+            } catch (err) {
+              logger.warn("Cache invalidation listener threw", { error: err.message });
+            }
+          }
+        }
+      });
+    })
+    .catch((err) => {
+      // getRedisClient()/connect() already catch internally, but guard here
+      // too so a future change to RedisCacheClient can never crash the app.
+      logger.warn("Redis cache initialization failed, using in-memory cache only", {
+        error: err.message,
+      });
+    });
 }
-_initRedis();
-
-async function l3Get(key) {
-  if (_redis) {
-    try {
-      const raw = await _redis.get(`cache:${key}`);
-      return raw ? JSON.parse(raw) : undefined;
-    } catch {
-      /* fall through to local Map */
-    }
-  }
-  const entry = coldStore.get(key);
-  if (!entry) return undefined;
-  if (Date.now() >= entry.expiresAt) { coldStore.delete(key); return undefined; }
-  return entry.value;
-}
-
-async function l3Set(key, value, ttlMs = L3_TTL_MS) {
-  if (_redis) {
-    try {
-      await _redis.set(`cache:${key}`, JSON.stringify(value), "PX", ttlMs);
-      return;
-    } catch {
-      /* fall through */
-    }
-  }
-  coldStore.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
-async function l3Delete(key) {
-  if (_redis) {
-    try { await _redis.del(`cache:${key}`); } catch { /* ignore */ }
-  }
-  coldStore.delete(key);
-}
-
-async function l3Keys() {
-  if (_redis) {
-    try {
-      const keys = await _redis.keys("cache:*");
-      return keys.map((k) => k.replace(/^cache:/, ""));
-    } catch { /* fall through */ }
-  }
-  return [...coldStore.keys()];
-}
-
-// ---------------------------------------------------------------------------
-// Tag helpers
-// ---------------------------------------------------------------------------
-
-function _registerTags(key, tags = []) {
-  for (const tag of tags) {
-    if (!tagIndex.has(tag)) tagIndex.set(tag, new Set());
-    tagIndex.get(tag).add(key);
-  }
-}
-
-function _deregisterKey(key) {
-  for (const set of tagIndex.values()) set.delete(key);
-}
-
-// ---------------------------------------------------------------------------
-// Core write — writes to L1 (if hot) and L2; L3 write is async fire-and-forget
-// ---------------------------------------------------------------------------
 
 /**
- * Configure the cache with an async fetch function.
- * Must be called before refreshContract / startCacheWarmingScheduler.
+ * Export Redis TTL/key-namespacing helpers so route modules can build
+ * correctly-namespaced keys (srs:<type>:...) without duplicating the prefix
+ * logic. Kept here (rather than only in cache-redis.js) so callers only
+ * need one import for both the in-memory and Redis-backed helpers.
+ */
+export { namespacedKey, REDIS_TTL_MS };
+
+/**
+ * Translate a local in-memory cache key (e.g. "collaborators:C123...",
+ * produced by cacheKey()) into its namespaced Redis key ("srs:collaborators:
+ * C123..."). Local Map keys are left unprefixed/unchanged (existing
+ * call sites and tests depend on the exact local key shape), but every key
+ * that leaves this process toward Redis is namespaced per #926 so a shared
+ * Redis instance can be safely reused by other services without key
+ * collisions.
+ */
+function toRedisKey(localKey) {
+  return localKey.startsWith("srs:") ? localKey : `srs:${localKey}`;
+}
+
+function fromRedisKey(redisKey) {
+  return redisKey.startsWith("srs:") ? redisKey.slice(4) : redisKey;
+}
+
+/**
+ * Async read that checks Redis first (so a value written by another
+ * instance is visible here), then falls back to the local in-memory Map.
+ * Returns undefined on a full miss. Never throws.
+ */
+export async function cacheGetAsync(key) {
+  const client = getRedisClient();
+  if (client?.available) {
+    const value = await client.get(toRedisKey(key));
+    if (value !== undefined) {
+      metrics.hits++;
+      return value;
+    }
+  }
+  return cacheGet(key);
+}
+
+/**
+ * Write-through set: writes to the local in-memory Map synchronously (same
+ * as cacheSet) and, if Redis is configured, mirrors the write to Redis in
+ * the background so other instances sharing REDIS_URL can see it via
+ * cacheGetAsync(). Fire-and-forget: does not await the Redis write and
+ * never throws.
+ */
+export function cacheSetSync(key, value, ttlMs = TTL_MS) {
+  cacheSet(key, value, ttlMs);
+  const client = getRedisClient();
+  if (client) {
+    client.set(toRedisKey(key), value, ttlMs).catch(() => {});
+  }
+}
+
+/**
+ * Invalidate a key both locally and (if configured) across every other
+ * instance sharing Redis, via pub/sub. Call this after any distribution or
+ * admin action that changes data another instance may have cached.
+ *
+ * @param {string} key - exact cache key, or a prefix when prefix=true
+ * @param {{ prefix?: boolean, reason?: string }} [options]
+ */
+export function invalidateCacheDistributed(key, { prefix = false, reason } = {}) {
+  if (prefix) {
+    for (const k of cacheStore.keys()) {
+      if (k.startsWith(key)) invalidateContract(k);
+    }
+  } else {
+    invalidateContract(key);
+  }
+
+  for (const fn of _invalidationListeners) {
+    try {
+      fn(key, { prefix });
+    } catch (err) {
+      logger.warn("Cache invalidation listener threw", { error: err.message });
+    }
+  }
+
+  const client = getRedisClient();
+  if (!client) return;
+
+  const redisKey = toRedisKey(key);
+  const message = prefix ? { prefix: redisKey, reason } : { key: redisKey, reason };
+
+  if (prefix) {
+    client.deleteByPrefix(redisKey).catch(() => {});
+  } else {
+    client.delete(redisKey).catch(() => {});
+  }
+  client.publishInvalidation(message).catch(() => {});
+}
+
+/**
+ * Route modules that keep their own local "stale" cache alongside cache.js
+ * (collaborators.js, contract.js — see their cache-warming sections) can
+ * register a listener here to also be notified on invalidation, whether
+ * triggered locally or by another instance via Redis pub/sub. This keeps
+ * their stale-serving fallback from continuing to serve data that was
+ * invalidated by a distribution/admin action.
+ *
+ * @param {(key: string, opts: { prefix: boolean }) => void} fn
+ */
+const _invalidationListeners = new Set();
+export function onCacheInvalidated(fn) {
+  _invalidationListeners.add(fn);
+  return () => _invalidationListeners.delete(fn);
+}
+
+/**
+ * Configure the cache for use with an external fetch function.
+ * This must be called before the cache can refresh data.
  */
 export function configureCache(fn) {
-  if (typeof fn !== "function") throw new TypeError("fetch function must be a function");
+  if (typeof fn !== "function") {
+    throw new TypeError("fetch function must be a function");
+  }
   fetchFunction = fn;
 }
 
 /**
- * Write a value to the cache.
- * @param {string}   key
- * @param {*}        value
- * @param {number}   [ttlMs]  – L1/L2 TTL (defaults to CACHE_TTL_MS)
- * @param {string[]} [tags]   – arbitrary tags for grouped invalidation
+ * Generate a deterministic cache key from arguments.
  */
-export function cacheSet(key, value, ttlMs = TTL_MS, tags = []) {
-  const now = Date.now();
-  const entry = { value, fetchedAt: now, expiresAt: now + ttlMs };
-
-  // Always write to L2 (warm)
-  warmStore.set(key, entry);
-
-  // Promote to L1 (hot) if this key is already tracked as hot
-  if (hotStore.has(key)) hotStore.set(key, entry);
-
-  // Register tags
-  _registerTags(key, tags);
-
-  // Write to L3 asynchronously (non-blocking)
-  l3Set(key, value, L3_TTL_MS).catch(() => {});
+export function cacheKey(...parts) {
+  return parts.map((p) => String(p)).join(":");
 }
 
-// ---------------------------------------------------------------------------
-// Core read — L1 → L2 → L3
-// ---------------------------------------------------------------------------
+/**
+ * Store a value in the cache with an optional TVL (defaults to CACHE_TTL_MS).
+ * Records the fetch time and expiry time.
+ */
+export function cacheSet(key, value, ttlMs = TTL_MS) {
+  const now = Date.now();
+  cacheStore.set(key, {
+    value,
+    fetchedAt: now,
+    expiresAt: now + ttlMs,
+  });
+}
 
 /**
- * Read a value from the cache.
- *
- * Layer resolution order: L1 (hot) → L2 (warm) → L3 (cold).
- * Stale-while-revalidate: within the warm lead-time window a stale L2 entry
- * is served immediately while a background refresh is kicked off.
- * Returns undefined on a full cache miss (caller should fetch and cacheSet).
+ * Retrieve a value from the cache.
+ * - If the entry is missing, returns undefined (caller should fetch and set).
+ * - If the entry is stale (past TTL), returns undefined to maintain old behavior.
+ * - If the entry is within the lead time before expiry, returns stale value and
+ *   triggers an asynchronous refresh if not already in flight.
+ * - Otherwise, returns the cached value.
  */
 export function cacheGet(key) {
+  const entry = cacheStore.get(key);
   const now = Date.now();
 
-  // --- L1 check ---
-  const hotEntry = hotStore.get(key);
-  if (hotEntry) {
-    if (now < hotEntry.expiresAt) {
-      metrics.hits++;
-      metrics.l1Hits++;
-      return hotEntry.value;
+  if (!entry) {
+    metrics.misses++;
+    return undefined;
+  }
+
+  const isExpired = now >= entry.expiresAt;
+  const isWarmingWindow = WARMING_ENABLED && now >= entry.expiresAt - WARM_LEAD_TIME_MS;
+
+  if (isExpired) {
+    metrics.misses++;
+    return undefined;
+  }
+
+  if (isWarmingWindow) {
+    if (!refreshInFlight.has(key)) {
+      refreshContract(key);
     }
-    hotStore.delete(key);
+    metrics.staleServes++;
+    return entry.value;
   }
 
-  // --- L2 check ---
-  const warmEntry = warmStore.get(key);
-  if (warmEntry) {
-    const isExpired      = now >= warmEntry.expiresAt;
-    const isWarmingWindow = WARMING_ENABLED && now >= warmEntry.expiresAt - WARM_LEAD_TIME_MS;
-
-    if (isExpired) {
-      warmStore.delete(key);
-      // Fall through to L3
-    } else if (isWarmingWindow) {
-      if (!refreshInFlight.has(key)) refreshContract(key);
-      metrics.staleServes++;
-      metrics.l2Hits++;
-      return warmEntry.value;
-    } else {
-      metrics.hits++;
-      metrics.l2Hits++;
-      return warmEntry.value;
-    }
-  }
-
-  // --- L3 check (sync fast-path via in-process fallback; async path returns undefined) ---
-  const coldEntry = coldStore.get(key);
-  if (coldEntry) {
-    if (now < coldEntry.expiresAt) {
-      metrics.hits++;
-      metrics.l3Hits++;
-      // Promote back to L2 on read
-      warmStore.set(key, { value: coldEntry.value, fetchedAt: now, expiresAt: now + TTL_MS });
-      return coldEntry.value;
-    }
-    coldStore.delete(key);
-  }
-
-  // Redis L3 is async — trigger a background fetch-and-promote but return miss now
-  if (_redis) {
-    l3Get(key).then((value) => {
-      if (value !== undefined) {
-        warmStore.set(key, { value, fetchedAt: Date.now(), expiresAt: Date.now() + TTL_MS });
-      }
-    }).catch(() => {});
-  }
-
-  metrics.misses++;
-  return undefined;
+  metrics.hits++;
+  return entry.value;
 }
 
-// ---------------------------------------------------------------------------
-// Background refresh
-// ---------------------------------------------------------------------------
-
 /**
- * Force a background refresh for key.
- * If a refresh is already in-flight for this key, returns the existing promise.
+ * Force a background refresh for a given key. Returns a promise that resolves
+ * when the refresh completes (or rejects, but the rejection is caught).
+ * If a refresh is already in flight, returns the existing promise.
  */
 export function refreshContract(key) {
   if (!fetchFunction) {
     logger.warn("Cache refresh attempted but no fetch function configured", { key });
     return Promise.resolve();
   }
-  if (refreshInFlight.has(key)) return refreshInFlight.get(key);
 
-  const promise = (async () => {
+  if (refreshInFlight.has(key)) {
+    return refreshInFlight.get(key);
+  }
+
+  const refreshPromise = (async () => {
     const start = Date.now();
     try {
       const freshValue = await fetchFunction(key);
       cacheSet(key, freshValue);
       metrics.refreshLatencyMs += Date.now() - start;
-      logger.info("Cache refreshed", { key, layer: "L1/L2/L3", durationMs: Date.now() - start });
+      logger.info("Cache refreshed", { key, durationMs: Date.now() - start });
     } catch (error) {
       logger.error("Cache background refresh failed", { key, error });
-      // Keep stale data — do not evict
+      // Keep stale data by not removing the cache entry.
     } finally {
       refreshInFlight.delete(key);
     }
   })();
 
-  refreshInFlight.set(key, promise);
-  return promise;
-}
-
-// ---------------------------------------------------------------------------
-// Invalidation
-// ---------------------------------------------------------------------------
-
-/**
- * Remove a single key from all cache layers.
- */
-export function invalidateKey(key) {
-  hotStore.delete(key);
-  warmStore.delete(key);
-  l3Delete(key).catch(() => {});
-  _deregisterKey(key);
-  metrics.invalidations++;
-  logger.info("Cache invalidated", { key });
+  refreshInFlight.set(key, refreshPromise);
+  return refreshPromise;
 }
 
 /**
- * Remove all keys whose string representation starts with `prefix`.
- */
-export function invalidatePattern(prefix) {
-  let count = 0;
-  for (const key of [...warmStore.keys(), ...hotStore.keys()]) {
-    if (String(key).startsWith(prefix)) {
-      invalidateKey(key);
-      count++;
-    }
-  }
-  // Also sweep L3 in-process fallback
-  for (const key of coldStore.keys()) {
-    if (String(key).startsWith(prefix)) {
-      coldStore.delete(key);
-      count++;
-    }
-  }
-  logger.info("Cache pattern invalidated", { prefix, count });
-}
-
-/**
- * Remove all keys registered under the given tag.
- */
-export function invalidateTag(tag) {
-  const keys = tagIndex.get(tag);
-  if (!keys || keys.size === 0) return;
-  let count = 0;
-  for (const key of [...keys]) {
-    invalidateKey(key);
-    count++;
-  }
-  tagIndex.delete(tag);
-  logger.info("Cache tag invalidated", { tag, count });
-}
-
-// ---------------------------------------------------------------------------
-// Access tracking (drives L1 hot promotion)
-// ---------------------------------------------------------------------------
-
-/**
- * Increment the access counter for a key.
- * Call this each time a value is served (from cache or fetch).
- */
-export function recordAccess(key) {
-  accessCount.set(key, (accessCount.get(key) ?? 0) + 1);
-}
-
-// ---------------------------------------------------------------------------
-// Hot cache scheduler (L1 — refreshes top HOT_MAX keys every HOT_REFRESH_MS)
-// ---------------------------------------------------------------------------
-
-function _updateHotSet(contracts) {
-  // Sort all known keys by access count; promote top HOT_MAX to hot store
-  const ranked = [...accessCount.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, HOT_MAX)
-    .map(([key]) => key);
-
-  // Evict keys no longer in top HOT_MAX
-  for (const key of hotStore.keys()) {
-    if (!ranked.includes(key)) hotStore.delete(key);
-  }
-
-  // Refresh each hot key
-  for (const key of ranked) {
-    const warmEntry = warmStore.get(key);
-    if (warmEntry) {
-      hotStore.set(key, warmEntry);
-    }
-    // Trigger background refresh regardless so hot entries stay fresh
-    if (!refreshInFlight.has(key)) refreshContract(key).catch(() => {});
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Background warming scheduler (L2 — predictive refresh of active contracts)
-// ---------------------------------------------------------------------------
-
-/**
- * Start the background cache warming scheduler.
+ * Background scheduler that periodically refreshes the cache for contracts
+ * listed in the active-contracts table. Spreads load to avoid a thundering herd.
  *
- * @param {Function} getActiveContracts – async () => string[]  (contract keys to warm)
- * @param {number}   intervalMs         – how often to run (default 60 s)
- * @param {number}   batchSize          – max keys per tick (default 10)
+ * @param {Function} getActiveContracts - Returns a promise of an array of contract keys.
+ * @param {number} intervalMs - How often to run the scheduler.
+ * @param {number} batchSize - Max number of contracts to refresh per tick.
  */
 export function startCacheWarmingScheduler(
   getActiveContracts,
   intervalMs = 60_000,
-  batchSize  = 10
+  batchSize = 10
 ) {
   if (typeof getActiveContracts !== "function") {
     throw new TypeError("getActiveContracts must be a function");
   }
 
-  // Hot-cache refresh loop (L1)
-  const hotInterval = setInterval(() => {
-    _updateHotSet();
-  }, HOT_REFRESH_MS);
-  hotInterval.unref?.();
-
-  // Warm-cache refresh loop (L2)
-  const warmInterval = setInterval(async () => {
+  setInterval(async () => {
     try {
       let contracts = await getActiveContracts();
       if (!Array.isArray(contracts)) contracts = [];
 
-      // Prioritize by access count (predictive warming)
-      contracts.sort(
-        (a, b) => (accessCount.get(b) ?? 0) - (accessCount.get(a) ?? 0)
-      );
+      // Prioritize frequently accessed contracts
+      contracts.sort((a, b) => (accessCount.get(b) || 0) - (accessCount.get(a) || 0));
 
       const toRefresh = contracts.slice(0, batchSize);
       for (const contract of toRefresh) {
-        // Spread load with jitter to avoid thundering herd
         const delay = Math.random() * (intervalMs / 2);
-        setTimeout(() => refreshContract(contract).catch(() => {}), delay);
+        setTimeout(() => refreshContract(contract), delay);
       }
     } catch (error) {
       logger.error("Cache warming scheduler failed", { error });
     }
   }, intervalMs);
-  warmInterval.unref?.();
-
-  return {
-    stop() {
-      clearInterval(hotInterval);
-      clearInterval(warmInterval);
-    },
-  };
 }
 
-// ---------------------------------------------------------------------------
-// Metrics
-// ---------------------------------------------------------------------------
+/**
+ * Increment the access count for a key.
+ * Call this when a contract is served from the cache.
+ */
+export function recordAccess(key) {
+  accessCount.set(key, (accessCount.get(key) || 0) + 1);
+}
 
 export { metrics };
 
+// Per-resource-type TTLs (#926). `history` preserves the pre-existing
+// generic default; the others were previously referenced as TTL.collaborators
+// / TTL.contractState by collaborators.js / contract.js but were never
+// actually defined here, so cacheSet() silently fell back to the generic
+// CACHE_TTL_MS default (30s) instead of the intended 5m/30m windows. Fixed
+// to match the durations specified in #926.
+export const TTL = {
+  history: TTL_MS,
+  contractState: REDIS_TTL_MS.contractState, // 5 minutes
+  analytics: REDIS_TTL_MS.analytics, // 1 hour
+  collaborators: REDIS_TTL_MS.collaborator, // 30 minutes
+  collaborator: REDIS_TTL_MS.collaborator, // alias, matches srs:collaborator: namespace
+  session: REDIS_TTL_MS.session, // 24 hours
+};
+
 export function getMetrics() {
-  return {
-    ...metrics,
-    l1Size: hotStore.size,
-    l2Size: warmStore.size,
-    l3Size: coldStore.size,
-    hotKeys: [...hotStore.keys()],
-  };
+  return { ...metrics };
 }
 
 export function resetMetrics() {
-  metrics.hits             = 0;
-  metrics.misses           = 0;
-  metrics.staleServes      = 0;
-  metrics.l1Hits           = 0;
-  metrics.l2Hits           = 0;
-  metrics.l3Hits           = 0;
+  metrics.hits = 0;
+  metrics.misses = 0;
+  metrics.staleServes = 0;
   metrics.refreshLatencyMs = 0;
-  metrics.invalidations    = 0;
 }
 
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
+// For unit testing
 export function __test__clear() {
-  hotStore.clear();
-  warmStore.clear();
-  coldStore.clear();
-  tagIndex.clear();
+  cacheStore.clear();
   refreshInFlight.clear();
   accessCount.clear();
   resetMetrics();
+}
+
+// Alias for tests that import clearCache
+export const clearCache = __test__clear;
+
+/**
+ * Invalidate a specific cache entry for a contract.
+ */
+export function invalidateContract(key) {
+  cacheStore.delete(key);
+  refreshInFlight.delete(key);
+  accessCount.delete(key);
 }

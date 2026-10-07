@@ -2,6 +2,7 @@ import { Router } from "express";
 import StellarSdk from "@stellar/stellar-sdk";
 import { server, networkPassphrase, addressToScVal } from "../stellar.js";
 import { validate, distributeSchema } from "../validation.js";
+import { recordDistributionGas, recordDistributionLatency } from "../metrics.js";
 
 const {
   Contract,
@@ -160,7 +161,9 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
       .setTimeout(30)
       .build();
 
+    const simulationStart = Date.now();
     const sim = await server.simulateTransaction(tx);
+    recordDistributionLatency("simulation", Date.now() - simulationStart);
     if (SorobanRpc.Api.isSimulationError(sim)) {
       const feeBreakdown = calculateFeeBreakdown(sim);
       return res.status(200).json({
@@ -173,6 +176,8 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
         feeScalingComparison: calculateFeeScalingComparison(feeBreakdown.total, 0),
       });
     }
+
+    recordDistributionGas(sim.minResourceFee);
 
     const recipientAmounts = readRecipientAmounts(sim.events);
     const feeBreakdown = calculateFeeBreakdown(sim);

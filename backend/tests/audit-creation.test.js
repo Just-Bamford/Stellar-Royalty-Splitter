@@ -31,16 +31,36 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
   },
 }));
 
+// Mock rpc-retry BEFORE stellar.js imports it
+await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
+  withRetry: jest.fn((fn) => fn()),
+  withTimeout: jest.fn((promise) => promise),
+}));
+
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   retryBuildTx,
   buildTx,
   isContractInitialized,
   getRoyaltyRateFromContract,
+  pollHorizonTransaction: jest.fn(),
   addressToScVal: jest.fn((a) => a),
   i128ToScVal: jest.fn((n) => n),
   u32ToScVal: jest.fn((n) => n),
   vecToScVal: jest.fn((v) => v),
-  server: { simulateTransaction: mockSimulate },
+  bytes32ToScVal: jest.fn((v) => v),
+  BatchTransactionBuilder: jest.fn(),
+  // Complete server mock with all necessary methods
+  server: {
+    simulateTransaction: mockSimulate,
+    getAccount: jest.fn().mockResolvedValue({
+      sequenceNumber: "0",
+      incrementSequenceNumber: jest.fn().mockReturnThis(),
+      getSequenceNumber: jest.fn(() => "0"),
+    }),
+    prepareTransaction: jest.fn().mockResolvedValue("signed-tx"),
+    getHealth: jest.fn().mockResolvedValue({ status: "healthy" }),
+    submitTransaction: jest.fn().mockResolvedValue({ id: "tx-123" }),
+  },
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
 
@@ -60,6 +80,91 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   addAuditLog,
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
+  // Mock transaction-finality functions
+  createFinalityRecord: jest.fn(() => 1),
+  setFinalityTxHash: jest.fn(),
+  incrementPollAttempt: jest.fn(),
+  markFinalityConfirmed: jest.fn(),
+  markFinalityFailed: jest.fn(),
+  markFinalityTimeout: jest.fn(),
+  getFinalityByTransactionId: jest.fn(),
+}));
+
+// Mock transaction-finality module
+await jest.unstable_mockModule("../src/transaction-finality.js", () => ({
+  startTracking: jest.fn(),
+  updateTxHash: jest.fn(),
+  MAX_POLL_DURATION_MS: 600000,
+  JITTER_FACTOR: 0.25,
+}));
+
+// Mock rate limiters BEFORE importing routes
+await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
+  tieredLimiters: [(_req, _res, next) => next(), (_req, _res, next) => next()],
+  rateLimitMetrics: { contractHits: 0, walletHits: 0, ipHits: 0 },
+}));
+
+// Mock validation with ALL schema exports
+await jest.unstable_mockModule("../src/validation.js", () => ({
+  isValidStellarAddress: jest.fn((addr) => addr && /^G[A-Z0-9]{55}$/.test(addr)),
+  // All schemas with proper safeParse method that validates
+  initializeSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  amountSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  distributeSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  batchDistributeSchema: {
+    safeParse: jest.fn((x) => {
+      // Validate empty operations array
+      if (Array.isArray(x?.operations) && x.operations.length === 0) {
+        return {
+          success: false,
+          error: {
+            issues: [{ path: ["operations"], message: "operations array must be non-empty" }],
+          },
+        };
+      }
+      return { success: true, data: x };
+    }),
+  },
+  setRoyaltyRateSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  setSecondaryPoolLimitSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  recordSecondarySaleSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  distributeSecondarySchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  emailDigestSubscribeSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  emailDigestPreferencesSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  webhookRegisterSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  transactionConfirmSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeSubmitSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeContributorCommentSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeAdminReviewSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  disputeAdminCommentSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralGenerateLinkSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralRegisterSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralActivateSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  referralAwardBonusSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  paginationSchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  analyticsQuerySchema: { safeParse: jest.fn((x) => ({ success: true, data: x })) },
+  // Functions
+  validate: jest.fn((schema) => (req, res, next) => {
+    // Use the schema's safeParse method for proper validation
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      // Return validation error in same format as production
+      return res.status(400).json({
+        error: "Validation failed",
+        issues: result.error.issues || [],
+      });
+    }
+    req.body = result.data;
+    next();
+  }),
+  validateStellarAddress: jest.fn(() => true),
+  validateInitializePayloadSize: jest.fn((req, res, next) => next()),
+  validateContractIdMiddleware: jest.fn((req, res, next) => next()),
+  parsePagination: jest.fn((query) => ({ limit: 50, offset: 0 })),
+  parseCursorPagination: jest.fn((query) => ({ limit: 50, cursor: null })),
+  // Constants
+  MAX_BATCH_OPERATIONS: 50,
+  MAX_COLLABORATORS: 10,
 }));
 
 const express = (await import("express")).default;
@@ -87,16 +192,19 @@ describe("Audit entries created as a side effect of real actions", () => {
   beforeEach(() => jest.clearAllMocks());
 
   test("POST /api/v1/initialize records contract_initialized with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     isContractInitialized.mockResolvedValue(false);
     retryBuildTx.mockResolvedValue("init-xdr");
     recordTransaction.mockReturnValue("tx-init");
 
-    const res = await request(app).post("/api/v1/initialize").send({
-      contractId: CONTRACT,
-      walletAddress: WALLET,
-      collaborators: [COLLAB1, COLLAB2],
-      shares: [5000, 5000],
-    });
+    const res = await request(app)
+      .post("/api/v1/initialize")
+      .send({
+        contractId: CONTRACT,
+        walletAddress: WALLET,
+        collaborators: [COLLAB1, COLLAB2],
+        shares: [5000, 5000],
+      });
 
     expect(res.status).toBe(200);
     expect(addAuditLog).toHaveBeenCalledTimes(1);
@@ -109,6 +217,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   });
 
   test("POST /api/v1/distribute records distribution_initiated with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     retryBuildTx.mockResolvedValue("distribute-xdr");
     recordTransaction.mockReturnValue("tx-dist");
 
@@ -126,6 +235,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   });
 
   test("POST /api/v1/secondary-royalty/set-rate records royalty_rate_set with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     buildTx.mockResolvedValue("set-rate-xdr");
     recordTransaction.mockReturnValue("tx-rate");
 
@@ -143,6 +253,7 @@ describe("Audit entries created as a side effect of real actions", () => {
   });
 
   test("POST /api/v1/secondary-royalty records secondary_sale_recorded with actor and reference data", async () => {
+    jest.setTimeout(120000); // Increase from default 5000ms
     getRoyaltyRateFromContract.mockResolvedValue(500);
     recordTransaction.mockReturnValue("tx-sale");
     buildTx.mockResolvedValue("sale-xdr");

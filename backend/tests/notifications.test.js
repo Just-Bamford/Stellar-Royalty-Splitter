@@ -2,23 +2,50 @@ import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 
 const mockGetNotifications = jest.fn();
+const mockGetArchivedNotifications = jest.fn();
 const mockGetUnreadNotificationCount = jest.fn();
 const mockMarkNotificationRead = jest.fn();
+const mockMarkNotificationUnread = jest.fn();
 const mockMarkAllNotificationsRead = jest.fn();
+const mockArchiveNotification = jest.fn();
+const mockUnarchiveNotification = jest.fn();
 const mockDeleteNotification = jest.fn();
+const mockSearchNotifications = jest.fn();
+const mockGetNotificationsByType = jest.fn();
 const mockCreateSystemNotification = jest.fn();
 const mockGetNotificationPreference = jest.fn();
 const mockUpsertNotificationPreference = jest.fn();
+const mockShouldSendNotification = jest.fn(() => true);
 
 await jest.unstable_mockModule("../src/database/notifications.js", () => ({
   getNotifications: mockGetNotifications,
+  getArchivedNotifications: mockGetArchivedNotifications,
   getUnreadNotificationCount: mockGetUnreadNotificationCount,
   markNotificationRead: mockMarkNotificationRead,
+  markNotificationUnread: mockMarkNotificationUnread,
   markAllNotificationsRead: mockMarkAllNotificationsRead,
+  archiveNotification: mockArchiveNotification,
+  unarchiveNotification: mockUnarchiveNotification,
   deleteNotification: mockDeleteNotification,
+  searchNotifications: mockSearchNotifications,
+  getNotificationsByType: mockGetNotificationsByType,
   createSystemNotification: mockCreateSystemNotification,
   getNotificationPreference: mockGetNotificationPreference,
   upsertNotificationPreference: mockUpsertNotificationPreference,
+  shouldSendNotification: mockShouldSendNotification,
+  NOTIFICATION_TYPES: [
+    "distribution_confirmed",
+    "distribution_completed",
+    "payment_received",
+    "payment_failed",
+    "dispute_created",
+    "dispute_resolved",
+    "reputation_changed",
+    "governance_proposal",
+    "security_alert",
+    "system",
+    "warning",
+  ],
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
@@ -28,6 +55,12 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 
 await jest.unstable_mockModule("../src/websocket.js", () => ({
   sendNotification: jest.fn(),
+}));
+
+const mockSendEventSms = jest.fn(() => ({ attempted: false, reason: "not_opted_in" }));
+
+await jest.unstable_mockModule("../src/services/sms-notifications.js", () => ({
+  sendEventSms: mockSendEventSms,
 }));
 
 import express from "express";
@@ -86,6 +119,8 @@ describe("Notifications - CRUD", () => {
 });
 
 describe("Notifications - Send", () => {
+  beforeEach(() => jest.clearAllMocks());
+
   test("POST /send creates notification", async () => {
     mockCreateSystemNotification.mockReturnValue({ id: 1, walletAddress: WALLET, type: "test", title: "Test" });
     const res = await request(app)
@@ -100,6 +135,60 @@ describe("Notifications - Send", () => {
       .post("/api/v1/notifications/send")
       .send({ type: "test" });
     expect(res.status).toBe(400);
+    expect(mockSendEventSms).not.toHaveBeenCalled();
+  });
+
+  // ── SMS fan-out (#927) ──────────────────────────────────────────────────
+
+  test("POST /send with type large_payout fans out to SMS with amount + contractId", async () => {
+    mockCreateSystemNotification.mockReturnValue({ id: 1, walletAddress: WALLET, type: "large_payout", title: "Large payout" });
+
+    const res = await request(app)
+      .post("/api/v1/notifications/send")
+      .send({
+        walletAddress: WALLET,
+        type: "large_payout",
+        title: "Large payout recorded",
+        message: "A large payout was recorded",
+        data: { amount: "1,000.0000000 XLM", contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockSendEventSms).toHaveBeenCalledWith(WALLET, "large_payout", {
+      amount: "1,000.0000000 XLM",
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
+  });
+
+  test("POST /send with type payment_failed fans out to SMS with contractId + reason", async () => {
+    mockCreateSystemNotification.mockReturnValue({ id: 2, walletAddress: WALLET, type: "payment_failed", title: "Payment failed" });
+
+    const res = await request(app)
+      .post("/api/v1/notifications/send")
+      .send({
+        walletAddress: WALLET,
+        type: "payment_failed",
+        title: "Payment failed",
+        message: "A payment failed",
+        data: { contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", reason: "insufficient balance" },
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockSendEventSms).toHaveBeenCalledWith(WALLET, "payment_failed", {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      reason: "insufficient balance",
+    });
+  });
+
+  test("POST /send with an event type that has no SMS template does not fan out to SMS", async () => {
+    mockCreateSystemNotification.mockReturnValue({ id: 3, walletAddress: WALLET, type: "distribution_confirmed", title: "Distribution" });
+
+    const res = await request(app)
+      .post("/api/v1/notifications/send")
+      .send({ walletAddress: WALLET, type: "distribution_confirmed", title: "Distribution", message: "ok" });
+
+    expect(res.status).toBe(200);
+    expect(mockSendEventSms).not.toHaveBeenCalled();
   });
 });
 

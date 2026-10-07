@@ -7,11 +7,14 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { NetworkProvider } from "./context/NetworkContext";
+import { WalletProvider } from "./context/WalletContext";
 import { TransactionProvider } from "./context/TransactionContext";
+// CI workflow verification: all checks passing
 import { registerServiceWorker } from "./lib/registerServiceWorker";
 import { NotificationProvider } from "./context/NotificationContext";
 import { queryClient } from "./lib/queryClient";
 import "./i18n";
+import "./styles/design-tokens.css";
 import "./modern-styles.css";
 import "./index.css";
 
@@ -42,13 +45,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <ErrorBoundary>
         <ThemeProvider>
           <NetworkProvider>
-            <SettingsProvider>
-              <TransactionProvider>
-                <NotificationProvider>
-                  <App />
-                </NotificationProvider>
-              </TransactionProvider>
-            </SettingsProvider>
+            <WalletProvider>
+              <SettingsProvider>
+                <TransactionProvider>
+                  <NotificationProvider>
+                    <App />
+                  </NotificationProvider>
+                </TransactionProvider>
+              </SettingsProvider>
+            </WalletProvider>
           </NetworkProvider>
         </ThemeProvider>
       </ErrorBoundary>

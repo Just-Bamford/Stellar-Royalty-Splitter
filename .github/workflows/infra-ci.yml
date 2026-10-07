@@ -1,0 +1,118 @@
+name: Infra CI
+
+# Validates operational tooling and configuration (#935–#938):
+# backup manager and canary controller tests, Terraform formatting and
+# validation for every root and module, Prometheus rules and their unit
+# tests, Grafana dashboard JSON, and shell scripts.
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "infra/**"
+      - "monitoring/**"
+      - ".github/workflows/infra-ci.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "infra/**"
+      - "monitoring/**"
+      - ".github/workflows/infra-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  tooling:
+    name: Backup manager & canary controller
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies (SQLite binding for backup tests)
+        working-directory: backend
+        run: npm ci
+
+      - name: Lint
+        working-directory: infra
+        run: npm run lint
+
+      - name: Test (includes end-to-end canary rollback simulation)
+        working-directory: infra
+        run: npm test
+
+      - name: Shellcheck
+        run: shellcheck infra/recovery-test.sh
+
+  terraform:
+    name: Terraform fmt & validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Format
+        working-directory: infra/terraform
+        run: terraform fmt -check -recursive
+
+      - name: Validate every root and module
+        working-directory: infra/terraform
+        run: |
+          set -euo pipefail
+          for dir in ./ modules/*/ environments/*/; do
+            echo "── $dir"
+            ( cd "$dir" && terraform init -backend=false -input=false >/dev/null && terraform validate -no-color )
+          done
+
+  monitoring:
+    name: Prometheus rules & dashboards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install promtool
+        run: |
+          curl -sSfL https://github.com/prometheus/prometheus/releases/download/v2.54.1/prometheus-2.54.1.linux-amd64.tar.gz \
+            | tar -xz --strip-components=1 prometheus-2.54.1.linux-amd64/promtool
+          sudo mv promtool /usr/local/bin/
+
+      - name: Check rules
+        working-directory: monitoring
+        run: promtool check rules royalty-splitter-alerts.yml anomaly-detection-rules.yml canary-alerts.yml
+
+      - name: Rule unit tests
+        working-directory: monitoring
+        run: promtool test rules tests/*.test.yml
+
+      - name: Check Prometheus config
+        working-directory: monitoring
+        run: |
+          mkdir -p /tmp/prom && cp ./*.yml /tmp/prom/
+          sed "s#/etc/prometheus/#/tmp/prom/#" prometheus.yml > /tmp/prom/prometheus.yml
+          promtool check config /tmp/prom/prometheus.yml
+
+      - name: Dashboards are valid JSON with unique uids
+        run: |
+          node -e '
+            const fs = require("fs");
+            const files = [
+              ...fs.readdirSync("monitoring/grafana-dashboards").filter((f) => f.endsWith(".json")).map((f) => `monitoring/grafana-dashboards/${f}`),
+              "monitoring/grafana/royalty-splitter-dashboard.json",
+            ];
+            const uids = new Set();
+            for (const f of files) {
+              const d = JSON.parse(fs.readFileSync(f, "utf8"));
+              if (!d.uid || uids.has(d.uid)) throw new Error(`${f}: missing or duplicate uid`);
+              uids.add(d.uid);
+              console.log(`ok ${f} (${d.panels.length} panels)`);
+            }
+          '

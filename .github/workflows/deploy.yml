@@ -15,7 +15,8 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       target:
@@ -55,10 +56,33 @@ jobs:
         working-directory: backend
         run: npm test
 
+  # Backup manager (#937) and canary controller incl. the end-to-end canary
+  # rollback simulation (#936). Full `npm ci` (not --ignore-scripts) in backend/
+  # because the backup tests use better-sqlite3's native binding.
+  infra-test:
+    name: Infra tooling tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies (SQLite binding)
+        working-directory: backend
+        run: npm ci
+
+      - name: Lint and test infra tooling
+        working-directory: infra
+        run: npm run lint && npm test
+
   # ── 2. Build ──────────────────────────────────────────────────────────────
   build:
     name: Build contract WASM
-    needs: test
+    needs: [test, infra-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +106,7 @@ jobs:
   deploy-staging:
     name: Deploy to staging
     needs: build
-    if: github.event_name == 'push' || github.event.inputs.target == 'staging'
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'staging' || github.event.inputs.target == '')
     runs-on: ubuntu-latest
     environment:
       name: staging
@@ -133,6 +157,11 @@ jobs:
     needs: deploy-staging
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'production'
     runs-on: ubuntu-latest
+    # 30 min at 1% + 10 min at 5% + 10 min at 25%, plus deploy and promotion.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write # OIDC role for the canary controller's ELB calls
     environment:
       name: production
       url: ${{ vars.PRODUCTION_URL }}
@@ -182,6 +211,91 @@ jobs:
         run: |
           echo "::notice title=Deploy::Deploying to production (mainnet)"
           echo "Would run: STELLAR_NETWORK=mainnet STELLAR_IDENTITY=${{ vars.STELLAR_IDENTITY }} ./scripts/deploy.sh"
+
+      # ── Canary rollout of the API (#936) ─────────────────────────────────
+      #
+      # The new API version starts as a second process on the production host
+      # (port 3002, same SQLite database — see docs/canary-deployment.md) with
+      # 0% of traffic, then infra/canary-controller.js shifts traffic
+      # 1% (30 min) → 5% → 25% → 100%, comparing canary vs stable error rate
+      # and p95 latency every minute, and rolls back to 0% on its own if the
+      # canary degrades. The job fails on rollback, so a bad release never
+      # reaches the promotion step.
+      #
+      # Configuration (production environment variables):
+      #   CANARY_ENABLED            "true" to run the canary steps
+      #   AWS_DEPLOY_ROLE_ARN       OIDC role; attach terraform output canary_controller_policy_json
+      #   CANARY_RULE_ARN           terraform output canary_rule_arn
+      #   STABLE_TARGET_GROUP_ARN   environment output target_group_arn
+      #   CANARY_TARGET_GROUP_ARN   terraform output canary_target_group_arn
+      #   PROMETHEUS_URL            Prometheus reachable from the runner
+      #   PUSHGATEWAY_URL           optional; feeds the Canary Deployment dashboard
+
+      - name: Start canary process (0% traffic)
+        if: vars.CANARY_ENABLED == 'true'
+        run: |
+          echo "::notice title=Canary::Starting new API version as the canary on port 3002"
+          # Runs on the instance via SSM (same mechanism as the stable deploy):
+          #   PORT=3002 pm2 start backend/src/index.js --name royalty-splitter-api-canary
+          # and enables traffic shadowing of GET/HEAD requests on stable:
+          #   SHADOW_TARGET_URL=http://127.0.0.1:3002 pm2 reload royalty-splitter-api --update-env
+          echo "Would run: ./scripts/deploy.sh --api-canary"
+
+      - name: Configure AWS credentials
+        if: vars.CANARY_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Canary analysis and progressive traffic shift
+        id: canary
+        if: vars.CANARY_ENABLED == 'true'
+        run: |
+          node infra/canary-controller.js run \
+            --router alb \
+            --rule-arn "${{ vars.CANARY_RULE_ARN }}" \
+            --stable-tg "${{ vars.STABLE_TARGET_GROUP_ARN }}" \
+            --canary-tg "${{ vars.CANARY_TARGET_GROUP_ARN }}" \
+            --metrics prometheus \
+            --prometheus-url "${{ vars.PROMETHEUS_URL }}" \
+            --stages "1:1800,5:600,25:600,100:0" \
+            --check-interval 60 \
+            --status-file canary-status.json \
+            ${{ vars.PUSHGATEWAY_URL && format('--pushgateway-url {0}', vars.PUSHGATEWAY_URL) || '' }}
+
+      - name: Upload canary status
+        if: always() && vars.CANARY_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-status
+          path: canary-status.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Roll back canary
+        if: failure() && vars.CANARY_ENABLED == 'true'
+        run: |
+          # The controller already moved traffic to 0% if it detected the
+          # regression; this also covers the job failing for any other reason.
+          node infra/canary-controller.js set-weight 0 --router alb \
+            --rule-arn "${{ vars.CANARY_RULE_ARN }}" \
+            --stable-tg "${{ vars.STABLE_TARGET_GROUP_ARN }}" \
+            --canary-tg "${{ vars.CANARY_TARGET_GROUP_ARN }}" || true
+          echo "::error title=Canary rolled back::The new API version was rolled back; production traffic is on the previous version."
+          echo "Would run: pm2 delete royalty-splitter-api-canary && SHADOW_TARGET_URL= pm2 reload royalty-splitter-api --update-env"
+
+      - name: Promote canary to stable
+        if: success() && vars.CANARY_ENABLED == 'true'
+        run: |
+          # The canary served 100% successfully: move the release onto the
+          # stable process, return the rule to 100/0, and retire the canary.
+          echo "Would run: ./scripts/deploy.sh --api-promote"
+          node infra/canary-controller.js set-weight 0 --router alb \
+            --rule-arn "${{ vars.CANARY_RULE_ARN }}" \
+            --stable-tg "${{ vars.STABLE_TARGET_GROUP_ARN }}" \
+            --canary-tg "${{ vars.CANARY_TARGET_GROUP_ARN }}"
+          echo "::notice title=Canary promoted::New API version is now serving all production traffic."
 
       - name: Post-deploy validation
         run: |

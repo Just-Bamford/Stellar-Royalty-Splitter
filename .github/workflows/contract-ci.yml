@@ -2,31 +2,31 @@ name: Contract CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [dev]
     paths:
       - "src/**"
       - "tests/**"
       - "benches/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "test_snapshots/**"
+      - "solidity/**"
       - ".github/workflows/contract-ci.yml"
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - "src/**"
       - "tests/**"
       - "benches/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "test_snapshots/**"
+      - "solidity/**"
       - ".github/workflows/contract-ci.yml"
 
 jobs:
   validate-version:
     name: Validate Release Version
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/dev'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -197,3 +197,25 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --locked --features testutils test_storage_snapshot -- --nocapture
         continue-on-error: false
+
+  solidity-test:
+    name: Solidity Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: solidity/package-lock.json
+
+      - name: Install Solidity dependencies
+        working-directory: solidity
+        run: npm ci
+
+      - name: Run Solidity tests
+        working-directory: solidity
+        run: npm test

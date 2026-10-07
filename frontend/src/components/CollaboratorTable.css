@@ -360,10 +360,23 @@
   .collab-filter-select {
     width: 100%;
     min-width: unset;
+    min-height: 48px; /* 48px touch target (#920) */
+  }
+
+  .collab-sort-btn {
+    min-height: 48px; /* 48px touch target (#920) */
   }
 
   .collab-search-bar {
     margin-bottom: 0.5rem;
+  }
+
+  .collab-search-bar input {
+    min-height: 48px; /* 48px touch target (#920) */
+  }
+
+  .collab-export-btn {
+    min-height: 48px; /* 48px touch target (#920) */
   }
 
   .collab-name-display {
@@ -382,11 +395,23 @@
     font-size: 0.68rem;
     padding: 0.18rem 0.45rem;
   }
+
+  /* #920 — the collaborator table (3 columns: name+address / tier / share)
+     scrolls within the card instead of pushing the page wide. */
+  .collab-table-card {
+    overflow: hidden;
+  }
+
+  .collab-table-card table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @media (max-width: 480px) {
   .collab-search-bar input {
-    font-size: 0.85rem;
+    font-size: 16px; /* prevents iOS Safari auto-zoom on focus (#920) */
     padding: 0.6rem 0.65rem 0.6rem 2rem;
   }
 
@@ -410,6 +435,10 @@
 
   .collab-table-card td {
     padding: 0.4rem 0.2rem;
+  }
+
+  .collab-name-display {
+    max-width: 84px;
   }
 }
 

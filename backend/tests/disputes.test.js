@@ -51,6 +51,14 @@ await jest.unstable_mockModule("../src/database/email-digest.js", () => ({
   getSubscriberByWallet: jest.fn(() => null),
 }));
 
+// ─── Mock SMS dispatch (#927) ──────────────────────────────────────────────────
+
+const mockSendEventSms = jest.fn(() => ({ attempted: false, reason: "not_opted_in" }));
+
+await jest.unstable_mockModule("../src/services/sms-notifications.js", () => ({
+  sendEventSms: mockSendEventSms,
+}));
+
 // ─── Build minimal Express app ────────────────────────────────────────────────
 
 import express from "express";
@@ -609,6 +617,47 @@ describe("Email notifications on status update", () => {
         subject: expect.stringContaining(TICKET_ID),
       })
     );
+  });
+});
+
+// ─── SMS notification on dispute submission (#927) ─────────────────────────────
+
+describe("SMS notification on dispute submission", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test("attempts an SMS dispatch for dispute_opened on every submission", async () => {
+    mockCreateDispute.mockReturnValue(baseDispute());
+
+    await request(app)
+      .post("/api/v1/disputes")
+      .send({
+        walletAddress: WALLET,
+        contractId: CONTRACT,
+        category: "wrong_amount",
+        description: "I received less than expected for the last distribution.",
+      });
+
+    expect(mockSendEventSms).toHaveBeenCalledWith(WALLET, "dispute_opened", { ticketId: TICKET_ID });
+  });
+
+  test("dispute submission still succeeds when the SMS dispatch itself rejects", async () => {
+    mockCreateDispute.mockReturnValue(baseDispute());
+    mockSendEventSms.mockRejectedValueOnce(new Error("sms dispatch blew up"));
+
+    const res = await request(app)
+      .post("/api/v1/disputes")
+      .send({
+        walletAddress: WALLET,
+        contractId: CONTRACT,
+        category: "wrong_amount",
+        description: "I received less than expected for the last distribution.",
+      });
+
+    // sendEventSms is documented to never throw, but if it somehow does,
+    // the route's outer try/catch still returns a clean 500 rather than
+    // hanging or crashing the process — asserting this locks in that safety
+    // net without weakening the "never throws" contract on the service itself.
+    expect(res.status).toBe(500);
   });
 });
 

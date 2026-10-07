@@ -101,6 +101,180 @@ export function initializeDatabase() {
         );
       `,
     },
+    {
+      // #984: Performance — Query optimization and database indexing strategy
+      version: 4,
+      sql: `
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_txId ON distribution_payouts(transactionId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_collab ON distribution_payouts(collaboratorAddress, transactionId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_contract ON distribution_payouts(contractId);
+        CREATE INDEX IF NOT EXISTS idx_distribution_payouts_collab_contract ON distribution_payouts(collaboratorAddress, contractId);
+        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_txId ON secondary_royalty_distributions(transactionId);
+        CREATE INDEX IF NOT EXISTS idx_transactions_contract_status_time ON transactions(contractId, status, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_transactions_contract_time ON transactions(contractId, timestamp DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_transactions_initiator_time ON transactions(initiatorAddress, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_contract_time ON secondary_sales(contractId, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_secondary_distributions_contract_time ON secondary_royalty_distributions(contractId, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_transactions_confirmed_payouts ON transactions(contractId, timestamp) WHERE status = 'confirmed';
+        CREATE INDEX IF NOT EXISTS idx_secondary_sales_undistributed ON secondary_sales(contractId, timestamp) WHERE distributed = 0;
+        CREATE INDEX IF NOT EXISTS idx_transactions_active_holds ON transactions(contractId, hold_placed_at) WHERE hold_status = 'active';
+
+        CREATE TABLE IF NOT EXISTS earnings_summary_mv (
+          contractId TEXT PRIMARY KEY,
+          totalTransactions INTEGER NOT NULL DEFAULT 0,
+          totalDistributed TEXT NOT NULL DEFAULT '0',
+          averagePayout TEXT NOT NULL DEFAULT '0',
+          uniqueCollaborators INTEGER NOT NULL DEFAULT 0,
+          lastPayoutAt DATETIME,
+          lastRefreshedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_earnings_summary_mv_refreshed ON earnings_summary_mv(lastRefreshedAt);
+      `,
+    },
+    {
+      // #959, #960, #983, #986: Four new features - collaborative editor, oracle, vesting, enhanced audit
+      version: 5,
+      sql: `
+        -- #959: Real-time collaborative contract editor
+        CREATE TABLE IF NOT EXISTS contract_edit_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          userId TEXT NOT NULL,
+          field TEXT NOT NULL,
+          lockedAt DATETIME NOT NULL,
+          expiresAt DATETIME NOT NULL,
+          lastActivity DATETIME NOT NULL,
+          UNIQUE(contractId, userId, field)
+        );
+        CREATE INDEX IF NOT EXISTS idx_edit_sessions_contract ON contract_edit_sessions(contractId, expiresAt);
+        CREATE INDEX IF NOT EXISTS idx_edit_sessions_user ON contract_edit_sessions(userId);
+
+        CREATE TABLE IF NOT EXISTS contract_edit_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          userId TEXT NOT NULL,
+          field TEXT NOT NULL,
+          oldValue TEXT,
+          newValue TEXT,
+          operation TEXT NOT NULL,
+          editedAt DATETIME NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_edit_history_contract ON contract_edit_history(contractId, editedAt DESC);
+
+        CREATE TABLE IF NOT EXISTS contract_field_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          field TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1,
+          value TEXT NOT NULL,
+          updatedBy TEXT NOT NULL,
+          updatedAt DATETIME NOT NULL,
+          UNIQUE(contractId, field)
+        );
+        CREATE INDEX IF NOT EXISTS idx_field_versions_contract ON contract_field_versions(contractId);
+
+        -- #960: Dynamic royalty oracle with ML predictions
+        CREATE TABLE IF NOT EXISTS royalty_predictions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          predictedAmount TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          factors TEXT NOT NULL,
+          modelVersion TEXT NOT NULL,
+          predictionHorizon TEXT NOT NULL,
+          predictedAt DATETIME NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_predictions_contract ON royalty_predictions(contractId, predictedAt DESC);
+
+        CREATE TABLE IF NOT EXISTS ml_model_metadata (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          version TEXT NOT NULL UNIQUE,
+          accuracy REAL,
+          precision REAL,
+          recall REAL,
+          f1Score REAL,
+          trainingDataSize INTEGER,
+          featuresUsed TEXT NOT NULL,
+          hyperparameters TEXT,
+          trainedBy TEXT,
+          trainedAt DATETIME NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_model_metadata_version ON ml_model_metadata(version);
+        CREATE INDEX IF NOT EXISTS idx_model_metadata_trained ON ml_model_metadata(trainedAt DESC);
+
+        CREATE TABLE IF NOT EXISTS market_data_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          source TEXT NOT NULL,
+          floorPrice TEXT,
+          volumeDay TEXT,
+          volumeWeek TEXT,
+          volumeMonth TEXT,
+          numSales INTEGER,
+          avgSalePrice TEXT,
+          uniqueBuyers INTEGER,
+          uniqueSellers INTEGER,
+          metadata TEXT,
+          snapshotAt DATETIME NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_market_data_contract ON market_data_snapshots(contractId, snapshotAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_market_data_source ON market_data_snapshots(source, snapshotAt DESC);
+
+        -- #983: Time-locked vesting contracts
+        CREATE TABLE IF NOT EXISTS vesting_schedules (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          beneficiary TEXT NOT NULL,
+          totalAmount TEXT NOT NULL,
+          tokenAddress TEXT NOT NULL,
+          startTime DATETIME NOT NULL,
+          cliffDuration INTEGER NOT NULL,
+          vestingDuration INTEGER NOT NULL,
+          releasedAmount TEXT NOT NULL DEFAULT '0',
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'cancelled', 'completed')),
+          createdBy TEXT NOT NULL,
+          createdAt DATETIME NOT NULL,
+          cancelledBy TEXT,
+          cancelledAt DATETIME,
+          cancellationReason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_vesting_beneficiary ON vesting_schedules(beneficiary);
+        CREATE INDEX IF NOT EXISTS idx_vesting_contract ON vesting_schedules(contractId);
+        CREATE INDEX IF NOT EXISTS idx_vesting_status ON vesting_schedules(status);
+
+        CREATE TABLE IF NOT EXISTS vesting_releases (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scheduleId INTEGER NOT NULL,
+          amount TEXT NOT NULL,
+          releasedAt DATETIME NOT NULL,
+          txHash TEXT,
+          FOREIGN KEY(scheduleId) REFERENCES vesting_schedules(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_vesting_releases_schedule ON vesting_releases(scheduleId, releasedAt DESC);
+
+        -- #986: Enhanced audit logging with immutable hash-chain
+        CREATE TABLE IF NOT EXISTS audit_chain (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          contractId TEXT NOT NULL,
+          action TEXT NOT NULL,
+          user TEXT NOT NULL,
+          details TEXT NOT NULL,
+          category TEXT NOT NULL DEFAULT 'admin_action' CHECK(category IN ('admin_action', 'transaction', 'configuration', 'dispute', 'access')),
+          severity TEXT NOT NULL DEFAULT 'info' CHECK(severity IN ('info', 'warning', 'critical')),
+          ipAddress TEXT,
+          userAgent TEXT,
+          timestamp DATETIME NOT NULL,
+          previousHash TEXT,
+          entryHash TEXT NOT NULL UNIQUE
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_chain_contract ON audit_chain(contractId, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_chain_user ON audit_chain(user, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_chain_action ON audit_chain(action);
+        CREATE INDEX IF NOT EXISTS idx_audit_chain_category ON audit_chain(category, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_chain_severity ON audit_chain(severity, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_chain_hash ON audit_chain(entryHash);
+      `,
+    },
   ];
 
   const applied = db
