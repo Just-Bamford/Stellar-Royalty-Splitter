@@ -1,0 +1,50 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches:
+      - dev
+
+jobs:
+  validate-pr:
+    name: Validate PR Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Ensure PR body is not empty
+          if [[ -z "$PR_BODY" || "$PR_BODY" =~ ^[[:space:]]*$ ]]; then
+            echo "::error::PR description is required"
+            exit 1
+          fi
+
+          # Check for linked issue
+          if [[ ! "$PR_BODY" =~ (Fixes|Closes|Resolves|Related\ to)\s#[0-9]+ ]]; then
+            echo "::warning::Consider linking an issue (e.g., 'Fixes #123')"
+          fi
+
+          # Validate required sections
+          for section in "## Summary" "## Changes" "## Checklist"; do
+            if [[ ! "$PR_BODY" =~ $section ]]; then
+              echo "::error::Missing required section: $section"
+              exit 1
+            fi
+          done
+
+          # Check for contract upgrade details
+          if [[ "$PR_BODY" =~ [Cc]ontract\ [Uu]pgrade ]]; then
+            for section in "### Network" "### New Contract" "### Upgrade Governance"; do
+              if [[ ! "$PR_BODY" =~ "$section" ]]; then
+                echo "::error::Contract upgrade PR missing: $section"
+                exit 1
+              fi
+            done
+          fi
+
+          echo "✅ PR validation passed"
