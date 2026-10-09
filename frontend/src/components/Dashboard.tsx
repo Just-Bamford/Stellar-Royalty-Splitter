@@ -33,9 +33,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const { settings } = useSettings();
   const [allTime, setAllTime] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>({
-    start: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0],
+    start: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     end: new Date().toISOString().split("T")[0],
   });
   const [sortBy, setSortBy] = useState<"revenue" | "transactions" | "name">("revenue");
@@ -59,14 +57,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     isLoading: performanceLoading,
     error: performanceErr,
     refetch: refetchPerformance,
-  } = useContractPerformance(
-    activeDateRange,
-    { sortBy, direction: sortDirection, limit: 100 },
-  );
+  } = useContractPerformance(activeDateRange, { sortBy, direction: sortDirection, limit: 100 });
 
   const stats = analyticsResponse?.success ? analyticsResponse.data : null;
-  const error = analyticsError ? (analyticsError as Error).message || "Error loading analytics data" : null;
-  const performanceError = performanceErr ? (performanceErr as Error).message || "Error loading contract performance data" : null;
+  const error = analyticsError
+    ? (analyticsError as Error).message || "Error loading analytics data"
+    : null;
+  const performanceError = performanceErr
+    ? (performanceErr as Error).message || "Error loading contract performance data"
+    : null;
 
   const performanceData =
     performanceResponse?.success && performanceResponse.data?.contracts
@@ -79,11 +78,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
             sortBy,
             direction: sortDirection,
             limit: 100,
-          },
+          }
         )
       : null;
 
-  const chartData = useChartData(stats, chartRange);
+  const chartData = useChartData(chartRange);
 
   const handleSelectContract = (contractId: string, event?: React.MouseEvent) => {
     if (event?.shiftKey) {
@@ -104,9 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
       if (selectedContracts.size === performanceData.contracts.length) {
         setSelectedContracts(new Set());
       } else {
-        setSelectedContracts(
-          new Set(performanceData.contracts.map((c) => c.contractId))
-        );
+        setSelectedContracts(new Set(performanceData.contracts.map((c) => c.contractId)));
       }
     }
   };
@@ -134,12 +131,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     );
     const csv = [
       ["Contract ID", "Revenue", "Transactions", "Status"],
-      ...(selectedData?.map((c) => [
-        c.contractId,
-        c.revenue,
-        c.transactions,
-        c.status,
-      ]) || []),
+      ...(selectedData?.map((c) => [c.contractId, c.revenue, c.transactions, c.status]) || []),
     ]
       .map((row) => row.join(","))
       .join("\n");
@@ -194,8 +186,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
       />
 
       {isLoading && <DashboardSkeleton />}
-      {error && <div className="error-message" role="alert">{error}</div>}
-      {performanceError && <div className="error-message" role="alert">{performanceError}</div>}
+      {error && (
+        <div className="error-message" role="alert">
+          {error}
+        </div>
+      )}
+      {performanceError && (
+        <div className="error-message" role="alert">
+          {performanceError}
+        </div>
+      )}
 
       {/* ── Advanced Visualizations ── */}
       {!isLoading && chartData && (
@@ -220,17 +220,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
           </div>
 
           <div className="charts-grid">
-            <ChartCard title="Real-time Earnings" subtitle="Cumulative earnings over time" exportName="earnings-area">
-              <EarningsAreaChart data={chartData.earningsSeries} currency={settings.displayCurrency} />
+            <ChartCard
+              title="Real-time Earnings"
+              subtitle="Cumulative earnings over time"
+              exportName="earnings-area"
+            >
+              <EarningsAreaChart
+                data={chartData.data.earnings}
+                currency={settings.displayCurrency}
+              />
             </ChartCard>
-            <ChartCard title="Collaborator Breakdown" subtitle="Earnings distribution by collaborator" exportName="collaborator-donut">
-              <CollaboratorDonutChart data={chartData.collaboratorBreakdown} currency={settings.displayCurrency} />
+            <ChartCard
+              title="Collaborator Breakdown"
+              subtitle="Earnings distribution by collaborator"
+              exportName="collaborator-donut"
+            >
+              <CollaboratorDonutChart
+                data={chartData.data.collaborators}
+                currency={settings.displayCurrency}
+              />
             </ChartCard>
-            <ChartCard title="Distribution Over Time" subtitle="Payouts with moving average" exportName="time-series">
-              <TimeSeriesChart data={chartData.timeSeries} currency={settings.displayCurrency} />
+            <ChartCard
+              title="Distribution Over Time"
+              subtitle="Payouts with moving average"
+              exportName="time-series"
+            >
+              <TimeSeriesChart
+                data={chartData.data.timeSeries}
+                currency={settings.displayCurrency}
+              />
             </ChartCard>
-            <ChartCard title="Peak Earning Times" subtitle="Earnings by day-of-week and hour" exportName="earnings-heatmap">
-              <EarningsHeatmap data={chartData.heatmap} currency={settings.displayCurrency} />
+            <ChartCard
+              title="Peak Earning Times"
+              subtitle="Earnings by day-of-week and hour"
+              exportName="earnings-heatmap"
+            >
+              <EarningsHeatmap data={chartData.data.heatmap} currency={settings.displayCurrency} />
             </ChartCard>
           </div>
         </section>
@@ -256,13 +281,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                     return sum + (contract?.transactions || 0);
                   }, 0)
                 : performanceData.transactionsThisMonth,
-              averagePayout: performanceData.totalRevenue / Math.max(performanceData.transactionsThisMonth, 1),
-              collaboratorCount: showAggregated ? selectedContracts.size : performanceData.activeContracts,
+              averagePayout:
+                performanceData.totalRevenue / Math.max(performanceData.transactionsThisMonth, 1),
+              collaboratorCount: showAggregated
+                ? selectedContracts.size
+                : performanceData.activeContracts,
             }}
             displayCurrency={settings.displayCurrency}
             labels={{
               totalDistributed: showAggregated ? "Selected Revenue" : "Total Revenue",
-              totalTransactions: showAggregated ? "Selected Transactions" : "Transactions This Month",
+              totalTransactions: showAggregated
+                ? "Selected Transactions"
+                : "Transactions This Month",
               collaboratorCount: showAggregated ? "Selected Contracts" : "Active Contracts",
             }}
           />
@@ -302,10 +332,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                       />
                     </th>
                     <th scope="col">Contract ID</th>
-                    <th scope="col" className="text-right">Revenue</th>
-                    <th scope="col" className="text-right">Transactions</th>
-                    <th scope="col" className="text-right">Last Activity</th>
-                    <th scope="col" className="text-right">Status</th>
+                    <th scope="col" className="text-right">
+                      Revenue
+                    </th>
+                    <th scope="col" className="text-right">
+                      Transactions
+                    </th>
+                    <th scope="col" className="text-right">
+                      Last Activity
+                    </th>
+                    <th scope="col" className="text-right">
+                      Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -321,9 +359,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             <input
                               type="checkbox"
                               checked={selectedContracts.has(contract.contractId)}
-                              onChange={(e) =>
-                                handleSelectContract(contract.contractId, e as any)
-                              }
+                              onChange={(e) => handleSelectContract(contract.contractId, e as any)}
                               aria-label={`Select contract ${formatContractId(contract.contractId)}`}
                             />
                           </td>
@@ -337,7 +373,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             </span>
                           </td>
                           <td className="text-right" data-label="Revenue">
-                            {formatcurrency(contract.revenue, settings.displayCurrency)}
+                            {formatCurrency(contract.revenue, settings.displayCurrency)}
                           </td>
                           <td className="text-right" data-label="Transactions">
                             {formatNumber(contract.transactions)}
@@ -375,10 +411,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
             Top Earners & Collaborators
           </h2>
           <div className="dashboard-two-col">
-            <TopEarners
-              earners={stats.topEarners || []}
-              currency={settings.displayCurrency}
-            />
+            <TopEarners earners={stats.topEarners || []} currency={settings.displayCurrency} />
             <CollaboratorList
               collaborators={stats.collaborators || []}
               currency={settings.displayCurrency}

@@ -15,10 +15,20 @@ export function ComplianceReporting() {
   const [country, setCountry] = useState("");
   const [format, setFormat] = useState<"json" | "csv">("json");
   const [download, setDownload] = useState(false);
-  const [distributions, setDistributions] = useState<Array<{ amountXlm: number; timestamp: string; txHash: string }>>([]);
+  const [distributions, setDistributions] = useState<
+    Array<{ amountXlm: number; timestamp: string; txHash: string }>
+  >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<{
+    reportId?: number;
+    verified?: boolean;
+    calculatedTotal?: string;
+    storedTotal?: string;
+    difference?: string;
+    tolerance?: string;
+    checkedAt?: string;
+  } | null>(null);
   const [auditTrail, setAuditTrail] = useState<Array<Record<string, unknown>>>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
@@ -220,12 +230,48 @@ export function ComplianceReporting() {
 
   const reportTypes = [
     { id: "csv", label: "CSV Export", needsWallet: false, needsDates: false, adminOnly: false },
-    { id: "form-8949", label: "Form 8949 (IRS)", needsWallet: true, needsDates: false, adminOnly: false },
-    { id: "turbotax", label: "TurboTax Import", needsWallet: true, needsDates: false, adminOnly: false },
-    { id: "ledger", label: "Generic Ledger", needsWallet: false, needsDates: true, adminOnly: false },
-    { id: "export", label: "Full Compliance Export", needsWallet: false, needsDates: false, adminOnly: true },
-    { id: "sec-form-d", label: "SEC Form D", needsWallet: true, needsDates: false, adminOnly: true },
-    { id: "finra-trace", label: "FINRA TRACE", needsWallet: false, needsDates: true, adminOnly: true },
+    {
+      id: "form-8949",
+      label: "Form 8949 (IRS)",
+      needsWallet: true,
+      needsDates: false,
+      adminOnly: false,
+    },
+    {
+      id: "turbotax",
+      label: "TurboTax Import",
+      needsWallet: true,
+      needsDates: false,
+      adminOnly: false,
+    },
+    {
+      id: "ledger",
+      label: "Generic Ledger",
+      needsWallet: false,
+      needsDates: true,
+      adminOnly: false,
+    },
+    {
+      id: "export",
+      label: "Full Compliance Export",
+      needsWallet: false,
+      needsDates: false,
+      adminOnly: true,
+    },
+    {
+      id: "sec-form-d",
+      label: "SEC Form D",
+      needsWallet: true,
+      needsDates: false,
+      adminOnly: true,
+    },
+    {
+      id: "finra-trace",
+      label: "FINRA TRACE",
+      needsWallet: false,
+      needsDates: true,
+      adminOnly: true,
+    },
   ] as const;
 
   return (
@@ -285,7 +331,9 @@ export function ComplianceReporting() {
                 <input
                   type="number"
                   value={taxYear}
-                  onChange={(e) => setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)}
+                  onChange={(e) =>
+                    setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)
+                  }
                   min={2020}
                   max={new Date().getFullYear()}
                 />
@@ -354,7 +402,10 @@ export function ComplianceReporting() {
               {["ledger", "export"].includes(reportType) && (
                 <div className="form-field">
                   <label>Format</label>
-                  <select value={format} onChange={(e) => setFormat(e.target.value as "json" | "csv")}>
+                  <select
+                    value={format}
+                    onChange={(e) => setFormat(e.target.value as "json" | "csv")}
+                  >
                     <option value="json">JSON</option>
                     <option value="csv">CSV</option>
                   </select>
@@ -397,7 +448,9 @@ export function ComplianceReporting() {
                             type="number"
                             step="0.0000001"
                             value={d.amountXlm}
-                            onChange={(e) => updateDistribution(i, "amountXlm", parseFloat(e.target.value) || 0)}
+                            onChange={(e) =>
+                              updateDistribution(i, "amountXlm", parseFloat(e.target.value) || 0)
+                            }
                             placeholder="0"
                           />
                         </td>
@@ -417,13 +470,17 @@ export function ComplianceReporting() {
                           />
                         </td>
                         <td>
-                          <button className="remove-btn" onClick={() => removeDistribution(i)}>Remove</button>
+                          <button className="remove-btn" onClick={() => removeDistribution(i)}>
+                            Remove
+                          </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <button className="add-dist-btn" onClick={addDistribution}>+ Add Distribution</button>
+                <button className="add-dist-btn" onClick={addDistribution}>
+                  + Add Distribution
+                </button>
               </div>
             </div>
           )}
@@ -470,11 +527,7 @@ export function ComplianceReporting() {
               </div>
               <div className="form-field">
                 <label>End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
             </div>
             <button onClick={loadAuditTrail} disabled={auditLoading}>
@@ -502,11 +555,23 @@ export function ComplianceReporting() {
                     <tr key={i}>
                       <td>{report.id}</td>
                       <td>{report.type}</td>
-                      <td>{report.periodStart} to {report.periodEnd}</td>
+                      <td>
+                        {report.periodStart} to {report.periodEnd}
+                      </td>
                       <td>{report.contractId}</td>
-                      <td><span className={`status-badge ${report.status}`}>{report.status}</span></td>
-                      <td>{report.createdAt ? new Date(report.createdAt as string).toLocaleString() : "-"}</td>
-                      <td>{report.completedAt ? new Date(report.completedAt as string).toLocaleString() : "-"}</td>
+                      <td>
+                        <span className={`status-badge ${report.status}`}>{report.status}</span>
+                      </td>
+                      <td>
+                        {report.createdAt
+                          ? new Date(report.createdAt as string).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td>
+                        {report.completedAt
+                          ? new Date(report.completedAt as string).toLocaleString()
+                          : "-"}
+                      </td>
                       <td>{(report.emailedTo as string[])?.join(", ") || "-"}</td>
                     </tr>
                   ))}
@@ -531,7 +596,9 @@ export function ComplianceReporting() {
                 <input
                   type="number"
                   value={result?.reportId || ""}
-                  onChange={(e) => setResult({ ...(result || {}), reportId: parseInt(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setResult({ ...(result || {}), reportId: parseInt(e.target.value) || 0 })
+                  }
                   placeholder="Enter report ID"
                 />
               </div>
@@ -550,7 +617,9 @@ export function ComplianceReporting() {
                 <input
                   type="number"
                   value={taxYear}
-                  onChange={(e) => setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)}
+                  onChange={(e) =>
+                    setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)
+                  }
                   min={2020}
                   max={new Date().getFullYear()}
                 />
@@ -564,7 +633,9 @@ export function ComplianceReporting() {
 
             {result && result.verified !== undefined && !loading && (
               <div className={`verification-result ${result.verified ? "verified" : "mismatch"}`}>
-                <h5>{result.verified ? "✓ Verified - Report is Accurate" : "✗ Mismatch Detected"}</h5>
+                <h5>
+                  {result.verified ? "✓ Verified - Report is Accurate" : "✗ Mismatch Detected"}
+                </h5>
                 <div className="verification-details">
                   <p>Calculated Total: ${result.calculatedTotal}</p>
                   <p>Stored Total: ${result.storedTotal}</p>

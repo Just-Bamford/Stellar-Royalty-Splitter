@@ -20,15 +20,15 @@ export const CoinbasePayment: React.FC<CoinbasePaymentProps> = ({
   const handlePayment = async () => {
     setLoading(true);
     try {
-      const response = await api.post("/payments/coinbase/create", {
-        amount,
-        currency,
-      });
+      const response = await api.post<{ charge?: { hosted_url: string; id: string } }>(
+        "/payments/coinbase/create",
+        { amount, currency }
+      );
 
-      if (response.charge?.hosted_url) {
-        setChargeUrl(response.charge.hosted_url);
-        window.open(response.charge.hosted_url, "_blank");
-        onSuccess?.(response.charge.id);
+      if ((response as any).charge?.hosted_url) {
+        setChargeUrl((response as any).charge.hosted_url);
+        window.open((response as any).charge.hosted_url, "_blank");
+        onSuccess?.((response as any).charge.id);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Payment failed";
@@ -40,11 +40,7 @@ export const CoinbasePayment: React.FC<CoinbasePaymentProps> = ({
 
   return (
     <div className="coinbase-payment">
-      <button
-        onClick={handlePayment}
-        disabled={loading}
-        className="btn-primary"
-      >
+      <button onClick={handlePayment} disabled={loading} className="btn-primary">
         {loading ? "Processing..." : `Pay ${amount} ${currency} with Coinbase`}
       </button>
       {chargeUrl && (
