@@ -1,19 +1,22 @@
 # Tax Optimization & DeFi Strategy Recommendations
 
-> Backend engine for issue #1040. Values are numbers in a single unit (e.g. US
-> cents); the engine never mixes assets. Guidance only — not filing software.
+> **Status:** Aspirational / Future Work — This documents planned features for issue #1040.
+> Backend services (`tax-optimizer.js`, `defi-strategies.js`) are not yet implemented.
+>
+> Values are numbers in a single unit (e.g. US cents); the engine never mixes assets.
+> Guidance only — not filing software.
 
 ## Tax optimizer (`backend/src/services/tax-optimizer.js`)
 
-| Function | Purpose |
-| --- | --- |
-| `holdingPeriodDays(acquiredAt, disposedAt)` | Whole days held |
-| `isLongTerm(acquiredAt, disposedAt)` | Long-term when held **> 365 days** (366+) |
-| `computeGain({ proceeds, costBasis })` | Realised gain (positive) / loss (negative) |
-| `classifyDisposal(disposal)` | `{ gain, term, holdingDays }` |
-| `detectWashSales({ sales, purchases })` | Loss sales with a same-asset purchase within **±30 days** |
-| `estimateTaxLiability(disposals, { rates, washSales })` | Short/long breakdown + tax, adding disallowed losses back |
-| `recommendWithdrawalTiming(holdings, { asOf, rates, purchases })` | Per-position timing action, sorted by savings |
+| Function                                                          | Purpose                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------- |
+| `holdingPeriodDays(acquiredAt, disposedAt)`                       | Whole days held                                           |
+| `isLongTerm(acquiredAt, disposedAt)`                              | Long-term when held **> 365 days** (366+)                 |
+| `computeGain({ proceeds, costBasis })`                            | Realised gain (positive) / loss (negative)                |
+| `classifyDisposal(disposal)`                                      | `{ gain, term, holdingDays }`                             |
+| `detectWashSales({ sales, purchases })`                           | Loss sales with a same-asset purchase within **±30 days** |
+| `estimateTaxLiability(disposals, { rates, washSales })`           | Short/long breakdown + tax, adding disallowed losses back |
+| `recommendWithdrawalTiming(holdings, { asOf, rates, purchases })` | Per-position timing action, sorted by savings             |
 
 ### Decision order
 
