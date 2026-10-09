@@ -987,6 +987,49 @@ export const api = {
     get<{ success: boolean; data: WebhookDeliveryStats }>(
       `/v1/webhooks/${contractId}/delivery-stats`
     ),
+
+  // Feature Flag APIs
+  listFeatureFlags: () => get<{ success: boolean; data: FeatureFlag[] }>("/v1/feature-flags"),
+
+  createFeatureFlag: (body: {
+    name: string;
+    description?: string;
+    enabled?: boolean;
+    rolloutPercentage?: number;
+  }) => post<{ success: boolean; data: FeatureFlag }>("/v1/feature-flags", body),
+
+  updateFeatureFlag: (id: number, body: Partial<FeatureFlag>) =>
+    patch<{ success: boolean; data: FeatureFlag }>(`/v1/feature-flags/${id}`, body),
+
+  rollbackFeatureFlag: (id: number) =>
+    post<{ success: boolean; data: FeatureFlag }>(`/v1/feature-flags/${id}/rollback`, {}),
+
+  setFeatureFlagRollout: (id: number, percentage: number) =>
+    patch<{ success: boolean; data: FeatureFlag }>(`/v1/feature-flags/${id}/rollout`, {
+      rolloutPercentage: percentage,
+    }),
+
+  addFeatureFlagRule: (
+    flagId: number,
+    body: { ruleType: string; value: string; enabled: boolean }
+  ) => post<{ success: boolean; data: FeatureFlagRule }>(`/v1/feature-flags/${flagId}/rules`, body),
+
+  removeFeatureFlagRule: (flagId: number, ruleId: number) =>
+    del<{ success: boolean }>(`/v1/feature-flags/${flagId}/rules/${ruleId}`),
+
+  getFeatureFlagMetrics: (flagId: number) =>
+    get<{ success: boolean; data: FeatureFlagHealth }>(`/v1/feature-flags/${flagId}/metrics`),
+
+  getFeatureFlagHistory: (flagId: number) =>
+    get<{ success: boolean; data: FeatureFlagHistoryEntry[] }>(
+      `/v1/feature-flags/${flagId}/history`
+    ),
+
+  monitorFeatureFlag: (flagId: number) =>
+    get<{ success: boolean; data: FeatureFlagHealth }>(`/v1/feature-flags/${flagId}/monitor`),
+
+  getPartnerAnalytics: (partnerId: string) =>
+    get<{ success: boolean; data: PartnerAnalytics }>(`/v1/partners/${partnerId}/analytics`),
 };
 
 // Partner Analytics types (stub for now - backend endpoints TBD)
@@ -998,6 +1041,14 @@ export interface PartnerAnalytics {
   tiers: PartnerPricingTier[];
   createdAt: string;
   updatedAt: string;
+  overview?: {
+    usageOverTime?: unknown[];
+    topEndpoints?: PartnerEndpointStat[];
+    errorRates?: unknown[];
+  };
+  usageOverTime?: unknown[];
+  topEndpoints?: PartnerEndpointStat[];
+  errorRates?: unknown[];
 }
 
 export interface PartnerEndpointStat {
@@ -1005,12 +1056,27 @@ export interface PartnerEndpointStat {
   calls: number;
   avgLatency: number;
   errors: number;
+  method?: string;
+  errorRate?: number;
+  avgDurationMs?: number;
 }
 
 export interface PartnerRevenue {
   total: number;
   thisMonth: number;
   lastMonth: number;
+  partnerId?: string;
+  partnerName?: string;
+  tier?: string;
+  negotiated?: boolean;
+  activeKeys?: number;
+  keys?: number;
+  calls?: number;
+  baseCents?: number;
+  overageCalls?: number;
+  overageCents?: number;
+  totalCents?: number;
+  partners?: PartnerRevenue[];
 }
 
 export interface PartnerPricingTier {
@@ -1018,6 +1084,13 @@ export interface PartnerPricingTier {
   rate: number;
   minCalls: number;
   maxCalls: number | null;
+  tier?: string;
+  label?: string;
+  monthlyPriceCents?: number;
+  dailyLimit?: number;
+  monthlyLimit?: number;
+  overageUnitPriceCents?: number;
+  description?: string;
 }
 
 export interface CarbonDayEntry {

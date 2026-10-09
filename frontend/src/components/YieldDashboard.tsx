@@ -14,11 +14,9 @@ export const YieldDashboard: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [apyData, balanceData] = await Promise.all([
-        api.get("/yield/compound/apy"),
-        api.get("/yield/compound/balance"),
-      ]);
-      setApy(apyData.apy);
+      const apyData = await api.get<{ apy: number }>("/yield/compound/apy");
+      const balanceData = await api.get("/yield/compound/balance");
+      setApy((apyData as any).apy);
       setBalance(balanceData);
     } catch (error) {
       console.error("Failed to load yield data", error);

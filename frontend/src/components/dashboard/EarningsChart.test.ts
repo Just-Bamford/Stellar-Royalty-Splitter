@@ -5,7 +5,7 @@
  * EarningsChart applies when rendering the recharts LineChart.
  */
 
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import { formatCurrency } from "../../utils/format";
 import type { TrendPoint } from "./EarningsChart";
 

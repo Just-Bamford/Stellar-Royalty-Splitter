@@ -39,8 +39,7 @@ describe("computeNetworkMismatch #663", () => {
 });
 
 function TestConsumer() {
-  const { network, walletNetworkName, networkMismatch, setNetwork } =
-    useNetwork();
+  const { network, walletNetworkName, networkMismatch, setNetwork } = useNetwork();
   return (
     <div>
       <span data-testid="app-network">{network}</span>
@@ -54,8 +53,8 @@ function TestConsumer() {
 describe("NetworkProvider integration #663", () => {
   afterEach(() => {
     cleanup();
-    // @ts-expect-error test-only cleanup of the injected wallet mock
-    delete window.freighter;
+    // Delete the injected wallet mock for next test
+    (window as any).freighter = undefined;
     localStorage.clear();
   });
 
@@ -63,7 +62,7 @@ describe("NetworkProvider integration #663", () => {
     render(
       <NetworkProvider>
         <TestConsumer />
-      </NetworkProvider>,
+      </NetworkProvider>
     );
 
     await waitFor(() => {
@@ -80,7 +79,7 @@ describe("NetworkProvider integration #663", () => {
     render(
       <NetworkProvider>
         <TestConsumer />
-      </NetworkProvider>,
+      </NetworkProvider>
     );
 
     await waitFor(() => {
@@ -97,7 +96,7 @@ describe("NetworkProvider integration #663", () => {
     render(
       <NetworkProvider>
         <TestConsumer />
-      </NetworkProvider>,
+      </NetworkProvider>
     );
 
     await waitFor(() => {
@@ -114,7 +113,7 @@ describe("NetworkProvider integration #663", () => {
     render(
       <NetworkProvider>
         <TestConsumer />
-      </NetworkProvider>,
+      </NetworkProvider>
     );
 
     await waitFor(() => {
@@ -139,7 +138,7 @@ describe("NetworkProvider integration #663", () => {
     render(
       <NetworkProvider>
         <TestConsumer />
-      </NetworkProvider>,
+      </NetworkProvider>
     );
 
     await waitFor(() => {
@@ -157,7 +156,7 @@ describe("NetworkProvider integration #663", () => {
     render(
       <NetworkProvider>
         <TestConsumer />
-      </NetworkProvider>,
+      </NetworkProvider>
     );
 
     await waitFor(() => {

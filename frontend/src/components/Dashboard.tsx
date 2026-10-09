@@ -411,10 +411,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
             Top Earners & Collaborators
           </h2>
           <div className="dashboard-two-col">
-            <TopEarners earners={stats.topEarners || []} currency={settings.displayCurrency} />
+            <TopEarners
+              earners={stats.topEarners || []}
+              totalDistributed={stats.totalDistributed || 0}
+              displayCurrency={settings.displayCurrency}
+            />
             <CollaboratorList
-              collaborators={stats.collaborators || []}
-              currency={settings.displayCurrency}
+              collaborators={stats.collaboratorStats || []}
+              displayCurrency={settings.displayCurrency}
             />
           </div>
         </section>

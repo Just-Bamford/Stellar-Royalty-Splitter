@@ -39,8 +39,8 @@ export function FeatureFlagManager() {
     setLoading(true);
     setError(null);
     try {
-      const { flags: fetched } = await api.listFeatureFlags();
-      setFlags(fetched);
+      const response = await api.listFeatureFlags();
+      setFlags(response.data || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load feature flags");
     } finally {
@@ -76,7 +76,7 @@ export function FeatureFlagManager() {
     await run(async () => {
       await api.createFeatureFlag({
         name: newName.trim(),
-        description: newDescription.trim() || null,
+        description: newDescription.trim() || undefined,
       });
       setNewName("");
       setNewDescription("");
@@ -88,25 +88,26 @@ export function FeatureFlagManager() {
     setHealth(null);
     setHistory([]);
     try {
-      const [healthData, historyData] = await Promise.all([
-        api.getFeatureFlagMetrics(name),
-        api.getFeatureFlagHistory(name),
-      ]);
-      setHealth(healthData);
-      setHistory(historyData.history);
+      // Get flagId from expanded flag
+      const flag = flags.find((f) => String(f.id) === name);
+      if (!flag) return;
+      const healthData = await api.getFeatureFlagMetrics(flag.id);
+      const historyData = await api.getFeatureFlagHistory(flag.id);
+      setHealth(healthData.data);
+      setHistory(historyData.data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load flag details");
     }
   }
 
-  async function handleAddRule(name: string) {
+  async function handleAddRule(flagId: number) {
     if (!ruleValue.trim()) {
       setError("Rule value is required");
       return;
     }
     await run(
-      () => api.addFeatureFlagRule(name, { ruleType, value: ruleValue.trim(), enabled: true }),
-      "Targeting rule added",
+      () => api.addFeatureFlagRule(flagId, { ruleType, value: ruleValue.trim(), enabled: true }),
+      "Targeting rule added"
     );
     setRuleValue("");
   }
@@ -184,8 +185,8 @@ export function FeatureFlagManager() {
                     type="button"
                     onClick={() =>
                       run(
-                        () => api.updateFeatureFlag(flag.name, { enabled: !flag.enabled }),
-                        `Flag ${flag.enabled ? "disabled" : "enabled"}`,
+                        () => api.updateFeatureFlag(flag.id, { enabled: !flag.enabled }),
+                        `Flag ${flag.enabled ? "disabled" : "enabled"}`
                       )
                     }
                     disabled={loading}
@@ -196,9 +197,7 @@ export function FeatureFlagManager() {
                   <button
                     type="button"
                     className="ffm-danger"
-                    onClick={() =>
-                      run(() => api.rollbackFeatureFlag(flag.name, "Manual rollback"), "Flag rolled back")
-                    }
+                    onClick={() => run(() => api.rollbackFeatureFlag(flag.id), "Flag rolled back")}
                     disabled={loading}
                     aria-label={`Rollback ${flag.name}`}
                   >
@@ -206,7 +205,7 @@ export function FeatureFlagManager() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => (isExpanded ? setExpanded(null) : openDetails(flag.name))}
+                    onClick={() => (isExpanded ? setExpanded(null) : openDetails(String(flag.id)))}
                     aria-label={`Details for ${flag.name}`}
                   >
                     {isExpanded ? "Hide" : "Details"}
@@ -215,11 +214,9 @@ export function FeatureFlagManager() {
               </div>
 
               <div className="ffm-rollout">
-                <label htmlFor={`ffm-rollout-${flag.name}`}>
-                  Rollout percentage for {flag.name}
-                </label>
+                <label htmlFor={`ffm-rollout-${flag.id}`}>Rollout percentage for {flag.name}</label>
                 <input
-                  id={`ffm-rollout-${flag.name}`}
+                  id={`ffm-rollout-${flag.id}`}
                   type="number"
                   min={0}
                   max={100}
@@ -228,8 +225,8 @@ export function FeatureFlagManager() {
                     const next = Number(e.target.value);
                     if (Number.isFinite(next) && next !== flag.rolloutPercentage) {
                       void run(
-                        () => api.setFeatureFlagRollout(flag.name, next),
-                        `Rollout set to ${next}%`,
+                        () => api.setFeatureFlagRollout(flag.id, next),
+                        `Rollout set to ${next}%`
                       );
                     }
                   }}
@@ -249,10 +246,7 @@ export function FeatureFlagManager() {
                           <button
                             type="button"
                             onClick={() =>
-                              run(
-                                () => api.removeFeatureFlagRule(flag.name, rule.id),
-                                "Rule removed",
-                              )
+                              run(() => api.removeFeatureFlagRule(flag.id, rule.id), "Rule removed")
                             }
                             disabled={loading}
                             aria-label={`Remove rule ${rule.value}`}
@@ -280,7 +274,11 @@ export function FeatureFlagManager() {
                         onChange={(e) => setRuleValue(e.target.value)}
                         placeholder="Wallet, org id, or role"
                       />
-                      <button type="button" onClick={() => handleAddRule(flag.name)} disabled={loading}>
+                      <button
+                        type="button"
+                        onClick={() => handleAddRule(flag.id)}
+                        disabled={loading}
+                      >
                         Add rule
                       </button>
                     </div>
@@ -301,10 +299,7 @@ export function FeatureFlagManager() {
                       <button
                         type="button"
                         onClick={() =>
-                          run(
-                            () => api.monitorFeatureFlag(flag.name),
-                            "Rollout monitored",
-                          )
+                          run(() => api.monitorFeatureFlag(flag.id), "Rollout monitored")
                         }
                         disabled={loading}
                       >

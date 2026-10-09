@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   walletManager,
   type WalletInfo,
   type WalletSession,
   type WalletType,
-} from '../services/wallet-manager';
+} from "../services/wallet-manager";
 
 export interface UseWalletResult {
   address: string | null;
@@ -48,11 +48,10 @@ export const useWallet = (): UseWalletResult => {
     setConnecting(true);
     setError(null);
     try {
-      const result = await walletManager.connect(walletId);
+      await walletManager.connect(walletId);
       setSession(walletManager.getSession());
-      return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to connect wallet.';
+      const message = err instanceof Error ? err.message : "Failed to connect wallet.";
       setError(message);
       throw err;
     } finally {
@@ -66,7 +65,7 @@ export const useWallet = (): UseWalletResult => {
       await walletManager.disconnect();
       setSession(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to disconnect wallet.';
+      const message = err instanceof Error ? err.message : "Failed to disconnect wallet.";
       setError(message);
     } finally {
       setConnecting(false);
@@ -80,7 +79,7 @@ export const useWallet = (): UseWalletResult => {
       await walletManager.switchWallet(walletId);
       setSession(walletManager.getSession());
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to switch wallets.';
+      const message = err instanceof Error ? err.message : "Failed to switch wallets.";
       setError(message);
       throw err;
     } finally {

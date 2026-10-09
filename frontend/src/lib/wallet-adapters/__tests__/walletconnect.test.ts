@@ -22,11 +22,7 @@ vi.mock("@walletconnect/web3-provider", () => {
 
 describe("WalletConnectAdapter (#942)", () => {
   let adapter: WalletConnectAdapter;
-  let mockCallbacks: {
-    onSessionConnect: ReturnType<typeof vi.fn> & ((address: string) => void);
-    onSessionDisconnect: ReturnType<typeof vi.fn> & (() => void);
-    onQRCodeURI: ReturnType<typeof vi.fn> & ((uri: string) => void);
-  };
+  let mockCallbacks: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -88,13 +84,13 @@ describe("WalletConnectAdapter (#942)", () => {
   describe("error handling", () => {
     test("throws error when signing without connection", async () => {
       await expect(adapter.signTransaction("test-xdr")).rejects.toThrow(
-        "WalletConnect: not connected",
+        "WalletConnect: not connected"
       );
     });
 
     test("throws error when signing message without connection", async () => {
       await expect(adapter.signMessage("test-message")).rejects.toThrow(
-        "WalletConnect: not connected",
+        "WalletConnect: not connected"
       );
     });
   });

@@ -415,7 +415,7 @@ export class ABTestingService {
     const metric = exp.metrics.find((m) => m.type === "conversion") ?? exp.metrics[0];
     const higherIsBetter = (metric?.goal ?? "higher") === "higher";
 
-    const score = (s) => {
+    const scoreFunc = (s: VariantStats): number => {
       if (!metric) return s.conversionRate;
       if (metric.type === "revenue") return s.revenuePerUser;
       if (metric.type === "engagement") return s.avgEngagement;
@@ -424,17 +424,17 @@ export class ABTestingService {
 
     const control = exp.variants.find((v) => v.isControl) ?? exp.variants[0];
     const controlStats = stats.find((s) => s.variantId === control.id);
-    const controlScore = controlStats ? score(controlStats) : 0;
+    const controlScore = controlStats ? scoreFunc(controlStats) : 0;
 
     let winnerId: string | null = null;
     let bestScore = controlScore;
     for (const stat of stats) {
       if (stat.variantId === control.id) continue;
-      const score = score(stat);
+      const statScore = scoreFunc(stat);
       const sig = significance.find((s) => s.treatmentVariantId === stat.variantId);
-      const isBetter = higherIsBetter ? score > bestScore : score < bestScore;
+      const isBetter = higherIsBetter ? statScore > bestScore : statScore < bestScore;
       if (sig?.significant && isBetter) {
-        bestScore = score;
+        bestScore = statScore;
         winnerId = stat.variantId;
       }
     }
@@ -478,7 +478,7 @@ export class ABTestingService {
   }
 
   /** Return all events for an experiment. */
-  getEvents(experimentId: string): EventRecord {
+  getEvents(experimentId: string): EventRecord[] {
     return this.events.filter((e) => e.experimentId === experimentId);
   }
 

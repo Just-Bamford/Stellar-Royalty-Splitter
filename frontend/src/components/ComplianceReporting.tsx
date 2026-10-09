@@ -28,8 +28,21 @@ export function ComplianceReporting() {
     difference?: string;
     tolerance?: string;
     checkedAt?: string;
+    downloaded?: boolean;
   } | null>(null);
-  const [auditTrail, setAuditTrail] = useState<Array<Record<string, unknown>>>([]);
+  const [auditTrail, setAuditTrail] = useState<
+    Array<{
+      id?: unknown;
+      type?: unknown;
+      periodStart?: unknown;
+      periodEnd?: unknown;
+      contractId?: unknown;
+      status?: unknown;
+      createdAt?: unknown;
+      completedAt?: unknown;
+      emailedTo?: unknown;
+    }>
+  >([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
   const handleGenerate = async () => {
@@ -553,26 +566,32 @@ export function ComplianceReporting() {
                 <tbody>
                   {auditTrail.map((report, i) => (
                     <tr key={i}>
-                      <td>{report.id}</td>
-                      <td>{report.type}</td>
+                      <td>{String(report.id)}</td>
+                      <td>{String(report.type)}</td>
                       <td>
-                        {report.periodStart} to {report.periodEnd}
+                        {String(report.periodStart)} to {String(report.periodEnd)}
                       </td>
-                      <td>{report.contractId}</td>
+                      <td>{String(report.contractId)}</td>
                       <td>
-                        <span className={`status-badge ${report.status}`}>{report.status}</span>
+                        <span className={`status-badge ${String(report.status)}`}>
+                          {String(report.status)}
+                        </span>
                       </td>
                       <td>
                         {report.createdAt
-                          ? new Date(report.createdAt as string).toLocaleString()
+                          ? new Date(String(report.createdAt)).toLocaleString()
                           : "-"}
                       </td>
                       <td>
                         {report.completedAt
-                          ? new Date(report.completedAt as string).toLocaleString()
+                          ? new Date(String(report.completedAt)).toLocaleString()
                           : "-"}
                       </td>
-                      <td>{(report.emailedTo as string[])?.join(", ") || "-"}</td>
+                      <td>
+                        {Array.isArray(report.emailedTo)
+                          ? report.emailedTo.map(String).join(", ")
+                          : "-"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
