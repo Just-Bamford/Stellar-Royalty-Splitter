@@ -36,3 +36,6 @@ lto = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
+[patch.crates-io]
+ethnum = { git = "https://github.com/nlordell/ethnum-rs", rev = "v1.5.3" }
