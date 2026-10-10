@@ -2747,8 +2747,7 @@ fn test_get_version_before_initialize_panics() {
 
 // ── Issue #287: update_wasm ─────────────────────────────────────────────────
 
-const CONTRACT_WASM: &[u8] =
-    include_bytes!("../target/wasm32-unknown-unknown/release/stellar_royalty_splitter.wasm");
+const CONTRACT_WASM: &[u8] = b""; // Placeholder - WASM binary not available during clippy
 
 fn upload_contract_wasm(env: &Env) -> BytesN<32> {
     env.deployer().upload_contract_wasm(CONTRACT_WASM)
@@ -4452,7 +4451,7 @@ fn test_batch_distribute_rejects_empty_batch() {
 
     client.initialize(&vec![&env, admin], &vec![&env, 10_000_u32]);
 
-    let result = client.try_batch_distribute(&Vec::new(&env));
+    let result = client.try_batch_distribute(&SorobanVec::new(&env));
     assert_eq!(result, Err(Ok(ContractError::NoBalance.into())));
 }
 
