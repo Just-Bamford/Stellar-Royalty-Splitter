@@ -3390,6 +3390,18 @@ fn test_accept_admin_emits_event() {
 }
 
 #[test]
+fn test_admin_transfer_before_initialize_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let new_admin = Address::generate(&env);
+    let result = client.try_admin_transfer(&new_admin);
+
+    assert_eq!(result, Err(Ok(ContractError::NotInitialized.into())));
+}
+
+#[test]
 fn test_admin_transfer_blocked_when_multisig_active() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
