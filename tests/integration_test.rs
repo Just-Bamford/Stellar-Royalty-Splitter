@@ -7346,7 +7346,10 @@ mod linked_pools {
 
         // Trying to withdraw before cooldown fails
         let res = client.try_withdraw_unstaked_gov_tokens(&collab_a);
-        assert!(res.is_err());
+        assert_eq!(
+            res,
+            Err(Ok(ContractError::InitRevealTooEarly.into()))
+        );
 
         // Fast forward past 7 days cooldown (7 * 86,400 = 604,800s)
         env.ledger().with_mut(|l| l.timestamp += 604_801);
