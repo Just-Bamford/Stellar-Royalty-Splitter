@@ -95,3 +95,6 @@ jobs:
 
       - name: Check (contract)
         run: cargo check -p stellar-royalty-splitter
+
+      - name: Run contract tests
+        run: cargo test --features testutils --test integration_test linked_pools::test_governance_tokens_and_staking -- --exact --nocapture
