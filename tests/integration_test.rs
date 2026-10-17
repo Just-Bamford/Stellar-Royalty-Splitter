@@ -6793,7 +6793,9 @@ mod metadata_binding {
     use super::setup;
     use soroban_sdk::testutils::AuthorizedFunction;
     use soroban_sdk::{contract, contractimpl, vec, Address, Env, Symbol};
-    use stellar_royalty_splitter::{ContractError, MetadataBinding, RoyaltySplitterClient, METADATA_CACHE_TTL_SECS};
+    use stellar_royalty_splitter::{
+        ContractError, MetadataBinding, RoyaltySplitterClient, METADATA_CACHE_TTL_SECS,
+    };
 
     /// Stand-in for the external metadata oracle. Returns the configured
     /// per-token override and counts how often it is queried.
