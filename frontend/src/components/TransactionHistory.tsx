@@ -32,11 +32,10 @@ const DEFAULT_FILTERS: HistoryFilters = {
 type SortField = "timestamp" | "amount" | "initiator";
 type SortDirection = "asc" | "desc";
 
-const CATEGORY_OPTIONS: { value: "" | "primary" | "secondary" | "batch"; label: string }[] = [
-  { value: "", label: "All categories" },
-  { value: "primary", label: "Primary" },
-  { value: "secondary", label: "Secondary" },
-  { value: "batch", label: "Batch" },
+const CATEGORY_OPTIONS: { value: "" | "distribute" | "initialize"; label: string }[] = [
+  { value: "", label: "All types" },
+  { value: "distribute", label: "Distribute" },
+  { value: "initialize", label: "Initialize" },
 ];
 
 export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
@@ -71,7 +70,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   // fetched page, on top of the server-side date/type/recipient filters above.
   const [searchQuery, setSearchQuery] = useState("");
   const [tokenFilter, setTokenFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<"" | "primary" | "secondary" | "batch">("");
+  const [categoryFilter, setCategoryFilter] = useState<"" | "distribute" | "initialize">("");
   const [sortField, setSortField] = useState<SortField>("timestamp");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
@@ -173,11 +172,10 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const isBatch = (tx: TransactionRecord) => (tx.payoutCount ?? 0) > 1;
   const isSecondaryTx = (type: string) => type.startsWith("secondary_");
 
-  function matchesCategory(tx: TransactionRecord, category: "" | "primary" | "secondary" | "batch") {
+  function matchesCategory(tx: TransactionRecord, category: "" | "distribute" | "initialize") {
     if (!category) return true;
-    if (category === "batch") return isBatch(tx);
-    if (category === "secondary") return isSecondaryTx(tx.type);
-    return !isSecondaryTx(tx.type);
+    // Match transactions based on their type field from the API
+    return tx.type === category;
   }
 
   function matchesSearch(tx: TransactionRecord, query: string) {

@@ -1,0 +1,26 @@
+name: Validate PR Structure
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+jobs:
+  validate-pr-body:
+    name: Validate PR Description Sections
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required sections
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Use grep instead of =~ regex for portability across bash versions
+          # grep returns 0 if pattern is found, 1 if not found
+          
+          for section in "## Description" "## Changes Made" "## Checklist"; do
+            if ! echo "$PR_BODY" | grep -qF "$section"; then
+              echo "::error::Missing required section: $section"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All required PR sections are present"
