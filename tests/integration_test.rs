@@ -7350,11 +7350,7 @@ mod linked_pools {
 /// Issue #929 — dynamic per-token fee overrides and fee pool withdrawal.
 mod dynamic_fees {
     use super::{make_token, mint, setup};
-    use soroban_sdk::{
-        testutils::Address as _,
-        token::Client as TokenClient,
-        vec, Address, Env,
-    };
+    use soroban_sdk::{testutils::Address as _, token::Client as TokenClient, vec, Address, Env};
     use stellar_royalty_splitter::RoyaltySplitterClient;
 
     /// Initializes a 2-collaborator (60/40) splitter in `env`, mints `funding`
