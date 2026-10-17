@@ -27,7 +27,7 @@ versionRouter.get("/", (_req, res) => {
       supported: SUPPORTED_VERSIONS,
       deprecated,
       sunset: deprecated.length ? deprecated[deprecated.length - 1].sunsetAt : null,
-      documentation: "/api/docs/migration-guide",
+      documentation: "/api/docs",
     },
   });
 });
