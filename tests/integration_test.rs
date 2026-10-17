@@ -7016,7 +7016,6 @@ mod metadata_binding {
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod linked_pools {
-mod linked_pools {
     use super::setup;
     use soroban_sdk::testutils::AuthorizedFunction;
     use soroban_sdk::{vec, Address, Env, Symbol};
