@@ -7560,7 +7560,10 @@ mod dynamic_fees {
 /// Issue #930 — tiered royalty rates by NFT rarity, resale count, and age.
 mod tiered_royalties {
     use super::setup;
-    use soroban_sdk::{vec, Address, Env, String};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        vec, Address, Env, String,
+    };
     use stellar_royalty_splitter::{ContractError, RoyaltySplitterClient, RoyaltyTier};
 
     const RARE_BPS: u32 = 1_000; // 10% base tier rate for "rare"
