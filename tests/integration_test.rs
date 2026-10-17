@@ -7027,7 +7027,7 @@ mod metadata_binding {
 mod linked_pools {
     use super::{make_token, mint, setup};
     use soroban_sdk::{
-        testutils::{Address as _, AuthorizedFunction},
+        testutils::{Address as _, AuthorizedFunction, Ledger},
         token::Client as TokenClient,
         vec, Address, Env, Symbol, Vec as SorobanVec,
     };
