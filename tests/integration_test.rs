@@ -6703,8 +6703,12 @@ fn test_emergency_pause_multisig_threshold_and_signer_validations() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod oracle_caller_history {
-    use super::*;
-    use soroban_sdk::{contract, contractimpl};
+    use super::setup;
+    use soroban_sdk::{
+        contract, contractimpl, symbol_short,
+        testutils::{Address as _, Ledger},
+        vec, Address, Env,
+    };
     use stellar_royalty_splitter::{OracleAsset, OraclePriceData};
 
     /// Stand-in for a SEP-40 price feed. Returns 0 decimals and a fixed price
@@ -6791,8 +6795,11 @@ mod oracle_caller_history {
 
 mod metadata_binding {
     use super::setup;
-    use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::{contract, contractimpl, vec, Address, Env, Symbol};
+    use soroban_sdk::{
+        contract, contractimpl, symbol_short,
+        testutils::{Address as _, AuthorizedFunction, Ledger},
+        vec, Address, Env, Symbol,
+    };
     use stellar_royalty_splitter::{
         ContractError, MetadataBinding, RoyaltySplitterClient, METADATA_CACHE_TTL_SECS,
     };
