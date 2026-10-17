@@ -15,6 +15,9 @@ const CONTRACT_C = "CDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 const buildMock = jest.fn();
 const buildAtomicMock = jest.fn();
 
+const validateContractIdMock = jest.fn();
+const validateStellarAddressMock = jest.fn();
+
 class MockBatchTransactionBuilder {
   constructor(callerAddress) {
     this.callerAddress = callerAddress;
@@ -41,7 +44,6 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   buildTx: buildAtomicMock,
   BatchTransactionBuilder: MockBatchTransactionBuilder,
   pollHorizonTransaction: jest.fn(),
-  buildTx: jest.fn(),
   retryBuildTx: jest.fn(),
   isContractInitialized: jest.fn(),
   bytes32ToScVal: jest.fn((v) => v),
@@ -160,8 +162,8 @@ await jest.unstable_mockModule("../src/validation.js", () => ({
     req.body = result.data;
     next();
   }),
-  validateStellarAddress: jest.fn(() => true),
-  validateContractId: jest.fn(() => true),
+  validateStellarAddress: validateStellarAddressMock,
+  validateContractId: validateContractIdMock,
   validateInitializePayloadSize: jest.fn((req, res, next) => next()),
   validateContractIdMiddleware: jest.fn((req, res, next) => next()),
   parsePagination: jest.fn((query) => ({ limit: 50, offset: 0 })),
@@ -184,6 +186,9 @@ describe("POST /api/v1/batch-distribute — integration", () => {
     jest.clearAllMocks();
     jest.setTimeout(120000); // Increase timeout for all batch-distribute tests
     transactionCounter = 0;
+
+    validateContractIdMock.mockReturnValue(true);
+    validateStellarAddressMock.mockReturnValue(true);
   });
 
   test("happy path — builds an XDR per operation and reports success", async () => {
@@ -310,13 +315,54 @@ describe("POST /api/v1/batch-distribute — integration", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.xdr).toBe("ATOMIC_BATCH_XDR");
-    expect(buildAtomicMock).toHaveBeenCalledWith(
-      WALLET,
-      CONTRACT_A,
-      "batch_distribute",
-      [[TOKEN, CONTRACT_B]],
-    );
+    expect(buildAtomicMock).toHaveBeenCalledWith(WALLET, CONTRACT_A, "batch_distribute", [
+      [TOKEN, CONTRACT_B],
+    ]);
     expect(res.body.estimate).toMatchObject({ claimCount: 2, batchingRecommended: true });
+  });
+
+  test("rejects an invalid contractId before building an atomic batch", async () => {
+    validateContractIdMock.mockImplementation((_contractId, res) => {
+      res.status(400).json({
+        error: "Invalid contract ID format",
+      });
+      return false;
+    });
+
+    const res = await request(app)
+      .post("/api/v1/batch-distribute/tokens")
+      .send({
+        contractId: "not-a-contract",
+        walletAddress: WALLET,
+        tokens: [TOKEN],
+      });
+
+    expect(res.status).toBe(400);
+    expect(validateContractIdMock).toHaveBeenCalledWith("not-a-contract", expect.anything());
+    expect(buildAtomicMock).not.toHaveBeenCalled();
+    expect(recordTransaction).not.toHaveBeenCalled();
+  });
+
+  test("rejects an invalid walletAddress before building an atomic batch", async () => {
+    validateStellarAddressMock.mockImplementation((_walletAddress, res) => {
+      res.status(400).json({
+        error: "Invalid Stellar address format",
+      });
+      return false;
+    });
+
+    const res = await request(app)
+      .post("/api/v1/batch-distribute/tokens")
+      .send({
+        contractId: CONTRACT_A,
+        walletAddress: "not-a-wallet",
+        tokens: [TOKEN],
+      });
+
+    expect(res.status).toBe(400);
+    expect(validateStellarAddressMock).toHaveBeenCalledWith("not-a-wallet", expect.anything());
+    expect(buildAtomicMock).not.toHaveBeenCalled();
+    expect(recordTransaction).not.toHaveBeenCalled();
   });
 
   test("rejects duplicate tokens before building an atomic batch", async () => {
