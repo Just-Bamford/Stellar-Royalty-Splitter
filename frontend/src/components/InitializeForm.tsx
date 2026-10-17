@@ -37,7 +37,7 @@ interface Props {
   onSuccess: () => void;
 }
 
-const MAX_COLLABORATORS = 50;
+const MAX_COLLABORATORS = 10;
 const PERCENTAGE_INPUT_RE = /^(\d+(\.\d*)?|\.\d+)?$/;
 const PERCENTAGE_NAVIGATION_KEYS = [
   "Backspace",
