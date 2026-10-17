@@ -7810,8 +7810,12 @@ mod tiered_royalties {
 
 /// Issue #931 — cliff and linear vesting schedules for collaborator shares.
 mod vesting {
-    use super::setup;
-    use soroban_sdk::{vec, Address, Env};
+    use super::{make_token, mint, setup};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        token::Client as TokenClient,
+        vec, Address, Env,
+    };
     use stellar_royalty_splitter::{ContractError, RoyaltySplitterClient};
 
     const DAY: u64 = 86_400;
