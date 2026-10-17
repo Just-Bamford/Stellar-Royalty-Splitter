@@ -6792,7 +6792,7 @@ mod oracle_caller_history {
 mod metadata_binding {
     use super::*;
     use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::{contract, contractimpl, Symbol};
+    use soroban_sdk::{contract, contractimpl, vec, Symbol};
     use stellar_royalty_splitter::{MetadataBinding, METADATA_CACHE_TTL_SECS};
 
     /// Stand-in for the external metadata oracle. Returns the configured
@@ -7018,7 +7018,7 @@ mod metadata_binding {
 mod linked_pools {
     use super::*;
     use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::Symbol;
+    use soroban_sdk::{vec, Symbol};
     use stellar_royalty_splitter::{LinkedPool, MAX_LINKED_POOLS};
 
     /// Registers and initializes a splitter with the given collaborator shares.
@@ -7348,6 +7348,7 @@ mod linked_pools {
 /// Issue #929 — dynamic per-token fee overrides and fee pool withdrawal.
 mod dynamic_fees {
     use super::*;
+    use soroban_sdk::vec;
 
     /// Initializes a 2-collaborator (60/40) splitter in `env`, mints `funding`
     /// of a fresh token to it, and sets the default royalty rate to
@@ -7556,6 +7557,7 @@ mod dynamic_fees {
 /// Issue #930 — tiered royalty rates by NFT rarity, resale count, and age.
 mod tiered_royalties {
     use super::*;
+    use soroban_sdk::vec;
     use stellar_royalty_splitter::RoyaltyTier;
 
     const RARE_BPS: u32 = 1_000; // 10% base tier rate for "rare"
@@ -7806,6 +7808,7 @@ mod tiered_royalties {
 /// Issue #931 — cliff and linear vesting schedules for collaborator shares.
 mod vesting {
     use super::*;
+    use soroban_sdk::vec;
 
     const DAY: u64 = 86_400;
 
