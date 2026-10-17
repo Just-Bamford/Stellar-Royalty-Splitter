@@ -13,6 +13,7 @@ const CONTRACT_B = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
 const CONTRACT_C = "CDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
 
 const buildMock = jest.fn();
+const buildAtomicMock = jest.fn();
 
 class MockBatchTransactionBuilder {
   constructor(callerAddress) {
@@ -36,6 +37,7 @@ await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
 
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
+  vecToScVal: jest.fn((items) => items),
   BatchTransactionBuilder: MockBatchTransactionBuilder,
   pollHorizonTransaction: jest.fn(),
   buildTx: jest.fn(),
@@ -44,7 +46,6 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   bytes32ToScVal: jest.fn((v) => v),
   i128ToScVal: jest.fn((v) => v),
   u32ToScVal: jest.fn((n) => n),
-  vecToScVal: jest.fn((v) => v),
   // Complete server mock with all necessary methods
   server: {
     simulateTransaction: jest.fn().mockResolvedValue({ result: "simulation-result" }),
@@ -240,6 +241,25 @@ describe("POST /api/v1/batch-distribute — integration", () => {
     expect(addAuditLog).toHaveBeenCalledTimes(1);
   });
 
+  test("does not write any transaction records if builder.build() throws", async () => {
+    buildMock.mockRejectedValue(new Error("RPC error"));
+
+    const res = await request(app)
+      .post("/api/v1/batch-distribute")
+      .send({
+        walletAddress: WALLET,
+        operations: [
+          { contractId: CONTRACT_A, tokenId: TOKEN },
+          { contractId: CONTRACT_B, tokenId: TOKEN },
+        ],
+      });
+
+    // Server should return 500 (unhandled error goes to next(err))
+    expect(res.status).toBe(500);
+    // Most importantly: no DB records were written
+    expect(recordTransaction).not.toHaveBeenCalled();
+  });
+
   test("rejects a batch with duplicate contractIds before doing any RPC work", async () => {
     const res = await request(app)
       .post("/api/v1/batch-distribute")
@@ -277,5 +297,33 @@ describe("POST /api/v1/batch-distribute — integration", () => {
       .send({ walletAddress: WALLET, operations: [] });
 
     expect(res.status).toBe(400);
+  });
+
+  test("builds one atomic batch_distribute invocation for selected tokens", async () => {
+    buildAtomicMock.mockResolvedValue("ATOMIC_BATCH_XDR");
+
+    const res = await request(app)
+      .post("/api/v1/batch-distribute/tokens")
+      .send({ contractId: CONTRACT_A, walletAddress: WALLET, tokens: [TOKEN, CONTRACT_B] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.xdr).toBe("ATOMIC_BATCH_XDR");
+    expect(buildAtomicMock).toHaveBeenCalledWith(
+      WALLET,
+      CONTRACT_A,
+      "batch_distribute",
+      [[TOKEN, CONTRACT_B]],
+    );
+    expect(res.body.estimate).toMatchObject({ claimCount: 2, batchingRecommended: true });
+  });
+
+  test("rejects duplicate tokens before building an atomic batch", async () => {
+    const res = await request(app)
+      .post("/api/v1/batch-distribute/tokens")
+      .send({ contractId: CONTRACT_A, walletAddress: WALLET, tokens: [TOKEN, TOKEN] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unique/i);
+    expect(buildAtomicMock).not.toHaveBeenCalled();
   });
 });
