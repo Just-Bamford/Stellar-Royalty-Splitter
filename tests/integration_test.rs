@@ -7311,7 +7311,6 @@ mod linked_pools {
         let env = Env::default();
         env.mock_all_auths();
         let (_contract_id, client) = setup(&env);
-        std::eprintln!("staking checkpoint: setup");
         let collab_a = Address::generate(&env);
         let collab_b = Address::generate(&env);
 
@@ -7319,7 +7318,6 @@ mod linked_pools {
             &vec![&env, collab_a.clone(), collab_b.clone()],
             &vec![&env, 6_000_u32, 4_000_u32],
         );
-        std::eprintln!("staking checkpoint: initialized");
 
         // Governance tokens issued 1:1 on setup
         assert_eq!(client.get_gov_balance(&collab_a), 6_000);
@@ -7331,7 +7329,6 @@ mod linked_pools {
 
         // Stake 1,000 governance tokens for collab_a
         client.stake_gov_tokens(&collab_a, &1_000);
-        std::eprintln!("staking checkpoint: staked");
         assert_eq!(client.get_gov_balance(&collab_a), 5_000);
 
         let stake_info = client.get_staked_gov(&collab_a);
@@ -7342,7 +7339,6 @@ mod linked_pools {
 
         // Unstake 500 tokens -> starts 7 days cooldown
         client.unstake_gov_tokens(&collab_a, &500);
-        std::eprintln!("staking checkpoint: unstaked");
         let stake_info2 = client.get_staked_gov(&collab_a);
         assert_eq!(stake_info2.staked_amount, 500);
         assert_eq!(stake_info2.pending_unstake_amount, 500);
@@ -7351,15 +7347,15 @@ mod linked_pools {
         // Trying to withdraw before cooldown fails
         let res = client.try_withdraw_unstaked_gov_tokens(&collab_a);
         assert_eq!(res, Err(Ok(ContractError::InitRevealTooEarly.into())));
-        std::eprintln!("staking checkpoint: early withdrawal rejected");
 
         // Fast forward past 7 days cooldown (7 * 86,400 = 604,800s)
         env.ledger().with_mut(|l| l.timestamp += 604_801);
-        std::eprintln!("staking checkpoint: cooldown elapsed");
 
         // Withdraw succeeds
-        client.withdraw_unstaked_gov_tokens(&collab_a);
-        std::eprintln!("staking checkpoint: withdrawal completed");
+        assert_eq!(
+            client.try_withdraw_unstaked_gov_tokens(&collab_a),
+            Ok(Ok(()))
+        );
         assert_eq!(client.get_gov_balance(&collab_a), 5_500);
         let stake_info3 = client.get_staked_gov(&collab_a);
         assert_eq!(stake_info3.pending_unstake_amount, 0);
