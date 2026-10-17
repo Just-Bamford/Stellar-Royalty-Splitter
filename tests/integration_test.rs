@@ -7018,10 +7018,15 @@ mod metadata_binding {
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod linked_pools {
-    use super::setup;
-    use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::{vec, Address, Env, Symbol};
-    use stellar_royalty_splitter::{LinkedPool, RoyaltySplitterClient, MAX_LINKED_POOLS};
+    use super::{make_token, mint, setup};
+    use soroban_sdk::{
+        testutils::{Address as _, AuthorizedFunction},
+        token::Client as TokenClient,
+        vec, Address, Env, Symbol, Vec as SorobanVec,
+    };
+    use stellar_royalty_splitter::{
+        ContractError, LinkedPool, RoyaltySplitterClient, MAX_LINKED_POOLS,
+    };
 
     /// Registers and initializes a splitter with the given collaborator shares.
     fn splitter<'a>(
@@ -7350,8 +7355,12 @@ mod linked_pools {
 /// Issue #929 — dynamic per-token fee overrides and fee pool withdrawal.
 mod dynamic_fees {
     use super::{make_token, mint, setup};
-    use soroban_sdk::{testutils::Address as _, token::Client as TokenClient, vec, Address, Env};
-    use stellar_royalty_splitter::RoyaltySplitterClient;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        token::Client as TokenClient,
+        vec, Address, Env,
+    };
+    use stellar_royalty_splitter::{ContractError, RoyaltySplitterClient};
 
     /// Initializes a 2-collaborator (60/40) splitter in `env`, mints `funding`
     /// of a fresh token to it, and sets the default royalty rate to
