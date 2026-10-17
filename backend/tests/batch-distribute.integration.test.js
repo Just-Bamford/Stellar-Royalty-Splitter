@@ -38,14 +38,15 @@ await jest.unstable_mockModule("../src/rpc-retry.js", () => ({
 await jest.unstable_mockModule("../src/stellar.js", () => ({
   addressToScVal: jest.fn((a) => a),
   vecToScVal: jest.fn((items) => items),
+  buildTx: buildAtomicMock,
   BatchTransactionBuilder: MockBatchTransactionBuilder,
   pollHorizonTransaction: jest.fn(),
-  buildTx: jest.fn(),
   retryBuildTx: jest.fn(),
   isContractInitialized: jest.fn(),
   bytes32ToScVal: jest.fn((v) => v),
   i128ToScVal: jest.fn((v) => v),
   u32ToScVal: jest.fn((n) => n),
+  vecToScVal: jest.fn((v) => v),
   // Complete server mock with all necessary methods
   server: {
     simulateTransaction: jest.fn().mockResolvedValue({ result: "simulation-result" }),
