@@ -6,7 +6,7 @@ use soroban_sdk::{
     vec, Address, BytesN, Env, IntoVal, Map, String, TryFromVal, Val, Vec as SorobanVec,
 };
 use stellar_royalty_splitter::{
-    auth, ContractError, DataKey, OperationProposal, OperationType, Recipient, RoyaltyRateChange,
+    auth, ContractError, DataKey, OperationType, Recipient, RoyaltyRateChange,
     RoyaltySplitterClient, SensitiveOperation, StorageKey, MIN_TTL, RATE_HISTORY_CAP, VERSION,
 };
 
@@ -6792,7 +6792,7 @@ mod oracle_caller_history {
 mod metadata_binding {
     use super::*;
     use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::{contract, contractimpl, vec, Symbol};
+    use soroban_sdk::{contract, contractimpl, Symbol};
     use stellar_royalty_splitter::{MetadataBinding, METADATA_CACHE_TTL_SECS};
 
     /// Stand-in for the external metadata oracle. Returns the configured
