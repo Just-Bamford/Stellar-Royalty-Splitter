@@ -3644,7 +3644,7 @@ fn test_rate_history_empty_before_first_change() {
         &vec![&env, 5000_u32, 5000_u32],
     );
 
-    assert_eq!(client.get_royalty_rate_history().len(), 0);
+    assert_eq!(client.get_royalty_rate_history(&0, &100).len(), 0);
 }
 
 #[test]
@@ -3663,7 +3663,7 @@ fn test_rate_history_records_entry_on_set() {
     env.ledger().with_mut(|l| l.timestamp = 1_000_000);
     client.set_royalty_rate(&500_u32);
 
-    let history = client.get_royalty_rate_history();
+    let history = client.get_royalty_rate_history(&0, &100);
     assert_eq!(history.len(), 1);
 
     let entry = history.get(0).unwrap();
@@ -3695,7 +3695,7 @@ fn test_rate_history_records_consecutive_changes() {
     env.ledger().with_mut(|l| l.timestamp = 300);
     client.set_royalty_rate(&600_u32);
 
-    let history = client.get_royalty_rate_history();
+    let history = client.get_royalty_rate_history(&0, &100);
     assert_eq!(history.len(), 3);
 
     let e0 = history.get(0).unwrap();
@@ -3736,7 +3736,7 @@ fn test_rate_history_capped_at_limit() {
         client.set_royalty_rate(&rate);
     }
 
-    let history = client.get_royalty_rate_history();
+    let history = client.get_royalty_rate_history(&0, &100);
     assert_eq!(
         history.len(),
         RATE_HISTORY_CAP,

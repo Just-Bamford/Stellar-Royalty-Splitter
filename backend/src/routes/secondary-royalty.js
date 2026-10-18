@@ -6,7 +6,12 @@ import {
   u32ToScVal,
   getRoyaltyRateFromContract,
   server,
+  networkPassphrase,
+  withTimeout,
 } from "../stellar.js";
+import StellarSdk from "@stellar/stellar-sdk";
+
+const { Contract, Account, TransactionBuilder, BASE_FEE, SorobanRpc } = StellarSdk;
 import {
   recordTransaction,
   recordSecondarySale,
@@ -54,12 +59,33 @@ secondaryRoyaltyRouter.get(
       }
 
       // Call the contract method to fetch pool balance
-      const result = await server.simulateTransaction({
-        contractId,
-        function: "get_secondary_royalty_pool",
-      });
+      const contract = new Contract(contractId);
+      const dummyAccount = new Account(
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+        "0"
+      );
+      const tx = new TransactionBuilder(dummyAccount, {
+        fee: BASE_FEE,
+        networkPassphrase,
+      })
+        .addOperation(contract.call("get_secondary_royalty_pool"))
+        .setTimeout(30)
+        .build();
 
-      const responsePayload = { poolBalance: result };
+      const SOROBAN_RPC_TIMEOUT_MS = parseInt(process.env.SOROBAN_RPC_TIMEOUT_MS, 10) || 10_000;
+      const sim = await withTimeout(
+        server.simulateTransaction(tx),
+        SOROBAN_RPC_TIMEOUT_MS,
+        "Soroban simulateTransaction"
+      );
+
+      if (SorobanRpc.Api.isSimulationError(sim)) {
+        throw new Error(`Contract simulation failed: ${sim.error}`);
+      }
+
+      const poolBalance = sim.result?.retval?.i128() ?? 0n;
+
+      const responsePayload = { poolBalance: poolBalance.toString() };
       cacheSet(cKey, responsePayload, 30_000); // 30s TTL
       res.json(responsePayload);
     } catch (err) {

@@ -14,14 +14,16 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
   const { connect, disconnect, error, isLoading, selectedWallet, setSelectedWallet } = useWallet();
   const [showSelector, setShowSelector] = useState(false);
 
-  const handleConnect = async () => {
-    if (!selectedWallet) {
+  const handleConnect = async (walletId?: string) => {
+    const walletToConnect = walletId ?? selectedWallet;
+    
+    if (!walletToConnect) {
       setShowSelector(true);
       return;
     }
 
     try {
-      const address = await connect(selectedWallet);
+      const address = await connect(walletToConnect);
       if (address) {
         onConnect(address);
         await refreshWalletNetwork();
@@ -40,8 +42,8 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
 
   const handleSelectWallet = (walletId: string) => {
     setSelectedWallet(walletId);
-    // Auto-connect if a wallet is selected
-    handleConnect();
+    // Auto-connect with the selected wallet passed directly to avoid race condition
+    handleConnect(walletId);
   };
 
   return (
