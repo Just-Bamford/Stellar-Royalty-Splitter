@@ -14,6 +14,7 @@ import {
   addAuditEntry,
 } from "../database/index.js";
 import { attachRole, requireRole } from "../middleware/rbac.js";
+import { validateStellarAddress, validateContractId } from "../validation.js";
 import logger from "../logger.js";
 
 const router = express.Router();
@@ -42,6 +43,9 @@ router.post("/vesting/create", attachRole, requireRole("admin"), (req, res) => {
     if (!contractId || !beneficiary || !totalAmount || !tokenAddress || !startTime || !cliffDuration || !vestingDuration) {
       return sendError(res, 400, "validation_failed", "Missing required fields");
     }
+
+    if (!validateStellarAddress(beneficiary, res)) return;
+    if (!validateContractId(tokenAddress, res)) return;
 
     const scheduleId = createVestingSchedule({
       contractId,
@@ -159,6 +163,7 @@ router.post("/vesting/:scheduleId/release", attachRole, requireRole("operator"),
 router.get("/vesting/beneficiary/:address", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { address } = req.params;
+    if (!validateStellarAddress(address, res)) return;
     const schedules = getVestingSchedulesByBeneficiary(address);
 
     // Calculate current vested amounts for each schedule
@@ -292,6 +297,7 @@ router.delete("/vesting/:scheduleId", attachRole, requireRole("admin"), (req, re
 router.get("/vesting/statistics/:beneficiary", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { beneficiary } = req.params;
+    if (!validateStellarAddress(beneficiary, res)) return;
     const stats = getVestingStatistics(beneficiary);
 
     res.json({

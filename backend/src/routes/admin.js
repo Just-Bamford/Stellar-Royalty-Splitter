@@ -71,13 +71,12 @@ const rotateKeySchemaExtended = z
       .string()
       .regex(/^S[A-Z2-7]{55}$/, "Invalid Stellar secret key")
       .optional(),
-    reloadFromFile: z.boolean().optional(),
     reloadFromProvider: z.boolean().optional(),
   })
   .refine(
     (body) =>
-      Boolean(body.secretKey) || body.reloadFromFile === true || body.reloadFromProvider === true,
-    { message: "Provide secretKey, reloadFromFile, or reloadFromProvider" }
+      Boolean(body.secretKey) || body.reloadFromProvider === true,
+    { message: "Provide secretKey or reloadFromProvider" }
   );
 
 adminRouter.post(

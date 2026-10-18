@@ -5,7 +5,6 @@
  * or plaintext fallback (SIGNING_KEY_FILE, SERVER_SECRET_KEY), keeps it in memory
  * for hot rotation without redeploy, and never logs secret material.
  */
-import { readFileSync, existsSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import StellarSdk from "@stellar/stellar-sdk";
 import logger from "./logger.js";
@@ -39,18 +38,6 @@ export function parseSigningSecret(secret) {
   } catch {
     throw new Error("Invalid Stellar signing secret key");
   }
-}
-
-function readSecretsFilePath() {
-  return normalizeSecret(process.env.SIGNING_KEY_FILE);
-}
-
-function readSecretFromFile(filePath) {
-  if (!existsSync(filePath)) {
-    throw new Error(`Signing key file not found: ${filePath}`);
-  }
-  const contents = readFileSync(filePath, "utf8");
-  return normalizeSecret(contents);
 }
 
 function setActiveKeypair(keypair, source) {
@@ -163,18 +150,7 @@ export async function reloadSigningKeyFromSecretsProvider() {
   }
 }
 
-/**
- * Re-read SIGNING_KEY_FILE and apply the updated secret without redeploy.
- * @deprecated Use reloadSigningKeyFromSecretsProvider() instead
- */
-export function reloadSigningKeyFromSecretsFile() {
-  const filePath = readSecretsFilePath();
-  if (!filePath) {
-    throw new Error("SIGNING_KEY_FILE is not configured");
-  }
-  const secret = readSecretFromFile(filePath);
-  return rotateSigningKey(secret, { source: "file_reload" });
-}
+
 
 /**
  * Constant-time comparison for the admin rotate token (#293).

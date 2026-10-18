@@ -18,11 +18,36 @@ import { runAll, runBest, buildReport, writeReport, formatTable } from "./runner
 import validationScenarios from "./scenarios/validation.bench.js";
 import serializationScenarios from "./scenarios/serialization.bench.js";
 import httpScenarios from "./scenarios/http.bench.js";
-import dashboardScenarios from "./scenarios/dashboard.bench.js";
-import versioningScenarios from "./scenarios/versioning.bench.js";
-import compatScenarios from "./scenarios/compat.bench.js";
 
 const SCENARIOS = [...validationScenarios, ...serializationScenarios, ...httpScenarios];
+
+// Optional benchmark scenarios - only import if files exist
+let dashboardScenarios = [];
+let versioningScenarios = [];
+let compatScenarios = [];
+
+async function loadOptionalScenarios() {
+  try {
+    const module = await import("./scenarios/dashboard.bench.js");
+    dashboardScenarios = module.default || [];
+  } catch {
+    dashboardScenarios = [];
+  }
+
+  try {
+    const module = await import("./scenarios/versioning.bench.js");
+    versioningScenarios = module.default || [];
+  } catch {
+    versioningScenarios = [];
+  }
+
+  try {
+    const module = await import("./scenarios/compat.bench.js");
+    compatScenarios = module.default || [];
+  } catch {
+    compatScenarios = [];
+  }
+}
 
 function parseArgs(argv) {
   const args = { json: null, filter: null, quick: false, label: null, repeat: 1 };
@@ -95,6 +120,8 @@ async function main() {
       `Unknown API version: ${args.apiVersion}. Expected one of: ${VALID_VERSIONS.join(", ")}`
     );
   }
+
+  await loadOptionalScenarios();
 
   let scenarios = [...SCENARIOS, ...versioningScenarios];
   if (args.dashboard) {
