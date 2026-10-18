@@ -283,13 +283,7 @@ Dry-run the `distribute` call via Soroban simulation. Returns the expected fee, 
     "resource_fee": 0,
     "total": 100
   },
-  "perRecipientEffectiveFee": 50,
-  "feeScalingComparison": [
-    { "collaborators": 2, "estimated_total_fee": 110 },
-    { "collaborators": 5, "estimated_total_fee": 140 },
-    { "collaborators": 10, "estimated_total_fee": 190 },
-    { "collaborators": 20, "estimated_total_fee": 290 }
-  ]
+  "perRecipientEffectiveFee": 50
 }
 ```
 
@@ -302,7 +296,6 @@ Dry-run the `distribute` call via Soroban simulation. Returns the expected fee, 
   - `resource_fee`: Soroban resource fee
   - `total`: Sum of all fee components
 - `perRecipientEffectiveFee`: Total fee divided by number of recipients
-- `feeScalingComparison`: Array showing estimated fee growth for 2, 5, 10, and 20 collaborators
 
 The endpoint only calls Soroban RPC simulation. It does not submit the transaction, record a transaction row, or modify contract state.
 

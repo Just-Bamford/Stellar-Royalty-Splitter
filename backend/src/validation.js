@@ -636,7 +636,16 @@ export const createScheduleSchema = z.object({
   dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
   hourOfDay: z.number().int().min(0).max(23).optional().default(0),
   minuteOfHour: z.number().int().min(0).max(59).optional().default(0),
-}).superRefine(validateScheduleTiming);
+}).superRefine((data, ctx) => {
+  if (data.frequency === "monthly" && (data.dayOfMonth == null || data.dayOfMonth < 1 || data.dayOfMonth > 28)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["dayOfMonth"],
+      message: "dayOfMonth must be 1–28 for monthly schedules to run reliably across all months",
+    });
+  }
+  validateScheduleTiming(data, ctx);
+});
 
 export const updateScheduleSchema = z.object({
   frequency: z.enum(["weekly", "biweekly", "monthly"]).optional(),
