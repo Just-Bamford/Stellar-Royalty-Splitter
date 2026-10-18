@@ -61,7 +61,6 @@ where
 }
 
 /// Remove a value from persistent storage.
-#[allow(dead_code)]
 pub fn persistent_remove(env: &Env, key: &StorageKey) {
     env.storage().persistent().remove(key);
 }

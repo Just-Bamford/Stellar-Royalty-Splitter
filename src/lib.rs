@@ -1195,10 +1195,29 @@ impl RoyaltySplitter {
         Self::set_royalty_rate_value(&env, new_rate, admin)
     }
 
-    pub fn get_royalty_rate_history(env: Env) -> Vec<RoyaltyRateChange> {
+    pub fn get_royalty_rate_history(env: Env, offset: u32, limit: u32) -> Vec<RoyaltyRateChange> {
         storage::extend_instance_ttl(&env);
-        storage::persistent_get::<Vec<RoyaltyRateChange>>(&env, &StorageKey::RoyaltyRateHistory)
-            .unwrap_or(Vec::new(&env))
+        let full_history = storage::persistent_get::<Vec<RoyaltyRateChange>>(&env, &StorageKey::RoyaltyRateHistory)
+            .unwrap_or(Vec::new(&env));
+        
+        let total_len = full_history.len();
+        
+        // Return empty if offset is beyond the history
+        if offset >= total_len {
+            return Vec::new(&env);
+        }
+        
+        // Calculate the actual slice boundaries
+        let start = offset;
+        let end = core::cmp::min(offset + limit, total_len);
+        
+        // Build paginated result
+        let mut result = Vec::new(&env);
+        for i in start..end {
+            result.push_back(full_history.get(i).unwrap());
+        }
+        
+        result
     }
 
     // ─────────────────────────────────────────────────────────────────────
