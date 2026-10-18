@@ -1,0 +1,22 @@
+name: Enforce Dev Branch for PRs
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  check-base-branch:
+    name: Verify PR targets dev branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if PR targets dev
+        if: github.base_ref != 'dev'
+        run: |
+          echo "❌ PRs must target the 'dev' branch"
+          echo "Base branch: ${{ github.base_ref }}"
+          echo "Expected: dev"
+          exit 1
+
+      - name: PR targets dev ✅
+        if: github.base_ref == 'dev'
+        run: echo "✅ PR correctly targets 'dev' branch"

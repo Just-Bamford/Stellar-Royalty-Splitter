@@ -4,6 +4,7 @@
  * background retry job (retry-failed-webhooks.js).
  */
 
+import { createHmac } from "crypto";
 import { listWebhooks, updateWebhookRetryStateWithPayload, resetWebhookRetryCount, moveToDlq } from "./database/webhooks.js";
 import logger from "./logger.js";
 import { parsePositiveInt } from "./utils.js";
@@ -13,9 +14,32 @@ const WEBHOOK_TIMEOUT_MS = parsePositiveInt(process.env.WEBHOOK_TIMEOUT_MS, 10_0
 const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000];
 const MAX_WEBHOOK_RETRIES = 4;
 
-export async function postWebhook(url, payload) {
+/**
+ * Compute an HMAC-SHA256 signature over the exact JSON body bytes.
+ * Returns a "sha256=<hex>" string following the convention used by GitHub,
+ * Stripe, and others so receivers can verify with a standard one-liner.
+ *
+ * @param {string} body   - Serialised JSON string that will be sent as the body.
+ * @param {string} secret - Webhook's stored signing secret.
+ * @returns {string}        e.g. "sha256=abc123..."
+ */
+export function computeWebhookSignature(body, secret) {
+  return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+}
+
+export async function postWebhook(url, payload, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+
+  // Serialise once so the bytes used for the HMAC match the body exactly (#1141).
+  const body = JSON.stringify(payload);
+
+  // Build signature header when a secret is supplied; skip for legacy rows
+  // with no stored secret so existing callers are unaffected.
+  const signatureHeaders = {};
+  if (options.secret) {
+    signatureHeaders["X-Webhook-Signature"] = computeWebhookSignature(body, options.secret);
+  }
 
   try {
     const response = await fetch(url, {
@@ -24,14 +48,18 @@ export async function postWebhook(url, payload) {
         Accept: "application/json",
         "Content-Type": "application/json",
         "User-Agent": "Stellar-Royalty-Splitter/1.0",
+        ...signatureHeaders,
+        ...(options.headers ?? {}),
       },
-      body: JSON.stringify(payload),
+      body,
       signal: controller.signal,
     });
 
     if (!response.ok) {
       throw new Error(`Webhook returned HTTP ${response.status}`);
     }
+
+    return response;
   } finally {
     clearTimeout(timer);
   }
@@ -65,7 +93,7 @@ export function deliverDistributeWebhooks(transaction) {
   const now = new Date();
 
   for (const webhook of webhooks) {
-    postWebhook(webhook.url, payload)
+    postWebhook(webhook.url, payload, { secret: webhook.secret ?? null })
       .then(() => {
         logger.info("Webhook delivered", { url: webhook.url });
         resetWebhookRetryCount(webhook.id);

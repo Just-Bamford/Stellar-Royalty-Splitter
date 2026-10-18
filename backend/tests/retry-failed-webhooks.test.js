@@ -9,6 +9,9 @@ await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
   getWebhooksDueForRetry: mockGetWebhooksDueForRetry,
   updateWebhookRetryStateWithPayload: mockUpdateWebhookRetryStateWithPayload,
   resetWebhookRetryCount: mockResetWebhookRetryCount,
+  // Delivery history appended by the retry job (#1059).
+  recordDelivery: jest.fn(() => null),
+  updateDelivery: jest.fn(() => false),
 }));
 
 const mockPostWebhook = jest.fn();
@@ -71,7 +74,9 @@ describe("executeWebhookRetryRun (#743)", () => {
     const result = await executeWebhookRetryRun(new Date("2026-01-01T00:05:00.000Z"));
 
     expect(mockPostWebhook).toHaveBeenCalledTimes(1);
-    expect(mockPostWebhook).toHaveBeenCalledWith("https://example.com/hook", payload);
+    expect(mockPostWebhook).toHaveBeenCalledWith("https://example.com/hook", payload, {
+      headers: { "X-Webhook-Event": "distribute.confirmed" },
+    });
 
     expect(mockResetWebhookRetryCount).toHaveBeenCalledWith(5);
     expect(mockUpdateWebhookRetryStateWithPayload).not.toHaveBeenCalled();

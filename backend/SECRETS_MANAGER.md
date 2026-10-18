@@ -147,6 +147,41 @@ SECRETS_ENCRYPTION_KEY=your-32-character-encryption-key-here
 openssl rand -base64 32
 ```
 
+### Database Field Encryption
+
+Payout amounts and archived payout JSON are encrypted independently with
+AES-256-GCM. Each encrypted value includes its key version and authentication
+metadata. A contract-specific AES key is derived from the Vault keyring using
+HKDF, so one contract's fields cannot be decrypted with another contract's
+derived key.
+
+For production, configure a Vault KV v2 path and a token with read, create, and
+update access. On first startup the service creates a random keyring; it writes
+new key versions every 90 days without rewriting existing database rows.
+Retain all historical keys at that Vault path: they are needed to decrypt old
+rows. The backend refreshes the current Vault version hourly so other running
+instances pick up rotations.
+
+```bash
+VAULT_ADDR=https://vault.example.com:8200
+VAULT_TOKEN=hvs.your-token-here
+FIELD_ENCRYPTION_VAULT_PATH=secret/data/stellar/field-encryption
+```
+
+For local development only, set a stable `FIELD_ENCRYPTION_MASTER_KEY`. It is
+SHA-256-derived to a 256-bit key and does not support automatic rotation. Do not
+use this fallback in production; production startup requires the Vault-backed
+keyring.
+
+The `distribution_payouts` compatibility view decrypts values for existing
+reads and SQL aggregates. Exact amount lookups can use the
+`findPayoutsByAmount(contractId, amount)` database helper, which filters through
+a per-contract HMAC blind index before decrypting matching values. Numeric
+aggregates necessarily decrypt values inside SQLite because AES ciphertext is
+not numerically aggregatable. The migration enables SQLite secure-delete and
+truncates the WAL after conversion; rotate or expire external database backups
+that may contain pre-migration plaintext.
+
 ## Security Considerations
 
 ### Production

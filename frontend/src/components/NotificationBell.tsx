@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNotifications, Notification } from "../context/NotificationContext";
 import { NotificationCenter } from "./NotificationCenter";
+import { formatDateTime } from "../utils/format";
 import "./NotificationBell.css";
 
 export function NotificationBell() {
@@ -50,7 +51,7 @@ export function NotificationBell() {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return formatDateTime(date, { dateStyle: "short" });
   };
 
   const getNotificationIcon = (type: Notification["type"]) => {

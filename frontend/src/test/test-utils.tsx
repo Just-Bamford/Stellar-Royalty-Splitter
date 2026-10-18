@@ -7,16 +7,11 @@
  */
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach } from "vitest";
 // Import from the real node_modules path to avoid the vitest alias loop.
 // The alias redirects "@testing-library/react" -> this file, so we must use
 // the underlying path to get the actual library exports.
 import * as RTL from "@testing-library/react/pure.js";
 import type { RenderOptions, RenderResult } from "@testing-library/react/pure.js";
-
-afterEach(() => {
-  RTL.cleanup();
-});
 
 export function createTestQueryClient() {
   return new QueryClient({
@@ -37,14 +32,12 @@ export function createTestQueryClient() {
  */
 export function render(
   ui: React.ReactElement,
-  options?: Omit<RenderOptions, "wrapper">,
+  options?: Omit<RenderOptions, "wrapper">
 ): RenderResult {
   const queryClient = createTestQueryClient();
 
   function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    );
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
 
   return RTL.render(ui, { wrapper: Wrapper, ...options });

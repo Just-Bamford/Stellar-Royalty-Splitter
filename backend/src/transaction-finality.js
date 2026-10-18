@@ -103,6 +103,21 @@ export function isTracking(transactionId) {
   return _activeTrackers.has(transactionId);
 }
 
+/**
+ * Cancel ALL active finality polling loops.
+ * Call this during graceful shutdown before closing the database.
+ *
+ * @returns {number} number of trackers that were cancelled
+ */
+export function stopAllTracking() {
+  const count = _activeTrackers.size;
+  for (const controller of _activeTrackers.values()) {
+    controller.abort();
+  }
+  _activeTrackers.clear();
+  return count;
+}
+
 // ─── Core polling loop ────────────────────────────────────────────────────────
 
 /**
@@ -152,6 +167,10 @@ async function _pollLoop({ transactionId, txHash, signal }) {
       const result = await pollHorizonTransaction(txHash);
 
       if (result.status === "confirmed") {
+        if (signal.aborted) {
+          logger.info("Finality polling cancelled before confirmed DB write", { transactionId });
+          return;
+        }
         markFinalityConfirmed(transactionId, {
           firstConfirmationAt: result.createdAt ?? null,
           feePaid: result.feePaid ?? null,
@@ -176,6 +195,10 @@ async function _pollLoop({ transactionId, txHash, signal }) {
       }
 
       if (result.status === "failed") {
+        if (signal.aborted) {
+          logger.info("Finality polling cancelled before failed DB write", { transactionId });
+          return;
+        }
         markFinalityFailed(transactionId, result.errorMessage ?? "Transaction failed on-chain");
 
         broadcastFinalityUpdate(transactionId, {
@@ -222,6 +245,10 @@ async function _pollLoop({ transactionId, txHash, signal }) {
   }
 
   // Deadline reached without settlement
+  if (signal.aborted) {
+    logger.info("Finality polling cancelled before timeout DB write", { transactionId });
+    return;
+  }
   markFinalityTimeout(transactionId);
 
   broadcastFinalityUpdate(transactionId, {

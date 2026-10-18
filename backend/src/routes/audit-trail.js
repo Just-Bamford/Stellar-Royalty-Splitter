@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { requireAdminBearerOrRole } from "../middleware/rbac.js";
+import { requirePermission } from "../middleware/rbac-check.js";
+import { PERMISSIONS } from "../models/rbac.js";
 import { sendError } from "../error-response.js";
 import {
   buildComplianceExport,
@@ -14,7 +15,7 @@ import {
  */
 export const auditTrailRouter = Router();
 
-auditTrailRouter.use(requireAdminBearerOrRole("admin"));
+auditTrailRouter.use(requirePermission(PERMISSIONS.AUDIT_READ));
 
 function isIsoDate(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));

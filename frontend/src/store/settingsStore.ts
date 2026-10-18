@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import type { SupportedLanguage } from "../i18n/languages";
 
 export interface SettingsType {
   autoSaveAuditLog: boolean;
   notifyOnDistribution: boolean;
-  displayCurrency: "XLM" | "USD" | "EUR";
+  displayCurrency: "XLM" | "USD" | "EUR" | "JPY";
+  language: SupportedLanguage;
   maxPayoutsPerTransaction: number;
   minPayoutAmount: number;
 }
@@ -19,6 +21,7 @@ export const DEFAULTS: SettingsType = {
   autoSaveAuditLog: true,
   notifyOnDistribution: true,
   displayCurrency: "XLM",
+  language: "en",
   maxPayoutsPerTransaction: 10,
   minPayoutAmount: 0.1,
 };

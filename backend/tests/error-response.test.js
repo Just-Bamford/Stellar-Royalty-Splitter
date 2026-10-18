@@ -51,7 +51,7 @@ describe("buildErrorPayload", () => {
     });
     expect(payload.retryable).toBe(false);
     expect(payload.retryAfter).toBeNull();
-    expect(payload.details_url).toBe("docs/errors#validation_failed");
+    expect(payload.details_url).toBeUndefined();
   });
 
   test("normalizes a falsy code via the status-based default", () => {
@@ -108,7 +108,6 @@ describe("sendError", () => {
         reason: "rbac",
         retryable: false,
         retryAfter: null,
-        details_url: "docs/errors#forbidden",
       })
     );
   });
@@ -133,7 +132,6 @@ describe("sendValidationError", () => {
         details: issues,
         retryable: false,
         retryAfter: null,
-        details_url: "docs/errors#validation_failed",
       })
     );
   });

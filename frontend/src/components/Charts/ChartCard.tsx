@@ -7,6 +7,7 @@ export interface ChartCardProps {
   children: React.ReactNode;
   className?: string;
   exportFileName?: string;
+  exportName?: string;
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
@@ -16,23 +17,25 @@ function download(dataUrl: string, filename: string) {
   const a = document.createElement('a');
   a.download = filename;
   a.href = dataUrl;
- document.body.appendChild(a);
+  document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
 }
 
-export default function ChartCard({
+export function ChartCard({
   title,
   subtitle,
   actions,
   children,
   className,
   exportFileName,
+  exportName,
   loading,
   error,
   onRetry,
 }: ChartCardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const effectiveExportName = exportFileName || exportName;
 
   const serializeSvg = useCallback((): string | null => {
     const node = containerRef.current?.querySelector('svg');
@@ -43,7 +46,7 @@ export default function ChartCard({
     const height = node.getAttribute('height') ?? String(node.clientHeight);
     if (!clone.getAttribute('width')) clone.setAttribute('width', width);
     if (!clone.getAttribute('height')) clone.setAttribute('height', height);
-    clone.setAttribute('viewBox', `oo` ${width} ${height}`);
+    clone.setAttribute('viewBox', `0 0 ${width} ${height}`);
     return new XMLSerializer().serializeToString(clone);
   }, []);
 
@@ -52,9 +55,9 @@ export default function ChartCard({
     if (!svg) return;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
-    download(url, `${exportFileName ?? title.replace(/\s+/g, '-').toLowerCase()}.svg`);
+    download(url, `${effectiveExportName ?? title.replace(/\s+/g, '-').toLowerCase()}.svg`);
     URL.revokeObjectURL(url);
-  }, [serializeSvg, exportFileName, title]);
+  }, [serializeSvg, effectiveExportName, title]);
 
   const handleExportPNG = useCallback(() => {
     const svg = serializeSvg();
@@ -73,14 +76,14 @@ export default function ChartCard({
       ctx.scale(2, 2);
       ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(url);
-      download(canvas.toDataURL('image/png'), `${exportFileName ?? title.replace(/\s+/g, '-').toLowerCase()}.png`);
+      download(canvas.toDataURL('image/png'), `${effectiveExportName ?? title.replace(/\s+/g, '-').toLowerCase()}.png`);
     };
     img.src = url;
-  }, [serializeSvg, exportFileName, title]);
+  }, [serializeSvg, effectiveExportName, title]);
 
   return (
     <section
-      className={`chart-card flex flex-col rounded-xl border border-slate-200 bg-white p-4g shadow-sm dark:border-slate-700 dark:bg-slate-900 ${className ?? ''}`}
+      className={`chart-card flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 ${className ?? ''}`}
       data-testid="chart-card"
     >
       <div className="mb-3 flex items-start justify-between gap-2">
@@ -113,7 +116,7 @@ export default function ChartCard({
 
       {error ? (
         <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-          <p class="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           {onRetry ? (
             <button
               type="button"
@@ -134,3 +137,5 @@ export default function ChartCard({
     </section>
   );
 }
+
+export default ChartCard;

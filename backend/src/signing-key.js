@@ -80,9 +80,12 @@ export async function initializeSigningKey() {
       activeKeypair = null;
       lastRotationAt = null;
       lastRotationSource = null;
-      logger.warn("No server signing key configured", {
-        event: "signing_key_unconfigured",
-      });
+      logger.warn(
+        "No server signing key configured (neither SERVER_SECRET_KEY nor SIGNING_KEY_FILE is set). Write endpoints requiring signature verification will reject all requests if SIGNATURE_VERIFICATION_ENABLED=true.",
+        {
+          event: "signing_key_unconfigured",
+        }
+      );
       return null;
     }
 

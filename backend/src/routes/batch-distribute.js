@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { addressToScVal, BatchTransactionBuilder } from "../stellar.js";
+import { addressToScVal, BatchTransactionBuilder, buildTx, vecToScVal } from "../stellar.js";
+import { determineOptimalBatchSize, estimateBatchClaimCosts } from "../services/gas-optimizer.js";
 import { validate, batchDistributeSchema, MAX_BATCH_OPERATIONS } from "../validation.js";
 import { recordTransaction, addAuditLog } from "../database/index.js";
 import { sendError } from "../error-response.js";
@@ -61,24 +62,28 @@ batchDistributeRouter.post(
         );
       }
 
-      // Record each operation as a pending transaction up front so the
-      // audit trail and history reflect the whole batch even if some
-      // operations fail to build.
+      // Phase 1 — register operations with the builder (no DB writes yet).
       const builder = new BatchTransactionBuilder(walletAddress);
-      const pending = operations.map((op) => {
-        const transactionId = recordTransaction(op.contractId, "distribute", walletAddress, {
-          tokenId: op.tokenId,
-          batch: true,
-        });
+      const preparedOps = operations.map((op) => {
         builder.add({
           contractId: op.contractId,
           method: "distribute",
           args: [addressToScVal(op.tokenId)],
         });
-        return { transactionId, contractId: op.contractId, tokenId: op.tokenId };
+        return { contractId: op.contractId, tokenId: op.tokenId };
       });
 
+      // Phase 2 — build XDR first; only write DB records after a successful build.
       const built = await builder.build();
+
+      // Phase 3 — build succeeded, now record transactions.
+      const pending = preparedOps.map((op) => ({
+        ...op,
+        transactionId: recordTransaction(op.contractId, "distribute", walletAddress, {
+          tokenId: op.tokenId,
+          batch: true,
+        }),
+      }));
 
       const results = built.map((result, i) => {
         const { transactionId, contractId, tokenId } = pending[i];
@@ -136,9 +141,10 @@ batchDistributeRouter.post(
  * POST /api/v1/batch-distribute/tokens
  * Body: { contractId, walletAddress, tokens: [Address], idempotencyKey? }
  *
- * Uses the contract's batch_distribute() function to distribute multiple tokens
- * within a single contract call (#810). This is more gas-efficient than making
- * separate distribute() calls for each token.
+ * Uses the contract's existing batch_distribute() function to distribute
+ * multiple tokens in one Soroban invocation. Soroban commits a transaction
+ * atomically: if any token payout fails, none of this invocation's state or
+ * transfers are committed.
  *
  * Returns a single unsigned XDR calling batch_distribute() with all tokens
  * included in one transaction.
@@ -157,38 +163,39 @@ batchDistributeRouter.post(
         return sendError(res, 400, "invalid_request", "tokens array cannot be empty");
       }
 
-      if (tokens.length > 10) {
-        return sendError(res, 400, "invalid_request", "maximum 10 tokens per batch_distribute call");
+      if (tokens.length > MAX_BATCH_OPERATIONS) {
+        return sendError(res, 400, "invalid_request", `maximum ${MAX_BATCH_OPERATIONS} tokens per batch_distribute call`);
+      }
+
+      const duplicateTokens = tokens.filter((token, index) => tokens.indexOf(token) !== index);
+      if (duplicateTokens.length > 0) {
+        return sendError(res, 400, "duplicate_token_in_batch", "tokens must be unique within an atomic batch");
       }
 
       logger.info("batch_distribute tokens request", { contractId, walletAddress, tokenCount: tokens.length });
 
-      // Record transaction for audit trail
+      // This represents a pending user action only. Do not record a completed
+      // distribution or invalidate caches until the signed XDR succeeds.
       const transactionId = recordTransaction(contractId, "batch_distribute", walletAddress, {
         tokens,
         idempotencyKey,
       });
 
-      // Build XDR for batch_distribute contract call
-      // This would need to be implemented in stellar.js to support the batch_distribute method
-      // For now, returning a placeholder response
-      recordTransactionSuccess();
-      addAuditLog(contractId, "batch_distribution_initiated", walletAddress, {
-        transactionId,
-        tokens,
-        idempotencyKey,
-      });
-      invalidateContractCaches(contractId, { reason: "batch-distribute" });
+      const xdr = await buildTx(
+        walletAddress,
+        contractId,
+        "batch_distribute",
+        [vecToScVal(tokens.map(addressToScVal))],
+      );
+      const estimate = estimateBatchClaimCosts(tokens.length, { maxBatchSize: MAX_BATCH_OPERATIONS });
 
       res.json({
         success: true,
         transactionId,
         contractId,
         tokensIncluded: tokens.length,
-        // Placeholder XDR - actual implementation would call stellar.js to build this
-        xdr: "AAAA...placeholder...",
-        gasEstimate: "250000",
-        totalFee: "100",
+        xdr,
+        estimate,
       });
     } catch (err) {
       recordTransactionFailure();
@@ -199,3 +206,29 @@ batchDistributeRouter.post(
     }
   }
 );
+
+/**
+ * POST /api/v1/batch-distribute/tokens/estimate
+ * Gives the UI an explicit, assumption-labelled estimate before it asks the
+ * wallet to sign. The actual prepared XDR remains the authoritative quote.
+ */
+batchDistributeRouter.post("/tokens/estimate", (req, res) => {
+  const { tokenCount, resourceMaxBatchSize } = req.body ?? {};
+  if (!Number.isSafeInteger(tokenCount) || tokenCount < 0) {
+    return sendError(res, 400, "invalid_request", "tokenCount must be a non-negative integer");
+  }
+  try {
+    const optimalBatchSize = determineOptimalBatchSize(
+      tokenCount,
+      { maxBatchSize: MAX_BATCH_OPERATIONS },
+      resourceMaxBatchSize,
+    );
+    return res.json({
+      ...estimateBatchClaimCosts(optimalBatchSize, { maxBatchSize: MAX_BATCH_OPERATIONS }),
+      optimalBatchSize,
+      remaining: tokenCount - optimalBatchSize,
+    });
+  } catch (error) {
+    return sendError(res, 400, "invalid_request", error.message);
+  }
+});

@@ -111,7 +111,7 @@ export function getArchivedEvents(contractId, limit = 50, offset = 0) {
         status,
         errorMessage,
         payoutCount,
-        payoutsJson,
+        decrypt_field(payoutsJson, contractId, 'contract_event_archive.payoutsJson') as payoutsJson,
         archivedAt
       FROM contract_event_archive
       WHERE contractId = ?
@@ -190,17 +190,21 @@ export function archiveContractEvents(options = {}) {
           t.status,
           t.errorMessage,
           COUNT(dp.id) as payoutCount,
-          COALESCE(
-            json_group_array(
-              CASE
-                WHEN dp.id IS NULL THEN NULL
-                ELSE json_object(
-                  'collaboratorAddress', dp.collaboratorAddress,
-                  'amountReceived', dp.amountReceived
-                )
-              END
-            ) FILTER (WHERE dp.id IS NOT NULL),
-            '[]'
+          encrypt_field(
+            COALESCE(
+              json_group_array(
+                CASE
+                  WHEN dp.id IS NULL THEN NULL
+                  ELSE json_object(
+                    'collaboratorAddress', dp.collaboratorAddress,
+                    'amountReceived', dp.amountReceived
+                  )
+                END
+              ) FILTER (WHERE dp.id IS NOT NULL),
+              '[]'
+            ),
+            t.contractId,
+            'contract_event_archive.payoutsJson'
           ) as payoutsJson
         FROM transactions t
         LEFT JOIN distribution_payouts dp ON t.id = dp.transactionId

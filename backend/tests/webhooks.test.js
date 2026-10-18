@@ -9,6 +9,25 @@ await jest.unstable_mockModule("../src/database/webhooks.js", () => ({
   registerWebhook,
   listWebhooks,
   deleteWebhook,
+  // Extended surface used by the advanced webhook system (#1059). The
+  // legacy routes under test never call these, but the module graph
+  // (routes/webhooks.js -> services/webhook-manager.js) imports them.
+  getWebhookById: jest.fn(() => null),
+  listWebhooksForEvent: jest.fn(() => []),
+  updateWebhookEvents: jest.fn(() => false),
+  rotateWebhookSecret: jest.fn(() => false),
+  updateWebhookRetryState: jest.fn(() => false),
+  updateWebhookRetryStateWithPayload: jest.fn(() => false),
+  getWebhooksDueForRetry: jest.fn(() => []),
+  resetWebhookRetryCount: jest.fn(() => false),
+  moveToDlq: jest.fn(() => null),
+  serializeEvents: jest.fn(() => null),
+  parseEvents: jest.fn(() => null),
+  recordDelivery: jest.fn(() => null),
+  updateDelivery: jest.fn(() => false),
+  listDeliveries: jest.fn(() => []),
+  countDeliveries: jest.fn(() => 0),
+  getDeliveryStats: jest.fn(() => ({ total: 0, delivered: 0, failed: 0, pending: 0, exhausted: 0 })),
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({

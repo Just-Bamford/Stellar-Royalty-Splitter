@@ -49,7 +49,22 @@ function schedule(key, id) {
     timers.delete(key);
     refresh(key, id).catch(() => {});
   }, delay);
+  // .unref() so warm timers do not prevent graceful shutdown (#1143).
+  t.unref?.();
   timers.set(key, t);
+}
+
+/**
+ * Cancel all pending warm timers and clear the access-count map.
+ * Called from index.js during graceful shutdown (#1143) so no timer fires
+ * after the HTTP server and database have been closed.
+ */
+export function clearWarmTimers() {
+  for (const t of timers.values()) {
+    clearTimeout(t);
+  }
+  timers.clear();
+  access.clear();
 }
 
 async function refresh(key, id) {

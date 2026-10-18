@@ -1,6 +1,7 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from "react";
 
-export type RangeKey = '1W' | '1M' | '3M' | '1Y' | 'all';
+export type RangeKey = "1W" | "1M" | "3M" | "1Y" | "all";
+export type ChartRange = RangeKey; // Alias for backward compatibility
 
 export interface TimePoint {
   date: string;
@@ -35,17 +36,17 @@ export interface UseChartDataResult {
 }
 
 const RANGE_DAYS: Record<RangeKey, number | null> = {
-  '1W': 7,
-  '1M': 30,
-  '3M': 90,
-  '1Y': 365,
+  "1W": 7,
+  "1M": 30,
+  "3M": 90,
+  "1Y": 365,
   all: null,
 };
 
 function dayKey(d: Date): string {
   const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
@@ -75,7 +76,7 @@ function normalizePoints(raw: any): TimePoint[] {
       if (Number.isNaN(d.getTime())) return null;
       return { date: dayKey(d), value: Number.isFinite(value) ? value : 0 };
     })
-    .filter((p: known): p is TimePoint => Boolean(p));
+    .filter((p: any): p is TimePoint => p !== null);
 
   const bucket = new Map<string, number>();
   for (const p of mapped) {
@@ -90,7 +91,7 @@ function normalizeCollaborators(raw: any): CollaboratorSlice[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item: any) => ({
-      name: String(item?.name ?? item?.collaborator ?? item?.id ?? 'Unknown'),
+      name: String(item?.name ?? item?.collaborator ?? item?.id ?? "Unknown"),
       value: Number(item?.value ?? item?.earnings ?? item?.amount ?? 0),
     }))
     .filter((item: CollaboratorSlice) => Number.isFinite(item.value) && item.value !== 0);
@@ -109,14 +110,14 @@ function normalizeHeatmap(raw: any): HeatmapCell[] {
 }
 
 async function fetchJson(url: string, signal?: AbortSignal): Promise<any> {
-  const res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
+  const res = await fetch(url, { headers: { Accept: "application/json" }, signal });
   if (!res.ok) {
     throw new Error(`Request failed (${res.status}): ${url}`);
   }
   return res.json();
 }
 
-export function useChartData(initialRange: RangeKey = '1M'): UseChartDataResult {
+export function useChartData(initialRange: RangeKey = "1M"): UseChartDataResult {
   const [range, setRange] = useState<RangeKey>(initialRange);
   const [raw, setRaw] = useState<ChartData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -132,10 +133,10 @@ export function useChartData(initialRange: RangeKey = '1M'): UseChartDataResult 
     const load = async () => {
       try {
         const [earningsRes, collabsRes, timeRes, heatRes] = await Promise.all([
-          fetchJson('/api/analytics/earnings', controller.signal),
-          fetchJson('/api/analytics/collaborators', controller.signal),
-          fetchJson('/api/analytics/time-series', controller.signal),
-          fetchJson('/api/analytics/heatmap', controller.signal),
+          fetchJson("/api/analytics/earnings", controller.signal),
+          fetchJson("/api/analytics/collaborators", controller.signal),
+          fetchJson("/api/analytics/time-series", controller.signal),
+          fetchJson("/api/analytics/heatmap", controller.signal),
         ]);
         if (!active) return;
         setRaw({
@@ -145,7 +146,7 @@ export function useChartData(initialRange: RangeKey = '1M'): UseChartDataResult 
           heatmap: normalizeHeatmap(heatRes),
         });
       } catch (err: any) {
-        if (err?.name === 'AbortError') return;
+        if (err?.name === "AbortError") return;
         if (active) setError(err instanceof Error ? err : new Error(String(err)));
       } finally {
         if (active) setLoading(false);

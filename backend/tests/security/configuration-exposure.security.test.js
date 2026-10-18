@@ -97,7 +97,6 @@ describe("Security — OWASP A02 Sensitive Data Exposure", () => {
     expect(Object.keys(payload).sort()).toEqual(
       [
         "code",
-        "details_url",
         "error",
         "message",
         "retryAfter",

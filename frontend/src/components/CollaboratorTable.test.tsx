@@ -27,8 +27,7 @@ const mockGetCollaborators = api.getCollaborators as Mock;
 const mockGetAnalytics = api.getAnalytics as Mock;
 const mockGetContractTiers = api.getContractTiers as Mock;
 
-const MOCK_CONTRACT =
-  "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const MOCK_CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 const mockCollaborators = [
   {
@@ -90,11 +89,9 @@ describe("CollaboratorTable", () => {
     mockGetCollaborators.mockReturnValue(
       new Promise(() => {
         /* never resolves */
-      }),
+      })
     );
-    render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
     expect(screen.getByText(/Loading/i)).toBeTruthy();
   });
 
@@ -102,11 +99,9 @@ describe("CollaboratorTable", () => {
     mockGetCollaborators.mockReturnValue(
       new Promise(() => {
         /* never resolves */
-      }),
+      })
     );
-    const { container } = render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    const { container } = render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
 
     // Layout-preserving placeholder rows, not just a status line.
     expect(container.querySelectorAll(".table-skeleton-row").length).toBe(5);
@@ -119,18 +114,13 @@ describe("CollaboratorTable", () => {
     expect(screen.getByRole("status")).toBeTruthy();
 
     await waitFor(() => {
-      expect(screen.getByText("Collaborators")).toBeTruthy();
+      expect(screen.queryByRole("status")).toBeNull();
     });
-
-    // Skeleton is gone once the table has data.
-    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("shows error state when API fails", async () => {
     mockGetCollaborators.mockRejectedValue(new Error("Network error"));
-    render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeTruthy();
     });
@@ -159,20 +149,14 @@ describe("CollaboratorTable", () => {
 
   it("shows empty message when no collaborators exist", async () => {
     mockGetCollaborators.mockResolvedValue([]);
-    render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
     await waitFor(() => {
-      expect(
-        screen.getByText(/No collaborators found/i),
-      ).toBeTruthy();
+      expect(screen.getByText(/No collaborators found/i)).toBeTruthy();
     });
   });
 
   it("returns null when contractId is empty", () => {
-    const { container } = render(
-      <CollaboratorTable contractId="" refreshKey={0} />,
-    );
+    const { container } = render(<CollaboratorTable contractId="" refreshKey={0} />);
     expect(container.innerHTML).toBe("");
   });
 
@@ -180,24 +164,20 @@ describe("CollaboratorTable", () => {
   it("finds collaborator by address substring", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "GALAXY" } });
 
     // Debounced — wait for the result
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("1");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
 
     // Verify we have a single result (the matched address row)
@@ -207,18 +187,15 @@ describe("CollaboratorTable", () => {
   });
 
   it("finds collaborator by saved name", async () => {
-    // Pre-seed a name in localStorage (new JSON blob format)
-    const blob = JSON.stringify({
-      [MOCK_CONTRACT]: {
-        "GALAXY1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZAAAA": "Alice",
-      },
-    });
-    localStorage.setItem("srs_collab_names", blob);
+    // Pre-seed a name in localStorage with new per-contract key format
+    const contractNames = {
+      GALAXY1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZAAAA: "Alice",
+    };
+    localStorage.setItem(`srs_collab_names_${MOCK_CONTRACT}`, JSON.stringify(contractNames));
 
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
@@ -226,66 +203,54 @@ describe("CollaboratorTable", () => {
     expect(screen.getByText("Alice")).toBeTruthy();
 
     // Search by name
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "Alice" } });
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("1");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
   });
 
   it("shows no results when search doesn't match anything", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, {
       target: { value: "ZZZ_NOT_FOUND_ZZZ" },
     });
 
     await waitFor(
       () => {
-        expect(
-          screen.getByText(/No collaborators match/i),
-        ).toBeTruthy();
+        expect(screen.getByText(/No collaborators match/i)).toBeTruthy();
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
   });
 
   it("clears search with the clear button", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "GALAXY" } });
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("1");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
 
     // Click the clear button
@@ -294,11 +259,10 @@ describe("CollaboratorTable", () => {
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("5");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
   });
 
@@ -306,20 +270,16 @@ describe("CollaboratorTable", () => {
   it("filters by share range > 10%", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const shareSelect = screen.getByLabelText(
-      /Filter by share percentage/i,
-    );
+    const shareSelect = screen.getByLabelText(/Filter by share percentage/i);
     fireEvent.change(shareSelect, { target: { value: "gt10" } });
 
     // 7000 bp = 70% and 2000 bp = 20% are both > 10%
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("2");
       // Percentages also appear in the allocation chart legend, so use *AllBy*
       expect(screen.getAllByText("70.00%").length).toBeGreaterThan(0);
@@ -330,72 +290,56 @@ describe("CollaboratorTable", () => {
   it("filters by share range < 1%", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const shareSelect = screen.getByLabelText(
-      /Filter by share percentage/i,
-    );
+    const shareSelect = screen.getByLabelText(/Filter by share percentage/i);
     fireEvent.change(shareSelect, { target: { value: "lt1" } });
 
     // 100 bp = 1% is NOT < 1%, so no collaborator should show
     await waitFor(() => {
-      expect(
-        screen.getByText(/No collaborators match/i),
-      ).toBeTruthy();
+      expect(screen.getByText(/No collaborators match/i)).toBeTruthy();
     });
   });
 
   it("combines search and share filter (AND logic)", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
     // Search for GSTELLAR (20%, 1 result)
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "GSTELLAR" } });
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("1");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
 
     // Add share filter: 1-5% — GSTELLAR is 20%, should yield 0
-    const shareSelect = screen.getByLabelText(
-      /Filter by share percentage/i,
-    );
+    const shareSelect = screen.getByLabelText(/Filter by share percentage/i);
     fireEvent.change(shareSelect, { target: { value: "r1to5" } });
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/No collaborators match/i),
-      ).toBeTruthy();
+      expect(screen.getByText(/No collaborators match/i)).toBeTruthy();
     });
   });
 
   it("shows active filter chips and can remove them", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
     // Apply share filter
-    const shareSelect = screen.getByLabelText(
-      /Filter by share percentage/i,
-    );
+    const shareSelect = screen.getByLabelText(/Filter by share percentage/i);
     fireEvent.change(shareSelect, { target: { value: "gt10" } });
 
     await waitFor(() => {
@@ -406,14 +350,11 @@ describe("CollaboratorTable", () => {
     });
 
     // Remove the chip
-    const removeBtn = screen.getByLabelText(
-      "Remove filter: > 10%",
-    );
+    const removeBtn = screen.getByLabelText("Remove filter: > 10%");
     fireEvent.click(removeBtn);
 
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
   });
@@ -421,29 +362,22 @@ describe("CollaboratorTable", () => {
   it("clear all button resets all filters and search", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
     // Apply both search and share filter
-    const shareSelect = screen.getByLabelText(
-      /Filter by share percentage/i,
-    );
+    const shareSelect = screen.getByLabelText(/Filter by share percentage/i);
     fireEvent.change(shareSelect, { target: { value: "lt1" } });
 
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "GALAXY" } });
 
     await waitFor(
       () => {
-        expect(
-          screen.getByText(/No collaborators match/i),
-        ).toBeTruthy();
+        expect(screen.getByText(/No collaborators match/i)).toBeTruthy();
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
 
     // Click "Clear all"
@@ -452,11 +386,10 @@ describe("CollaboratorTable", () => {
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("5");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
   });
 
@@ -464,51 +397,41 @@ describe("CollaboratorTable", () => {
   it("sorts by name (address) A-Z", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
     const sortBtn = screen.getByText("A–Z");
     fireEvent.click(sortBtn);
 
-    expect(sortBtn.className).toContain(
-      "collab-sort-btn--active",
-    );
+    expect(sortBtn.className).toContain("collab-sort-btn--active");
   });
 
   it("sorts by share descending by default", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
     const shareBtn = screen.getByText("Share ↓");
-    expect(shareBtn.className).toContain(
-      "collab-sort-btn--active",
-    );
+    expect(shareBtn.className).toContain("collab-sort-btn--active");
   });
 
   /* ── Result count accuracy ──────────────────────────────────────────── */
   it("shows accurate result count after filtering", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const shareSelect = screen.getByLabelText(
-      /Filter by share percentage/i,
-    );
+    const shareSelect = screen.getByLabelText(/Filter by share percentage/i);
     fireEvent.change(shareSelect, { target: { value: "r5to10" } });
 
     // 5-10% captures only the 500 bp (5%) collaborator (400 bp = 4%, 100 bp = 1%)
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("1");
     });
   });
@@ -517,8 +440,7 @@ describe("CollaboratorTable", () => {
   it("allows editing a collaborator name", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
@@ -530,9 +452,7 @@ describe("CollaboratorTable", () => {
     fireEvent.click(nameDisplays[0]);
 
     // An input should appear
-    const nameInput = screen.getByPlaceholderText(
-      /Name or note/i,
-    );
+    const nameInput = screen.getByPlaceholderText(/Name or note/i);
     expect(nameInput).toBeTruthy();
 
     // Type a name
@@ -552,29 +472,23 @@ describe("CollaboratorTable", () => {
       basisPoints: Math.floor(10000 / 150),
     }));
     mockGetCollaborators.mockResolvedValue(largeList);
-    render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
 
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("150");
     });
 
     // Search for a specific address
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "G0A" } });
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("1");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
   });
 
@@ -582,35 +496,28 @@ describe("CollaboratorTable", () => {
   it("handles single collaborator edge case", async () => {
     const singleList = [
       {
-        address:
-          "GONLY1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZFFFF",
+        address: "GONLY1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZFFFF",
         basisPoints: 10000,
       },
     ];
     mockGetCollaborators.mockResolvedValue(singleList);
-    render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
 
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("1");
     });
 
     // Search matching — still 1
-    const searchInput = screen.getByPlaceholderText(
-      /Search by address/i,
-    );
+    const searchInput = screen.getByPlaceholderText(/Search by address/i);
     fireEvent.change(searchInput, { target: { value: "GONLY" } });
 
     await waitFor(
       () => {
-        const countText =
-          screen.getByText(/Showing/i).textContent || "";
+        const countText = screen.getByText(/Showing/i).textContent || "";
         expect(countText).toContain("1");
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
 
     // Search non-matching — 0
@@ -620,11 +527,9 @@ describe("CollaboratorTable", () => {
 
     await waitFor(
       () => {
-        expect(
-          screen.getByText(/No collaborators match/i),
-        ).toBeTruthy();
+        expect(screen.getByText(/No collaborators match/i)).toBeTruthy();
       },
-      { timeout: 500 },
+      { timeout: 500 }
     );
   });
 
@@ -632,14 +537,11 @@ describe("CollaboratorTable", () => {
   it("supports payment-status filter dropdown", async () => {
     setup();
     await waitFor(() => {
-      const countText =
-        screen.getByText(/Showing/i).textContent || "";
+      const countText = screen.getByText(/Showing/i).textContent || "";
       expect(countText).toContain("5");
     });
 
-    const statusSelect = screen.getByLabelText(
-      /Filter by payment status/i,
-    );
+    const statusSelect = screen.getByLabelText(/Filter by payment status/i);
     expect(statusSelect).toBeTruthy();
 
     // Default is "All statuses"
@@ -650,9 +552,7 @@ describe("CollaboratorTable", () => {
 
     await waitFor(() => {
       // No one is marked as paid (analytics returned empty stats)
-      expect(
-        screen.getByText(/No collaborators match/i),
-      ).toBeTruthy();
+      expect(screen.getByText(/No collaborators match/i)).toBeTruthy();
     });
   });
 });
@@ -664,9 +564,7 @@ const COLLAB2 = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
 
 describe("CollaboratorTable allocation chart", () => {
   it("renders nothing when contractId is empty", () => {
-    const { container } = render(
-      <CollaboratorTable contractId="" refreshKey={0} />,
-    );
+    const { container } = render(<CollaboratorTable contractId="" refreshKey={0} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -676,14 +574,10 @@ describe("CollaboratorTable allocation chart", () => {
       { address: COLLAB2, basisPoints: 3500 },
     ]);
 
-    expect(
-      screen.getAllByText(/Loading collaborators/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Loading collaborators/i).length).toBeGreaterThan(0);
 
     await waitFor(() =>
-      expect(
-        screen.getByTestId("collaborator-allocation-chart"),
-      ).toBeInTheDocument(),
+      expect(screen.getByTestId("collaborator-allocation-chart")).toBeInTheDocument()
     );
 
     // The exact percentage appears both in the chart legend and the table —
@@ -698,30 +592,20 @@ describe("CollaboratorTable allocation chart", () => {
 
     render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
 
-    await waitFor(() =>
-      expect(screen.getByText("network down")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("network down")).toBeInTheDocument());
   });
 
   it("shows an empty state and no chart when there are no collaborators", async () => {
     setup([]);
 
-    await waitFor(() =>
-      expect(screen.getByText(/No collaborators found/i)).toBeInTheDocument(),
-    );
-    expect(
-      screen.queryByTestId("collaborator-allocation-chart"),
-    ).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/No collaborators found/i)).toBeInTheDocument());
+    expect(screen.queryByTestId("collaborator-allocation-chart")).not.toBeInTheDocument();
   });
 
   it("refetches when refreshKey changes", async () => {
-    mockGetCollaborators.mockResolvedValue([
-      { address: COLLAB1, basisPoints: 10000 },
-    ]);
+    mockGetCollaborators.mockResolvedValue([{ address: COLLAB1, basisPoints: 10000 }]);
 
-    const { rerender } = render(
-      <CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />,
-    );
+    const { rerender } = render(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={0} />);
     await waitFor(() => expect(mockGetCollaborators).toHaveBeenCalledTimes(1));
 
     rerender(<CollaboratorTable contractId={MOCK_CONTRACT} refreshKey={1} />);
@@ -779,5 +663,3 @@ describe("CollaboratorTable allocation chart", () => {
     });
   });
 });
-
-

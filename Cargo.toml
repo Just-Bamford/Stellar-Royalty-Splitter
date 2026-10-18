@@ -36,3 +36,6 @@ lto = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
+[patch.crates-io]
+ethnum = { path = "./ethnum-patch" }

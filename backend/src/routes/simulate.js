@@ -15,20 +15,20 @@ const {
 
 export const simulateRouter = Router();
 
-function invokeIfFunction(value) {
+export function invokeIfFunction(value) {
   return typeof value === "function" ? value() : value;
 }
 
-function readEventField(event, field) {
+export function readEventField(event, field) {
   const value = event?.[field];
   return invokeIfFunction(value);
 }
 
-function getEventPayload(event) {
+export function getEventPayload(event) {
   return invokeIfFunction(event?.event) ?? event?.value ?? event;
 }
 
-function nativeToString(value) {
+export function nativeToString(value) {
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "string") return value;
   if (typeof value === "number") return value.toString();
@@ -38,7 +38,7 @@ function nativeToString(value) {
   return stringValue && stringValue !== "[object Object]" ? stringValue : null;
 }
 
-function scValToString(value) {
+export function scValToString(value) {
   if (value === undefined || value === null) return null;
   if (typeof value === "string") return value;
   if (typeof value === "number") return value.toString();
@@ -51,7 +51,7 @@ function scValToString(value) {
   }
 }
 
-function scValTupleToNative(value) {
+export function scValTupleToNative(value) {
   if (Array.isArray(value)) return value;
 
   try {

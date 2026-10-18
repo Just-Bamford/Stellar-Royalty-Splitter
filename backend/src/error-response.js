@@ -28,7 +28,6 @@ export function buildErrorPayload(status, code, message, extra = {}) {
   const normalizedCode = normalizeErrorCode(status, code);
   const retryable = retryableErrorCodes[normalizedCode] || false;
   const retryAfter = retryable ? (status === 429 ? 60 : 5) : null; // Default retry after hints
-  const detailsUrl = `docs/errors#${normalizedCode}`;
   
   return {
     status,
@@ -37,7 +36,6 @@ export function buildErrorPayload(status, code, message, extra = {}) {
     error: message,
     retryable,
     retryAfter,
-    details_url: detailsUrl,
     ...extra,
   };
 }

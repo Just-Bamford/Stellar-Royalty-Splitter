@@ -7,7 +7,7 @@
  * postMessage contract.
  */
 
-import { describe, test, expect, beforeEach, jest } from "@jest/globals";
+import { describe, test, expect, beforeEach, vi as jest } from "vitest";
 
 // ── Helpers that mirror the hook's internal behaviour ──────────────────────
 
@@ -88,12 +88,14 @@ describe("useOfflineQueue (#830)", () => {
 
   test("queue size of 3 produces plural label", () => {
     const size = 3;
+    // @ts-ignore - intentional literal type comparison for testing
     const label = `${size} write${size === 1 ? "" : "s"} queued`;
     expect(label).toBe("3 writes queued");
   });
 
   test("queue size of 0 produces no badge text (empty string case)", () => {
     const size = 0;
+    // @ts-ignore - intentional literal type comparison for testing
     const queueLabel = size > 0 ? ` · ${size} write${size === 1 ? "" : "s"} queued` : "";
     expect(queueLabel).toBe("");
   });

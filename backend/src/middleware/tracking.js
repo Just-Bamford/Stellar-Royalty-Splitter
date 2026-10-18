@@ -26,27 +26,33 @@ export function trackDistributionEvents(req, res, next) {
   }
 
   // Track submission
-  trackEvent(userId, "distribute_clicked", {
-    timestamp: Date.now(),
-  }).catch((err) => logger.warn(`Failed to track distribute_clicked: ${err.message}`));
+  Promise.resolve(
+    trackEvent(userId, "distribute_clicked", {
+      timestamp: Date.now(),
+    }),
+  ).catch((err) => logger.warn(`Failed to track distribute_clicked: ${err.message}`));
 
   // Hook into response
   const originalJson = res.json;
   res.json = function (data) {
     const statusCode = res.statusCode;
     if (statusCode === 200) {
-      trackEvent(userId, "distribution_succeeded", {
-        timestamp: Date.now(),
-        ...(data?.data?.transactionHash && { txHash: data.data.transactionHash }),
-      }).catch((err) =>
+      Promise.resolve(
+        trackEvent(userId, "distribution_succeeded", {
+          timestamp: Date.now(),
+          ...(data?.data?.transactionHash && { txHash: data.data.transactionHash }),
+        }),
+      ).catch((err) =>
         logger.warn(`Failed to track distribution_succeeded: ${err.message}`),
       );
     } else if (statusCode >= 400) {
-      trackEvent(userId, "distribution_failed", {
-        timestamp: Date.now(),
-        statusCode,
-        error: data?.code || "unknown",
-      }).catch((err) =>
+      Promise.resolve(
+        trackEvent(userId, "distribution_failed", {
+          timestamp: Date.now(),
+          statusCode,
+          error: data?.code || "unknown",
+        }),
+      ).catch((err) =>
         logger.warn(`Failed to track distribution_failed: ${err.message}`),
       );
     }
@@ -71,11 +77,13 @@ export function trackSecondaryRoyaltyEvents(req, res, next) {
   const originalJson = res.json;
   res.json = function (data) {
     if (res.statusCode === 200 && data?.data) {
-      trackEvent(userId, "secondary_royalty_recorded", {
-        timestamp: Date.now(),
-        amount: data.data.amount,
-        source: data.data.source,
-      }).catch((err) =>
+      Promise.resolve(
+        trackEvent(userId, "secondary_royalty_recorded", {
+          timestamp: Date.now(),
+          amount: data.data.amount,
+          source: data.data.source,
+        }),
+      ).catch((err) =>
         logger.warn(`Failed to track secondary_royalty_recorded: ${err.message}`),
       );
     }
@@ -98,17 +106,21 @@ export function trackInitializationEvents(req, res, next) {
     return next();
   }
 
-  trackEvent(userId, "initialize_started", {
-    timestamp: Date.now(),
-  }).catch((err) => logger.warn(`Failed to track initialize_started: ${err.message}`));
+  Promise.resolve(
+    trackEvent(userId, "initialize_started", {
+      timestamp: Date.now(),
+    }),
+  ).catch((err) => logger.warn(`Failed to track initialize_started: ${err.message}`));
 
   const originalJson = res.json;
   res.json = function (data) {
     if (res.statusCode === 200) {
-      trackEvent(userId, "initialize_completed", {
-        timestamp: Date.now(),
-        ...(data?.data?.transactionHash && { txHash: data.data.transactionHash }),
-      }).catch((err) =>
+      Promise.resolve(
+        trackEvent(userId, "initialize_completed", {
+          timestamp: Date.now(),
+          ...(data?.data?.transactionHash && { txHash: data.data.transactionHash }),
+        }),
+      ).catch((err) =>
         logger.warn(`Failed to track initialize_completed: ${err.message}`),
       );
     }
@@ -129,12 +141,14 @@ export function trackInitializationEvents(req, res, next) {
 export async function trackUserCohort(userId, { tier, joinDate, distributionFrequency }) {
   if (!userId) return;
 
-  setUserProfile(userId, {
-    collaborator_tier: tier,
-    join_date: joinDate,
-    distribution_frequency: distributionFrequency,
-    last_updated: new Date().toISOString(),
-  }).catch((err) => logger.warn(`Failed to track user cohort: ${err.message}`));
+  Promise.resolve(
+    setUserProfile(userId, {
+      collaborator_tier: tier,
+      join_date: joinDate,
+      distribution_frequency: distributionFrequency,
+      last_updated: new Date().toISOString(),
+    }),
+  ).catch((err) => logger.warn(`Failed to track user cohort: ${err.message}`));
 }
 
 /**
@@ -153,10 +167,12 @@ export async function initializeUserTracking(userId, tier = "standard") {
     distributionFrequency: null,
   });
 
-  trackEvent(userId, "user_initialized", {
-    timestamp: Date.now(),
-    tier,
-  }).catch((err) => logger.warn(`Failed to track user_initialized: ${err.message}`));
+  Promise.resolve(
+    trackEvent(userId, "user_initialized", {
+      timestamp: Date.now(),
+      tier,
+    }),
+  ).catch((err) => logger.warn(`Failed to track user_initialized: ${err.message}`));
 }
 
 export {};

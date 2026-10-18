@@ -20,7 +20,6 @@ and internal errors — uses the same JSON shape and is built by
   "error": "Collaborators array must be non-empty",
   "retryable": false,
   "retryAfter": null,
-  "details_url": "docs/errors#validation_failed",
   "details": [{ "field": "collaborators", "message": "Collaborators array must be non-empty" }]
 }
 ```
@@ -33,7 +32,6 @@ and internal errors — uses the same JSON shape and is built by
 | `error` | Same value as `message` — kept for backward compatibility with older clients that read `.error` |
 | `retryable` | Boolean indicating whether the request can be retried |
 | `retryAfter` | Suggested retry delay in seconds (null if not retryable) |
-| `details_url` | Link to error documentation in the error catalog |
 | `details` | Present only on validation errors; an array of `{ field, message }` issues |
 | `complexity_score` | Present on `request_too_complex` errors; computed complexity score |
 | `limit` | Present on `request_too_complex` errors; maximum allowed complexity score |
@@ -106,7 +104,6 @@ When a request exceeds the limit, it is rejected immediately with HTTP 400:
   "error": "Request exceeds maximum complexity limit of 1000 (calculated score: 1052)",
   "retryable": false,
   "retryAfter": null,
-  "details_url": "docs/errors#request_too_complex",
   "complexity_score": 1052,
   "limit": 1000
 }
@@ -258,6 +255,10 @@ If the request times out and is retried with the same `Idempotency-Key`, the sec
 |---|---|---|
 | `IDEMPOTENCY_CACHE_TTL_MS` | `86400000` (24 hours) | How long to cache idempotent responses |
 | `IDEMPOTENCY_MAX_ENTRIES` | `10000` | Maximum number of cached responses before eviction |
+
+> **⚠️ Multi-process limitation:** The idempotency implementation is process-local. Both the in-flight deduplication map and the persistent response cache are stored in process memory. When the backend runs as multiple processes — including canary deployments where a second process listens on a separate port — two concurrent requests carrying the same `Idempotency-Key` that hit different processes will both be executed, defeating the deduplication guarantee.
+>
+> To restore the guarantee in multi-process deployments, set `REDIS_URL` in your environment to a shared Redis instance. Redis-backed idempotency storage is not yet implemented; this variable currently enables only the distributed response cache (see `.env.example`). Until Redis-backed idempotency is available, operators running more than one process should be aware of this gap and use a load-balancer with session affinity as a mitigation.
 
 ## Simulate Distribution
 

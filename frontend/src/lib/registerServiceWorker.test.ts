@@ -3,16 +3,12 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  isOnline,
-  registerServiceWorker,
-  watchConnectivity,
-} from "./registerServiceWorker";
+import { isOnline, registerServiceWorker, watchConnectivity } from "./registerServiceWorker";
 
 describe("registerServiceWorker (#522)", () => {
   beforeEach(() => {
     // Ensure each test starts with no SW pollution from a prior test.
-    delete (navigator as Navigator & { serviceWorker?: unknown }).serviceWorker;
+    (navigator as any).serviceWorker = undefined;
   });
 
   test("returns null when the SW API is missing (e.g. jsdom default)", async () => {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api, TransactionRecord } from "../api";
 import "./TransactionHistory.css";
-import { formatNumber } from "../utils/format";
+import { formatDateTime, formatNumber } from "../utils/format";
 import { CopyButton } from "./CopyButton";
 import { TransactionDetailView } from "./TransactionDetailView";
 import { getStellarExpertTxUrl, formatTxHash } from "../lib/explorer";
@@ -320,7 +320,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   }
 
   const formatDate = (dateString: string) => {
-    try { return new Date(dateString).toLocaleString(); }
+    try { return formatDateTime(dateString); }
     catch { return dateString; }
   };
 

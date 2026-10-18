@@ -118,6 +118,23 @@
   flex-shrink: 0;
 }
 
+.nav-language-select {
+  min-width: 0;
+  max-width: 8.5rem;
+  padding: 0.35rem 1.5rem 0.35rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 0.35rem;
+  color: var(--text-inverse);
+  background: rgba(15, 23, 42, 0.75);
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.nav-language-select option {
+  color: #111827;
+  background: #ffffff;
+}
+
 /* Network toggle — issue #231 */
 .network-toggle {
   display: flex;
@@ -323,6 +340,18 @@
     display: flex;
     transform: translateX(0);
     visibility: visible;
+  }
+
+  :root[dir="rtl"] .nav-links {
+    left: auto;
+    right: 0;
+    border-right: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    transform: translateX(100%);
+  }
+
+  :root[dir="rtl"] .nav-links.active {
+    transform: translateX(0);
   }
 
   .nav-links li {

@@ -46,12 +46,11 @@ export interface SignAndSubmitOptions {
  */
 export async function signAndSubmitTransaction(
   xdrString: string,
-  network: Network = "testnet",
-  options: SignAndSubmitOptions = {},
+  network: Network,
+  options: SignAndSubmitOptions = {}
 ): Promise<string> {
   // @ts-ignore
-  if (!window.freighter)
-    throw new Error("Freighter wallet not found. Install it at freighter.app");
+  if (!window.freighter) throw new Error("Freighter wallet not found. Install it at freighter.app");
 
   const passphrase = NETWORK_PASSPHRASES[network];
   const rpcUrl = RPC_URLS[network];
@@ -63,9 +62,13 @@ export async function signAndSubmitTransaction(
   });
 
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
-  const hash = await submitTransactionWithRetry(server as unknown as SendTransactionLike, tx as unknown, {
-    onRetry: options.onRetry,
-  });
+  const hash = await submitTransactionWithRetry(
+    server as unknown as SendTransactionLike,
+    tx as unknown,
+    {
+      onRetry: options.onRetry,
+    }
+  );
 
   // Poll for confirmation (max 30s)
   const deadline = Date.now() + 30_000;
@@ -91,8 +94,7 @@ export async function signAndSubmitTransaction(
       throw error;
     }
     if (result.status === "SUCCESS") return hash;
-    if (result.status === "FAILED")
-      throw new Error(`Transaction failed on-chain: ${hash}`);
+    if (result.status === "FAILED") throw new Error(`Transaction failed on-chain: ${hash}`);
   }
 
   throw new Error(`Transaction confirmation timed out: ${hash}`);

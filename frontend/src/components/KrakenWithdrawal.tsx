@@ -21,9 +21,10 @@ export const KrakenWithdrawal: React.FC<KrakenWithdrawalProps> = ({
     setLoading(true);
     try {
       const redirectUri = `${window.location.origin}/kraken-callback`;
-      const response = await api.get("/withdrawals/kraken/oauth/url", {
-        redirect_uri: redirectUri,
-      });
+      const params = new URLSearchParams({ redirect_uri: redirectUri });
+      const response = await api.get<{ authUrl: string }>(
+        `/withdrawals/kraken/oauth/url?${params.toString()}`
+      );
 
       if (response.authUrl) {
         window.location.href = response.authUrl;
@@ -72,11 +73,7 @@ export const KrakenWithdrawal: React.FC<KrakenWithdrawalProps> = ({
             placeholder="Amount in XLM"
             className="input-field"
           />
-          <button
-            onClick={handleWithdraw}
-            disabled={loading || !amount}
-            className="btn-primary"
-          >
+          <button onClick={handleWithdraw} disabled={loading || !amount} className="btn-primary">
             {loading ? "Processing..." : "Withdraw to Kraken"}
           </button>
         </div>

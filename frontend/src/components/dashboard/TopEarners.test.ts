@@ -5,7 +5,7 @@
  * TopEarners applies to its props.
  */
 
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import { formatNumber, formatCurrency } from "../../utils/format";
 import type { EarnerStat } from "./TopEarners";
 
@@ -35,10 +35,7 @@ describe("TopEarners #833", () => {
   });
 
   test("percentage is '0.0' when totalDistributed is 0", () => {
-    const pct =
-      0 > 0
-        ? ((earners[0].totalEarned / 0) * 100).toFixed(1)
-        : "0.0";
+    const pct = 0 > 0 ? ((earners[0].totalEarned / 0) * 100).toFixed(1) : "0.0";
     expect(pct).toBe("0.0");
   });
 

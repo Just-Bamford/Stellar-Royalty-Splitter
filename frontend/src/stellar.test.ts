@@ -143,7 +143,9 @@ describe("signAndSubmitTransaction", () => {
 
   test("permanent auth error fails fast without retry", async () => {
     setFreighter();
-    mocks.sendTransaction.mockRejectedValueOnce(Object.assign(new Error("unauthorized"), { status: 401 }));
+    mocks.sendTransaction.mockRejectedValueOnce(
+      Object.assign(new Error("unauthorized"), { status: 401 })
+    );
     const onRetry = vi.fn();
 
     const promise = signAndSubmitTransaction("unsigned-xdr", "testnet", { onRetry });
@@ -167,7 +169,7 @@ describe("signAndSubmitTransaction", () => {
 
     const promise = signAndSubmitTransaction("unsigned-xdr", "testnet", { onRetry });
     const assertion = expect(promise).rejects.toThrow(
-      "Transaction submission failed: TX_BAD_SEQ: sequence number too old",
+      "Transaction submission failed: TX_BAD_SEQ: sequence number too old"
     );
 
     await vi.advanceTimersByTimeAsync(0);
@@ -238,7 +240,9 @@ describe("signAndSubmitTransaction", () => {
   test("permanent RPC error while polling confirmation throws", async () => {
     setFreighter();
     mocks.sendTransaction.mockResolvedValueOnce({ status: "PENDING", hash: "HASH5" });
-    mocks.getTransaction.mockRejectedValueOnce(Object.assign(new Error("bad request"), { status: 400 }));
+    mocks.getTransaction.mockRejectedValueOnce(
+      Object.assign(new Error("bad request"), { status: 400 })
+    );
 
     const promise = signAndSubmitTransaction("unsigned-xdr", "testnet");
     const assertion = expect(promise).rejects.toThrow("bad request");
@@ -267,7 +271,39 @@ describe("signAndSubmitTransaction", () => {
     delete (window as unknown as { freighter?: unknown }).freighter;
 
     await expect(signAndSubmitTransaction("unsigned-xdr", "testnet")).rejects.toThrow(
-      "Freighter wallet not found",
+      "Freighter wallet not found"
     );
+  });
+
+  test("retries instantly with zero-delay policy (no sleep needed)", async () => {
+    setFreighter();
+    mocks.sendTransaction
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ status: "PENDING", hash: "HASH_INSTANT" });
+    mocks.getTransaction.mockResolvedValueOnce({ status: "SUCCESS" });
+    const onRetry = vi.fn();
+
+    // Use a zero-delay policy to verify the retry fires without setTimeout delays.
+    const { submitTransactionWithRetry } = await import("./lib/submission-retry");
+    const mockServer = {
+      sendTransaction: mocks.sendTransaction,
+    };
+    const promise = submitTransactionWithRetry(mockServer, "signed-xdr", {
+      policy: { maxRetries: 2, delaysMs: [0, 0] },
+      onRetry,
+    });
+
+    // First attempt fails immediately; zero-delay backoff (no time elapses).
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.sendTransaction).toHaveBeenCalledTimes(2); // Initial + 1 retry, both instant
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onRetry.mock.calls[0][0]).toMatchObject({
+      attempt: 1,
+      delayMs: 0,
+    });
+
+    const hash = await promise;
+    expect(hash).toBe("HASH_INSTANT");
+    expect(submissionRetryMetrics.getMetrics().recoveredAfterRetry).toBe(1);
   });
 });

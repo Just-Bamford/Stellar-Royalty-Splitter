@@ -4,7 +4,7 @@ Step-by-step procedures for recovering the Stellar Royalty Splitter audit databa
 from backup.
 
 > **During an incident, start at
-> [`DISASTER_RECOVERY_RUNBOOK.md`](DISASTER_RECOVERY_RUNBOOK.md)** — it covers
+> [`disaster-recovery-runbook-main.md`](disaster-recovery-runbook-main.md)** — it covers
 > triage across all failure modes (infrastructure loss, dependency outages,
 > configuration loss, bad deployments) and links back here for the database
 > restore detail below.
@@ -18,13 +18,13 @@ from backup.
 
 Before executing any recovery procedure, ensure you have:
 
-| Requirement | Details |
-|-------------|---------|
-| **Access** | SSH access to the production server or CI/CD environment |
-| **Credentials** | Backup decryption key (from secrets manager) |
-| **S3 access** | AWS credentials with read access to `BACKUP_S3_BUCKET` |
-| **Tools** | `sqlite3`, `openssl`, `aws-cli` (or MinIO `mc` client) |
-| **Disk space** | At least 2x the database size free on the target volume |
+| Requirement         | Details                                                     |
+| ------------------- | ----------------------------------------------------------- |
+| **Access**          | SSH access to the production server or CI/CD environment    |
+| **Credentials**     | Backup decryption key (from secrets manager)                |
+| **S3 access**       | AWS credentials with read access to `BACKUP_S3_BUCKET`      |
+| **Tools**           | `sqlite3`, `openssl`, `aws-cli` (or MinIO `mc` client)      |
+| **Disk space**      | At least 2x the database size free on the target volume     |
 | **Downtime window** | Confirm the backend service can be restarted (RTO < 1 hour) |
 
 ---
@@ -219,9 +219,9 @@ After any disaster recovery event:
 
 ## Contact
 
-| Role | Responsibility |
-|------|---------------|
-| **On-call engineer** | First responder — executes recovery |
-| **Database lead** | Verifies data integrity post-restore |
-| **Platform lead** | Infrastructure and storage issues |
+| Role                 | Responsibility                       |
+| -------------------- | ------------------------------------ |
+| **On-call engineer** | First responder — executes recovery  |
+| **Database lead**    | Verifies data integrity post-restore |
+| **Platform lead**    | Infrastructure and storage issues    |
 | **Engineering lead** | Incident authority and communication |

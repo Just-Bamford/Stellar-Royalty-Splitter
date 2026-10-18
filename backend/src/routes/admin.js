@@ -5,13 +5,18 @@ import { validate } from "../validation.js";
 import { sendError } from "../error-response.js";
 import {
   isAdminRotateTokenValid,
-  reloadSigningKeyFromSecretsFile,
   reloadSigningKeyFromSecretsProvider,
   rotateSigningKey,
   getSigningKeyStatus,
 } from "../signing-key.js";
 import { requireAdminBearerOrRole, createUser } from "../middleware/rbac.js";
-import { addAuditLog, listAlertRules, createAlertRule, updateAlertRule, deleteAlertRule } from "../database/index.js";
+import {
+  addAuditLog,
+  listAlertRules,
+  createAlertRule,
+  updateAlertRule,
+  deleteAlertRule,
+} from "../database/index.js";
 
 export const adminRouter = Router();
 
@@ -82,10 +87,10 @@ adminRouter.post(
   async (req, res, next) => {
     try {
       let result;
-      if (req.body.reloadFromProvider) {
+      if (req.body.reloadFromProvider || req.body.reloadFromFile) {
+        // Both reloadFromFile and reloadFromProvider use the unified provider approach
+        // which handles AWS Secrets Manager, Vault, file, and env vars automatically
         result = await reloadSigningKeyFromSecretsProvider();
-      } else if (req.body.reloadFromFile) {
-        result = reloadSigningKeyFromSecretsFile();
       } else {
         result = rotateSigningKey(req.body.secretKey, { source: "api" });
       }
@@ -161,25 +166,30 @@ adminRouter.get("/roles", (_req, res) => {
 });
 
 // Alert rules schema and endpoints
-const alertRuleSchema = z.object({
-  contractId: z.string().min(1, "Contract ID is required"),
-  metric: z.enum(["error_rate", "large_distribution", "unusual_token", "high_latency"]),
-  threshold: z.number().positive(),
-  windowMinutes: z.number().int().positive().default(60),
-  action: z.object({
-    type: z.enum(["webhook", "email"]),
-    target: z.string().url().or(z.string().email()).optional(),
-  }),
-  enabled: z.boolean().default(true),
-}).refine((data) => {
-  if (data.action.type === "webhook") {
-    return z.string().url().safeParse(data.action.target).success;
-  }
-  if (data.action.type === "email") {
-    return z.string().email().safeParse(data.action.target).success;
-  }
-  return false;
-}, { message: "Invalid action target for the selected type" });
+const alertRuleSchema = z
+  .object({
+    contractId: z.string().min(1, "Contract ID is required"),
+    metric: z.enum(["error_rate", "large_distribution", "unusual_token", "high_latency"]),
+    threshold: z.number().positive(),
+    windowMinutes: z.number().int().positive().default(60),
+    action: z.object({
+      type: z.enum(["webhook", "email"]),
+      target: z.string().url().or(z.string().email()).optional(),
+    }),
+    enabled: z.boolean().default(true),
+  })
+  .refine(
+    (data) => {
+      if (data.action.type === "webhook") {
+        return z.string().url().safeParse(data.action.target).success;
+      }
+      if (data.action.type === "email") {
+        return z.string().email().safeParse(data.action.target).success;
+      }
+      return false;
+    },
+    { message: "Invalid action target for the selected type" }
+  );
 
 adminRouter.get("/alert-rules", requireAdminBearerOrRole("admin"), async (_req, res, next) => {
   try {
@@ -197,7 +207,10 @@ adminRouter.post(
   async (req, res, next) => {
     try {
       const rule = await createAlertRule(req.body);
-      logger.info("Admin: created alert rule", { ruleId: rule.id, contractId: req.body.contractId });
+      logger.info("Admin: created alert rule", {
+        ruleId: rule.id,
+        contractId: req.body.contractId,
+      });
       res.status(201).json({ rule });
     } catch (err) {
       next(err);

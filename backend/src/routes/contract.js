@@ -13,7 +13,7 @@ import { validateContractIdMiddleware, validateContractId } from "../validation.
 import { sendError } from "../error-response.js";
 import { cacheGet, cacheSet, cacheKey, TTL, clearCache, onCacheInvalidated } from "../cache.js";
 
-const { Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account } = StellarSdk;
+const { Address, Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account, scValToNative } = StellarSdk;
 
 export const contractRouter = Router();
 
@@ -398,6 +398,40 @@ contractRouter.get("/status/:contractId", validateContractIdMiddleware, async (r
  * Returns the contract's token balance via simulation.
  * Response: { balance: string }
  */
+contractRouter.get("/pending-distributions/:contractId", validateContractIdMiddleware, async (req, res, next) => {
+  try {
+    const contract = new Contract(req.params.contractId);
+    const dummyAccount = new Account("GAAzI4TCR3TY5OJHCTJ2C4Q4SY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+    const tx = new TransactionBuilder(dummyAccount, { fee: BASE_FEE, networkPassphrase })
+      .addOperation(contract.call("get_approved_tokens"))
+      .setTimeout(30)
+      .build();
+    const simulation = await server.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(simulation)) {
+      return sendError(res, 400, "contract_simulation_failed", simulation.error ?? "Unable to read pending distributions");
+    }
+
+    const tokens = (simulation.result?.retval?.vec?.() ?? []).map((entry) => Address.fromScVal(entry).toString());
+    const balances = await Promise.all(tokens.map(async (tokenId) => {
+      const token = new Contract(tokenId);
+      const balanceTx = new TransactionBuilder(dummyAccount, { fee: BASE_FEE, networkPassphrase })
+        .addOperation(token.call("balance", addressToScVal(req.params.contractId)))
+        .setTimeout(30)
+        .build();
+      const balanceSimulation = await server.simulateTransaction(balanceTx);
+      if (SorobanRpc.Api.isSimulationError(balanceSimulation)) return null;
+      const amount = BigInt(scValToNative(balanceSimulation.result?.retval));
+      return amount > 0n ? { tokenId, amount: amount.toString() } : null;
+    }));
+    // The contract has no per-collaborator claim queue: an approved token
+    // with a positive contract balance is the authoritative pending work.
+    const distributions = balances.filter(Boolean);
+    return res.json({ distributions });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 contractRouter.get("/balance/:contractId", validateContractIdMiddleware, async (req, res, next) => {
   try {
     const { contractId } = req.params;

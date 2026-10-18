@@ -2,6 +2,18 @@ import "@testing-library/jest-dom/vitest";
 // jsdom does not implement IndexedDB; polyfill it so modules backed by
 // IndexedDB (offline write queue, cached earnings snapshots) can be tested.
 import "fake-indexeddb/auto";
+import { afterEach } from "vitest";
+import { cleanup } from "@testing-library/react/pure.js";
+
+// Unmount everything rendered by a test before the next one starts.
+// `@testing-library/react` is aliased to src/test/test-utils.tsx, which
+// imports RTL's `pure` entry point — the one that does NOT register RTL's
+// automatic afterEach(cleanup). Without this, every test's DOM stays mounted
+// and later queries in the same file find duplicates ("Found multiple
+// elements…"), which is what made ~190 tests fail once CI ran them (#1128).
+afterEach(() => {
+  cleanup();
+});
 
 // jsdom does not implement ResizeObserver, which recharts' ResponsiveContainer
 // relies on to size the chart. Stub it so component tests can render charts
@@ -99,12 +111,19 @@ vi.mock("react-i18next", () => {
 vi.mock("../context/NotificationContext", () => ({
   useNotifications: () => ({
     notifications: [],
+    archivedNotifications: [],
     unreadCount: 0,
     addNotification: vi.fn(),
-    markAllRead: vi.fn(),
-    clearAll: vi.fn(),
-    markRead: vi.fn(),
-    deleteNotification: vi.fn(),
+    markAsRead: vi.fn(),
+    markAsUnread: vi.fn(),
+    markAllAsRead: vi.fn(),
+    archiveNotification: vi.fn(),
+    unarchiveNotification: vi.fn(),
+    clearNotification: vi.fn(),
+    clearAllNotifications: vi.fn(),
+    searchNotifications: vi.fn(() => []),
+    preferences: null,
+    setPreferences: vi.fn(),
   }),
   NotificationProvider: ({ children }: any) => children,
 }));

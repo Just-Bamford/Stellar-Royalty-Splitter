@@ -3,24 +3,21 @@ import type { HeatmapCell } from '../../hooks/useChartData';
 
 export interface EarningsHeatmapProps {
   data: HeatmapCell[];
+  currency?: string;
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const HOURS = Array.from({ length: 24 }, (, i) => i);
-
-function formatCurrency(value: number): string {
-  return `\$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })`;
-}
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 function colorFor(value: number, max: number): string {
   if (max <= 0 || value <= 0) return '#f1f5f9';
   const ratio = Math.min(1, value / max);
   const alpha = 0.15 + ratio * 0.85;
-  return `rgba(25, 99, 235, ${alpha.toFixed(3)})`;
+  return `rgba(37, 99, 235, ${alpha.toFixed(3)})`;
 }
 
-export default function EarningsHeatmap({ data }: EarningsHeatmapProps) {
+export function EarningsHeatmap({ data, currency = 'USD' }: EarningsHeatmapProps) {
   const max = useMemo(() => {
     if (!data || data.length === 0) return 0;
     return data.reduce((m, c) => Math.max(m, c.value), 0);
@@ -68,7 +65,7 @@ export default function EarningsHeatmap({ data }: EarningsHeatmapProps) {
                   key={hour}
                   className="m-0.5 h-6 w-6 rounded-sm border border-slate-200 dark:border-slate-700"
                   style={{ backgroundColor: colorFor(value, max) }}
-                  title={`${dayName} ${hour}:00 - ${formatCompactCurrency(value)}`}
+                  title={`${dayName} ${hour}:00 - ${formatCompactCurrency(value, currency)}`}
                   data-testid="heatmap-cell"
                 />
               );
@@ -93,9 +90,12 @@ export default function EarningsHeatmap({ data }: EarningsHeatmapProps) {
   );
 }
 
-function formatCompactCurrency(value: number): string {
+function formatCompactCurrency(value: number, currency: string = 'USD'): string {
+  const prefix = currency === 'USD' || currency === '$' ? '$' : `${currency} `;
   if (Math.abs(value) >= 1000) {
-    return `\$$w(value / 1000).toFixed(1)}k`;
+    return `${prefix}${(value / 1000).toFixed(1)}k`;
   }
-  return `\$${value}`;
+  return `${prefix}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
+
+export default EarningsHeatmap;

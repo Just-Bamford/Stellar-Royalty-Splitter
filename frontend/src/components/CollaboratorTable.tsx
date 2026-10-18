@@ -36,7 +36,6 @@ interface ActiveFilters {
   paymentStatus: PaymentStatus;
 }
 
-
 const SHARE_RANGE_LABELS: Record<ShareRange, string> = {
   all: "All shares",
   gt10: "> 10%",
@@ -53,15 +52,13 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
 
 /* ÔöÇÔöÇ Persistent names: single JSON blob per contract (O(1) read) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
 
-const NAME_STORAGE_KEY = "srs_collab_names";
+const getNameStorageKey = (contractId: string): string => `srs_collab_names_${contractId}`;
 
 function loadNames(contractId: string): Map<string, string> {
   try {
-    const blob = localStorage.getItem(NAME_STORAGE_KEY);
+    const blob = localStorage.getItem(getNameStorageKey(contractId));
     if (!blob) return new Map();
-    const all: Record<string, Record<string, string>> = JSON.parse(blob);
-    const contractNames = all[contractId];
-    if (!contractNames) return new Map();
+    const contractNames: Record<string, string> = JSON.parse(blob);
     return new Map(Object.entries(contractNames));
   } catch {
     return new Map();
@@ -70,16 +67,11 @@ function loadNames(contractId: string): Map<string, string> {
 
 function saveNames(contractId: string, names: Map<string, string>) {
   try {
-    const blob = localStorage.getItem(NAME_STORAGE_KEY);
-    const all: Record<string, Record<string, string>> = blob
-      ? JSON.parse(blob)
-      : {};
     const contractNames: Record<string, string> = {};
     names.forEach((value, key) => {
       contractNames[key] = value;
     });
-    all[contractId] = contractNames;
-    localStorage.setItem(NAME_STORAGE_KEY, JSON.stringify(all));
+    localStorage.setItem(getNameStorageKey(contractId), JSON.stringify(contractNames));
   } catch {
     // localStorage may be full or unavailable
   }
@@ -114,7 +106,6 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
   const [copied, setCopied] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
-
   // ÔöÇÔöÇ debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -132,9 +123,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
   const [editValue, setEditValue] = useState("");
 
   // ÔöÇÔöÇ payment data (from analytics) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  const [paymentData, setPaymentData] = useState<Map<string, number> | null>(
-    null,
-  );
+  const [paymentData, setPaymentData] = useState<Map<string, number> | null>(null);
 
   // ÔöÇÔöÇ tier data ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
   const [tierData, setTierData] = useState<Map<string, string> | null>(null);
@@ -216,7 +205,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       setEditingName(address);
       setEditValue(names.get(address) ?? "");
     },
-    [names],
+    [names]
   );
 
   const commitName = useCallback(
@@ -232,7 +221,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       setEditingName(null);
       setEditValue("");
     },
-    [contractId, editValue, names],
+    [contractId, editValue, names]
   );
 
   const cancelEditing = useCallback(() => {
@@ -242,11 +231,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
 
   /* ÔöÇÔöÇ Filter/Sort helpers ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   function hasActiveFilters(): boolean {
-    return (
-      filters.shareRange !== "all" ||
-      filters.paymentStatus !== "all" ||
-      search !== ""
-    );
+    return filters.shareRange !== "all" || filters.paymentStatus !== "all" || search !== "";
   }
 
   function clearAllFilters() {
@@ -272,17 +257,13 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
         if (searchLower) {
           const name = names.get(c.address);
           const matchesAddress = c.address.toLowerCase().includes(searchLower);
-          const matchesName = name
-            ? name.toLowerCase().includes(searchLower)
-            : false;
+          const matchesName = name ? name.toLowerCase().includes(searchLower) : false;
           if (!matchesAddress && !matchesName) return false;
         }
         return true;
       })
       .sort((a, b) =>
-        sort === "address"
-          ? a.address.localeCompare(b.address)
-          : b.basisPoints - a.basisPoints,
+        sort === "address" ? a.address.localeCompare(b.address) : b.basisPoints - a.basisPoints
       );
   }, [collaborators, filters, paymentData, searchLower, names, sort]);
 
@@ -347,11 +328,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     return (
       <div className="card status error" role="alert" data-testid="collaborators-error">
         <p>{error}</p>
-        <button
-          type="button"
-          className="retry-btn"
-          onClick={() => setRetryCount((n) => n + 1)}
-        >
+        <button type="button" className="retry-btn" onClick={() => setRetryCount((n) => n + 1)}>
           Retry
         </button>
       </div>
@@ -391,7 +368,6 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       },
     });
   }
-
 
   return (
     <div className="card collab-table-card">
@@ -471,10 +447,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             <option value="unpaid">Unpaid</option>
           </select>
           {paymentData === null && (
-            <span
-              className="collab-filter-hint"
-              title="Payment status data is not yet available"
-            >
+            <span className="collab-filter-hint" title="Payment status data is not yet available">
               Ôôÿ
             </span>
           )}
@@ -547,11 +520,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             </span>
           ))}
           <div className="collab-filter-actions">
-            <button
-              type="button"
-              className="collab-clear-filters"
-              onClick={clearAllFilters}
-            >
+            <button type="button" className="collab-clear-filters" onClick={clearAllFilters}>
               Clear all
             </button>
           </div>
@@ -579,14 +548,8 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             ­ƒöÄ
           </span>
           <p>No collaborators match your current filters.</p>
-          <p style={{ fontSize: "0.75rem" }}>
-            Try adjusting your search or filter criteria.
-          </p>
-          <button
-            type="button"
-            className="collab-no-results-reset"
-            onClick={clearAllFilters}
-          >
+          <p style={{ fontSize: "0.75rem" }}>Try adjusting your search or filter criteria.</p>
+          <button type="button" className="collab-no-results-reset" onClick={clearAllFilters}>
             Reset all filters
           </button>
         </div>
@@ -629,23 +592,17 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ")
-                            startEditing(c.address);
+                          if (e.key === "Enter" || e.key === " ") startEditing(c.address);
                         }}
                       >
                         {names.has(c.address) ? (
-                          <span className="collab-name-text">
-                            {names.get(c.address)}
-                          </span>
+                          <span className="collab-name-text">{names.get(c.address)}</span>
                         ) : (
                           <span className="collab-name-text collab-name-text--unnamed">
                             {c.address.slice(0, 8)}...{c.address.slice(-6)}
                           </span>
                         )}
-                        <span
-                          className="collab-name-edit-icon"
-                          aria-hidden="true"
-                        >
+                        <span className="collab-name-edit-icon" aria-hidden="true">
                           Ô£Ä
                         </span>
                       </span>
@@ -655,36 +612,22 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                     <button
                       className={`copy-btn-sm${copied === c.address ? " copied" : ""}`}
                       onClick={() => copyAddress(c.address)}
-                      title={
-                        copied === c.address ? "Address copied" : "Copy address"
-                      }
+                      title={copied === c.address ? "Address copied" : "Copy address"}
                       aria-label={
-                        copied === c.address
-                          ? "Address copied"
-                          : "Copy collaborator address"
+                        copied === c.address ? "Address copied" : "Copy collaborator address"
                       }
                     >
                       {copied === c.address ? "Ô£ô" : "Ôºë"}
                     </button>
                   </td>
                   <td>
-                    <span
-                      className={`tier-badge tier-badge--${tier}`}
-                      title={tier}
-                    >
-                      {tier === "vip"
-                        ? "Ô¡É VIP"
-                        : tier === "trial"
-                          ? "­ƒö╣ Trial"
-                          : "Regular"}
+                    <span className={`tier-badge tier-badge--${tier}`} title={tier}>
+                      {tier === "vip" ? "Ô¡É VIP" : tier === "trial" ? "­ƒö╣ Trial" : "Regular"}
                     </span>
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <span>{(c.basisPoints / 100).toFixed(2)}%</span>
-                    <div
-                      className="share-bar"
-                      style={{ width: `${c.basisPoints / 100}%` }}
-                    />
+                    <div className="share-bar" style={{ width: `${c.basisPoints / 100}%` }} />
                   </td>
                 </tr>
               );

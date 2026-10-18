@@ -51,6 +51,11 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
       this.build = build;
     }),
     scValToNative: jest.fn((value) => value),
+    StrKey: {
+      isValidEd25519PublicKey: jest.fn(
+        (key) => typeof key === "string" && key.startsWith("G") && key.length === 56
+      ),
+    },
   },
   Account: jest.fn(function Account(accountId, sequence) {
     this.accountId = accountId;
@@ -74,6 +79,11 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
     this.build = build;
   }),
   scValToNative: jest.fn((value) => value),
+  StrKey: {
+    isValidEd25519PublicKey: jest.fn(
+      (key) => typeof key === "string" && key.startsWith("G") && key.length === 56
+    ),
+  },
 }));
 
 await jest.unstable_mockModule("../src/stellar.js", () => ({
@@ -99,6 +109,15 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   initializeDatabase: jest.fn(),
   recordTransaction: jest.fn(() => "tx-456"),
 }));
+
+const {
+  invokeIfFunction,
+  readEventField,
+  getEventPayload,
+  nativeToString,
+  scValToString,
+  scValTupleToNative,
+} = await import("../src/routes/simulate.js");
 
 const { default: app } = await import("./app.js");
 
@@ -178,5 +197,98 @@ describe("POST /api/v1/simulate", () => {
 
     expect(res.status).toBe(400);
     expect(simulateTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("simulate helper functions", () => {
+  describe("nativeToString", () => {
+    test("converts bigint to string", () => {
+      expect(nativeToString(1234567890123456789n)).toBe("1234567890123456789");
+    });
+
+    test("returns string unchanged", () => {
+      expect(nativeToString("already_a_string")).toBe("already_a_string");
+    });
+
+    test("converts number to string", () => {
+      expect(nativeToString(42)).toBe("42");
+    });
+
+    test("returns null for objects that produce [object Object]", () => {
+      expect(nativeToString({ key: "val" })).toBeNull();
+    });
+
+    test("returns symbol property if present", () => {
+      expect(nativeToString({ symbol: "XLM" })).toBe("XLM");
+    });
+
+    test("returns custom toString if not [object Object]", () => {
+      expect(nativeToString({ toString: () => "custom_output" })).toBe("custom_output");
+    });
+  });
+
+  describe("scValToString", () => {
+    test("returns null for undefined", () => {
+      expect(scValToString(undefined)).toBeNull();
+    });
+
+    test("returns null for null", () => {
+      expect(scValToString(null)).toBeNull();
+    });
+
+    test("converts a real/mock ScVal to string", () => {
+      expect(scValToString("scval-string")).toBe("scval-string");
+      expect(scValToString(100n)).toBe("100");
+      expect(scValToString(50)).toBe("50");
+      expect(scValToString({ toString: () => "mocked-scval" })).toBe("mocked-scval");
+    });
+  });
+
+  describe("scValTupleToNative", () => {
+    test("returns array input unchanged", () => {
+      const arr = ["item1", "item2", 123];
+      expect(scValTupleToNative(arr)).toBe(arr);
+    });
+
+    test("wraps non-array input into an array", () => {
+      expect(scValTupleToNative("single-value")).toEqual(["single-value"]);
+      expect(scValTupleToNative(123n)).toEqual([123n]);
+    });
+  });
+
+  describe("invokeIfFunction", () => {
+    test("invokes function and returns its result", () => {
+      expect(invokeIfFunction(() => "evaluated")).toBe("evaluated");
+    });
+
+    test("returns literal value if not a function", () => {
+      expect(invokeIfFunction("literal")).toBe("literal");
+    });
+  });
+
+  describe("readEventField", () => {
+    test("reads field from event and invokes if function", () => {
+      expect(readEventField({ data: () => "dynamic" }, "data")).toBe("dynamic");
+      expect(readEventField({ topic: "static" }, "topic")).toBe("static");
+    });
+
+    test("returns undefined if event or field is missing", () => {
+      expect(readEventField(null, "field")).toBeUndefined();
+      expect(readEventField({}, "missing")).toBeUndefined();
+    });
+  });
+
+  describe("getEventPayload", () => {
+    test("returns invoked event.event if present", () => {
+      expect(getEventPayload({ event: () => "payload" })).toBe("payload");
+    });
+
+    test("returns event.value if event.event is missing", () => {
+      expect(getEventPayload({ value: "fallback_val" })).toBe("fallback_val");
+    });
+
+    test("falls back to event itself if neither event nor value exists", () => {
+      expect(getEventPayload("direct_event")).toBe("direct_event");
+    });
   });
 });

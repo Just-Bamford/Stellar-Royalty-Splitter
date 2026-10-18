@@ -5,7 +5,6 @@
  * THORNode API (cross-chain Stellar <-> EVM liquidity).
  */
 
-const { logger } = require('../utils/logger');
 
 const DEFAULT_BASE_URL = 'https://midgard.thorchain.network';
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -299,7 +298,7 @@ class ThorchainIntegration {
   }
 }
 
-module.exports = {
+export {
   ThorchainIntegration,
   ThorchainError,
   normalizeAsset,
@@ -307,3 +306,5 @@ module.exports = {
   fromBaseUnits,
   DEFAULT_SWAP_SLIPPAGE_BPS,
 };
+
+export const thorchainIntegration = new ThorchainIntegration();

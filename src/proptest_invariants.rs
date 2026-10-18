@@ -12,10 +12,9 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::MAX_COLLABORATORS;
     use proptest::prelude::*;
 
-    // Re-export from main contract for testing
-    const MAX_COLLABORATORS: u32 = 100;
     const SHARE_PRECISION: i128 = 10_000;
 
     /// Generate valid collaborator shares that sum to exactly 10,000
@@ -247,7 +246,7 @@ mod tests {
         /// Property: Equal shares distribute equally (or within rounding)
         #[test]
         fn prop_equal_shares_distribute_fairly(
-            num_collabs in 2..=20usize,
+            num_collabs in 2..=MAX_COLLABORATORS as usize,
             amount in large_amount_strategy()
         ) {
             let share_each = SHARE_PRECISION / num_collabs as i128;

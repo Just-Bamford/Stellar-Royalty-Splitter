@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getTrafficShaper } from "../middleware/traffic-shaper.js";
 import {
   getMigrationVersion,
   recordHealthSnapshot,
@@ -6,14 +7,15 @@ import {
   getHealthHistory,
   getSLAStats,
   checkDatabase,
+  getTransactionMetrics,
 } from "../database/index.js";
-import * as database from "../database/index.js";
 import {
   checkConnectionHealthAsync,
   getHealthStatus,
   getHealthMetrics,
 } from "../database/health-monitor.js";
 
+import { getCapacityPlanner } from "../services/capacity-planner.js";
 import {
   getConfiguredContractId,
   getNetworkLabel,
@@ -29,10 +31,7 @@ import { recordDetailedHealthCheck } from "../metrics.js";
 export const healthRouter = Router();
 
 const CACHE_TTL_MS = parseInt(process.env.HEALTH_CACHE_TTL_MS ?? "30000", 10);
-const RECORD_INTERVAL_MS = parseInt(
-  process.env.HEALTH_RECORD_INTERVAL_MS ?? "3600000",
-  10
-); // 1 hour default
+const RECORD_INTERVAL_MS = parseInt(process.env.HEALTH_RECORD_INTERVAL_MS ?? "3600000", 10); // 1 hour default
 let cachedHealth = null;
 let cacheExpiresAt = 0;
 let lastRecordedAt = 0;
@@ -43,27 +42,9 @@ let lastRecordedAt = 0;
  */
 function getDbMetrics() {
   try {
-    if (!database.db) return null;
-    const txRow = database.db
-      .prepare(
-        `SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
-          SUM(CASE WHEN status = 'failed'    THEN 1 ELSE 0 END) AS failed,
-          SUM(CASE WHEN status = 'pending'   THEN 1 ELSE 0 END) AS pending,
-          MAX(timestamp) AS lastActivity
-         FROM transactions`
-      )
-      .get();
-
+    const metrics = getTransactionMetrics();
     return {
-      transactions: {
-        total: txRow.total ?? 0,
-        confirmed: txRow.confirmed ?? 0,
-        failed: txRow.failed ?? 0,
-        pending: txRow.pending ?? 0,
-        lastActivity: txRow.lastActivity ?? null,
-      },
+      transactions: metrics,
     };
   } catch (err) {
     logger.warn("Health: failed to gather DB metrics", { error: err.message });
@@ -121,29 +102,13 @@ healthRouter.get("/", async (_req, res, next) => {
           color: dbOk ? "green" : "red",
         },
         horizon: {
-          status: horizon.connected
-            ? horizonLatencyMs > 3000
-              ? "degraded"
-              : "healthy"
-            : "down",
-          color: horizon.connected
-            ? horizonLatencyMs > 3000
-              ? "yellow"
-              : "green"
-            : "red",
+          status: horizon.connected ? (horizonLatencyMs > 3000 ? "degraded" : "healthy") : "down",
+          color: horizon.connected ? (horizonLatencyMs > 3000 ? "yellow" : "green") : "red",
           latencyMs: horizonLatencyMs,
         },
         contract: {
-          status: !contract.configured
-            ? "not_configured"
-            : contractHealthy
-            ? "healthy"
-            : "error",
-          color: !contract.configured
-            ? "gray"
-            : contractHealthy
-            ? "green"
-            : "red",
+          status: !contract.configured ? "not_configured" : contractHealthy ? "healthy" : "error",
+          color: !contract.configured ? "gray" : contractHealthy ? "green" : "red",
         },
       },
       timestamp: new Date().toISOString(),
@@ -192,6 +157,37 @@ healthRouter.get("/", async (_req, res, next) => {
 });
 
 /**
+ * GET /api/v1/health/traffic
+ * Returns current traffic shaping state: per-endpoint token buckets,
+ * queue depths, and priority classes. Used by operators to observe
+ * backpressure and prioritization behavior.
+ */
+healthRouter.get("/traffic", async (_req, res, next) => {
+  try {
+    const shaper = getTrafficShaper();
+    const snapshot = shaper ? shaper.getSnapshot() : { enabled: false };
+    res.json({ ok: true, data: snapshot });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/health/capacity
+ * Returns capacity planning report: peak load, current utilization,
+ * alert status (>80% capacity), and scale recommendation.
+ */
+healthRouter.get("/capacity", async (_req, res, next) => {
+  try {
+    const planner = getCapacityPlanner();
+    const report = planner ? planner.getReport() : { enabled: false };
+    res.json({ ok: true, data: report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/health/history?hours=24
  * Returns hourly health snapshots for trend analysis (capped at 30 days).
  */
@@ -214,10 +210,7 @@ healthRouter.get("/history", async (req, res, next) => {
  */
 healthRouter.get("/sla", async (req, res, next) => {
   try {
-    const days = Math.min(
-      parseInt(req.query.days ?? "30", 10) || 30,
-      365
-    );
+    const days = Math.min(parseInt(req.query.days ?? "30", 10) || 30, 365);
     const sla = getSLAStats(days);
     res.json({ ok: true, data: sla });
   } catch (err) {
@@ -305,8 +298,7 @@ healthRouter.get("/detailed", async (_req, res, next) => {
     // result before `status` is stripped by runCheck.
     const isContractHealthy = (r) =>
       !r.error &&
-      (!r.configured ||
-        (r.deployed && r.status !== "error" && r.status !== "unreachable"));
+      (!r.configured || (r.deployed && r.status !== "error" && r.status !== "unreachable"));
 
     // All checks run in parallel; each has its own internal timeout.
     const [database, horizon, soroban, contract, connectionHealth] = await Promise.all([

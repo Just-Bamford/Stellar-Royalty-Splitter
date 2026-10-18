@@ -21,7 +21,6 @@ pub fn extend_instance_ttl(env: &Env) {
 }
 
 /// Bump a single persistent storage key's TTL.
-#[allow(dead_code)]
 pub fn extend_persistent_ttl_for(env: &Env, key: &StorageKey) {
     env.storage()
         .persistent()

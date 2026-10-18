@@ -24,24 +24,39 @@ export {
   updateTransactionHash,
   updateTransactionStatus,
   addDistributionPayout,
+  findPayoutsByAmount,
   getTransactionCount,
   getTransactionHistory,
   getTransactionHistoryCursor,
   getTransactionDetails,
   getTransactionById,
   getRetryEligibleTransactions,
+  getTransactionMetrics,
   RETRY_BACKOFF_MS,
   MAX_RETRY_COUNT,
 } from "./transactions.js";
 
-// Webhooks (#295)
+// Webhooks (#295, advanced system #1059)
 export {
   registerWebhook,
+  getWebhookById,
   listWebhooks,
+  listWebhooksForEvent,
+  updateWebhookEvents,
+  rotateWebhookSecret,
   deleteWebhook,
   updateWebhookRetryState,
+  updateWebhookRetryStateWithPayload,
   getWebhooksDueForRetry,
   resetWebhookRetryCount,
+  moveToDlq,
+  serializeEvents,
+  parseEvents,
+  recordDelivery,
+  updateDelivery,
+  listDeliveries,
+  countDeliveries,
+  getDeliveryStats,
 } from "./webhooks.js";
 
 // Audit logging
@@ -141,17 +156,32 @@ export {
   getAllWalletAddresses,
 } from "./contributor-tax.js";
 
-// Real-time notifications (#594)
+// Real-time notifications (#594, expanded #1046)
 export {
   createNotification,
   getNotifications,
+  getArchivedNotifications,
   getUnreadNotificationCount,
+  getUnreadCountByType,
   markNotificationRead,
+  markNotificationUnread,
   markAllNotificationsRead,
+  archiveNotification,
   deleteNotification,
   getNotificationPreference,
   upsertNotificationPreference,
+  getChannelPreferences,
+  getQuietHours,
+  resolveFrequency,
+  resolveQuietHours,
+  isWithinQuietHours,
+  shouldSendNotification,
   createSystemNotification,
+  NOTIFICATION_TYPES,
+  NOTIFICATION_CHANNELS,
+  FREQUENCY_OPTIONS,
+  DEFAULT_CHANNEL_PREFERENCES,
+  DEFAULT_QUIET_HOURS,
 } from "./notifications.js";
 
 // Payment hold/release system (#596)
@@ -263,6 +293,17 @@ export {
 
 // Reusable royalty split templates (#652)
 export { createTemplate, listTemplates, getTemplateById, deleteTemplate } from "./templates.js";
+
+// Versioned contract templates and clone provenance
+export {
+  createContractTemplate,
+  getContractTemplate,
+  listContractTemplates,
+  updateContractTemplate,
+  listContractTemplateVersions,
+  addContractTemplateReview,
+  recordContractTemplateClone,
+} from "./contract-templates.js";
 
 // Contributor metrics (#600)
 export {
@@ -507,6 +548,18 @@ export {
   listRecentBatchExecutions,
 } from "./schedules.js";
 
+// Event sourcing and CQRS (#1066)
+export {
+  appendEvent,
+  getAggregateEvents,
+  getContractEvents,
+  countContractEvents,
+  getEventById,
+  getAggregateVersion,
+  EventTypes,
+  AggregateTypes,
+} from "./event-store.js";
+
 // Rights Management System
 export {
   initializeRightsTables,
@@ -530,3 +583,43 @@ export {
   getDisputesForRightRecord,
 } from "./rights-schema.js";
 
+// DAO Treasury Management (#1076)
+export {
+  initializeTreasuryTables,
+  clearTreasuryTables,
+  createCategoryRecord,
+  getCategoryById,
+  getCategoryByName,
+  listCategories,
+  updateCategoryRecord,
+  deleteCategoryRecord,
+  createAllocationRecord,
+  getAllocationById,
+  listAllocations,
+  createExpenseRecord,
+  getExpenseById,
+  listExpenses as listTreasuryExpenseRecords,
+  updateExpenseRecord,
+  deleteExpenseRecord,
+  createApprovalRecord,
+  listApprovalsByExpense,
+  createReceiptRecord,
+  listReceiptsByExpense,
+} from "./treasury-schema.js";
+
+// Environmental impact tracking and carbon offsets (#1064)
+export {
+  recordEmission,
+  getUserEmissions,
+  getUserEmissionsByDay,
+  getProjectEmissions,
+  getProjectEmissionsByDay,
+  recordOffset,
+  getUserOffsets,
+  listUserOffsets,
+  countUserOffsets,
+  getProjectOffsets,
+  getCarbonSettings,
+  upsertCarbonSettings,
+  listAutoOffsetWallets,
+} from "./carbon.js";

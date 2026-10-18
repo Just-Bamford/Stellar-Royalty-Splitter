@@ -1,8 +1,30 @@
 import { useMemo, useState } from "react";
 import { Notification, useNotifications } from "../context/NotificationContext";
+import "./NotificationCenter.css";
+import { formatDateTime } from "../utils/format";
 
-type FilterType = "all" | Notification["type"];
+type FilterType = "all" | "unread" | "archived" | Notification["type"];
 type SortOrder = "newest" | "oldest";
+
+const ALL_FILTERS: { value: FilterType; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "unread", label: "Unread" },
+  { value: "archived", label: "Archived" },
+  { value: "distribution", label: "Distribution" },
+  { value: "distribution_confirmed", label: "Distribution Confirmed" },
+  { value: "distribution_completed", label: "Distribution Completed" },
+  { value: "payment", label: "Payment" },
+  { value: "payment_received", label: "Payment Received" },
+  { value: "payment_failed", label: "Payment Failed" },
+  { value: "dispute", label: "Dispute" },
+  { value: "dispute_created", label: "Dispute Created" },
+  { value: "dispute_resolved", label: "Dispute Resolved" },
+  { value: "reputation_changed", label: "Reputation Changed" },
+  { value: "governance_proposal", label: "Governance Proposal" },
+  { value: "security_alert", label: "Security Alert" },
+  { value: "system", label: "System" },
+  { value: "warning", label: "Warning" },
+];
 
 const formatTime = (timestamp: number) => {
   const date = new Date(timestamp);
@@ -18,7 +40,7 @@ const formatTime = (timestamp: number) => {
   if (diffHours < 24) return `${diffHours} hours ago`;
   if (diffDays < 7) return `${diffDays} days ago`;
 
-  return date.toLocaleDateString();
+  return formatDateTime(date, { dateStyle: "short" });
 };
 
 const getIcon = (type: Notification["type"]) => {
@@ -30,11 +52,25 @@ const getIcon = (type: Notification["type"]) => {
     case "failed":
       return "❌";
     case "distribution":
+    case "distribution_confirmed":
+    case "distribution_completed":
       return "💰";
     case "payment":
+    case "payment_received":
       return "💳";
-    case "dispute":
+    case "payment_failed":
       return "⚠️";
+    case "dispute":
+    case "dispute_created":
+      return "⚠️";
+    case "dispute_resolved":
+      return "✅";
+    case "reputation_changed":
+      return "📈";
+    case "governance_proposal":
+      return "🗳️";
+    case "security_alert":
+      return "🔒";
     case "warning":
       return "⚠️";
     case "system":
@@ -47,15 +83,26 @@ const getIcon = (type: Notification["type"]) => {
 const getNotificationGroup = (type: Notification["type"]) => {
   switch (type) {
     case "distribution":
+    case "distribution_confirmed":
+    case "distribution_completed":
       return "distribution";
     case "payment":
+    case "payment_received":
+    case "payment_failed":
       return "payment";
     case "dispute":
+    case "dispute_created":
+    case "dispute_resolved":
       return "dispute";
+    case "reputation_changed":
+      return "reputation";
+    case "governance_proposal":
+      return "governance";
+    case "security_alert":
+      return "security";
     case "warning":
       return "warning";
     case "system":
-      return "system";
     case "pending":
     case "confirmed":
     case "failed":
@@ -68,26 +115,48 @@ const getNotificationGroup = (type: Notification["type"]) => {
 export function NotificationCenter() {
   const {
     notifications,
+    archivedNotifications,
     markAsRead,
+    markAsUnread,
+    archiveNotification,
+    unarchiveNotification,
     clearNotification,
     clearAllNotifications,
   } = useNotifications();
 
   const [filter, setFilter] = useState<FilterType>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const visibleNotifications = filter === "archived" ? archivedNotifications : notifications;
 
   const filteredNotifications = useMemo(() => {
-    const filtered =
-      filter === "all"
-        ? notifications
-        : notifications.filter((notification) => notification.type === filter);
+    let filtered: Notification[];
+
+    if (searchQuery.trim().length > 0) {
+      const lower = searchQuery.toLowerCase();
+      filtered = visibleNotifications.filter(
+        (n) =>
+          n.title.toLowerCase().includes(lower) ||
+          n.message.toLowerCase().includes(lower) ||
+          n.type.toLowerCase().includes(lower),
+      );
+    } else if (filter === "all") {
+      filtered = visibleNotifications;
+    } else if (filter === "unread") {
+      filtered = visibleNotifications.filter((n) => !n.read);
+    } else if (filter === "archived") {
+      filtered = archivedNotifications;
+    } else {
+      filtered = visibleNotifications.filter((n) => n.type === filter);
+    }
 
     return [...filtered].sort((a, b) =>
       sortOrder === "newest"
         ? b.timestamp - a.timestamp
         : a.timestamp - b.timestamp,
     );
-  }, [notifications, filter, sortOrder]);
+  }, [visibleNotifications, archivedNotifications, filter, sortOrder, searchQuery]);
 
   const groupedNotifications = useMemo(() => {
     return filteredNotifications.reduce<Record<string, Notification[]>>(
@@ -105,12 +174,22 @@ export function NotificationCenter() {
     );
   }, [filteredNotifications]);
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (filter !== "all" && filter !== "archived") {
+      setFilter("all");
+    }
+  };
+
   return (
     <section className="notification-center">
       <div className="notification-center-header">
         <div>
           <h2>Notifications</h2>
-          <p>{notifications.length} notifications</p>
+          <p>
+            {notifications.length} active, {archivedNotifications.length} archived,{" "}
+            {notifications.filter((n) => !n.read).length} unread
+          </p>
         </div>
 
         <button
@@ -122,23 +201,29 @@ export function NotificationCenter() {
         </button>
       </div>
 
+      <div className="notification-center-search">
+        <input
+          type="text"
+          placeholder="Search notifications..."
+          value={searchQuery}
+          onChange={(e) => handleSearch(e.target.value)}
+          data-testid="notification-search-input"
+        />
+      </div>
+
       <div className="notification-center-controls">
         <label>
-          Type
+          Filter
           <select
             value={filter}
             onChange={(event) => setFilter(event.target.value as FilterType)}
+            data-testid="notification-filter-select"
           >
-            <option value="all">All</option>
-            <option value="distribution">Distribution</option>
-            <option value="payment">Payment</option>
-            <option value="dispute">Dispute</option>
-            <option value="system">System</option>
-            <option value="warning">Warning</option>
-            <option value="pending">Pending</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="failed">Failed</option>
-            <option value="info">Info</option>
+            {ALL_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -147,6 +232,7 @@ export function NotificationCenter() {
           <select
             value={sortOrder}
             onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            data-testid="notification-sort-select"
           >
             <option value="newest">Newest</option>
             <option value="oldest">Oldest</option>
@@ -156,7 +242,9 @@ export function NotificationCenter() {
 
       {filteredNotifications.length === 0 ? (
         <div className="notification-empty">
-          <p>No notifications found.</p>
+          <p>
+            {searchQuery ? "No matching notifications found." : "No notifications found."}
+          </p>
         </div>
       ) : (
         <div className="notification-center-list">
@@ -171,6 +259,9 @@ export function NotificationCenter() {
                     className={`notification-center-item ${
                       notification.read ? "is-read" : "is-unread"
                     }`}
+                    data-testid="notification-center-item"
+                    data-notification-id={notification.id}
+                    data-notification-type={notification.type}
                   >
                     <div className="notification-center-icon">
                       {getIcon(notification.type)}
@@ -189,6 +280,12 @@ export function NotificationCenter() {
 
                       <p>{notification.message}</p>
 
+                      {notification.data && (
+                        <pre className="notification-data">
+                          {JSON.stringify(notification.data, null, 2)}
+                        </pre>
+                      )}
+
                       <time
                         dateTime={new Date(
                           notification.timestamp,
@@ -199,18 +296,46 @@ export function NotificationCenter() {
                     </div>
 
                     <div className="notification-center-actions">
-                      {!notification.read && (
+                      {notification.read ? (
+                        <button
+                          type="button"
+                          onClick={() => markAsUnread(notification.id)}
+                          data-testid="notification-mark-unread"
+                        >
+                          Mark as unread
+                        </button>
+                      ) : (
                         <button
                           type="button"
                           onClick={() => markAsRead(notification.id)}
+                          data-testid="notification-mark-read"
                         >
                           Mark as read
+                        </button>
+                      )}
+
+                      {!notification.archived ? (
+                        <button
+                          type="button"
+                          onClick={() => archiveNotification(notification.id)}
+                          data-testid="notification-archive"
+                        >
+                          Archive
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => unarchiveNotification(notification.id)}
+                          data-testid="notification-unarchive"
+                        >
+                          Unarchive
                         </button>
                       )}
 
                       <button
                         type="button"
                         onClick={() => clearNotification(notification.id)}
+                        data-testid="notification-dismiss"
                       >
                         Dismiss
                       </button>

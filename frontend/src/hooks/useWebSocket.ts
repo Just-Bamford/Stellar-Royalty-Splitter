@@ -7,7 +7,7 @@ interface WebSocketMessage {
 }
 
 export interface DistributionEvent {
-  type: "distribution_completed" | "secondary_distribution_completed" | "secondary_sale_recorded";
+  type: "distribution_prepared" | "distribution_completed" | "secondary_distribution_completed" | "secondary_sale_recorded";
   contractId: string;
   transactionId: string | number;
   timestamp: string;
@@ -77,10 +77,15 @@ export function useWebSocket({ walletAddress, onNotification, onDistributionEven
             setConnected(true);
           }
 
-          // Handle distribution events for real-time earnings updates
+          // Handle distribution events for real-time earnings updates.
+          // `distribution_prepared` (unsigned XDR built, nothing submitted yet)
+          // is deliberately not forwarded: earnings only change once the
+          // backend confirms the transaction on-chain and emits
+          // `distribution_completed` (#1125).
           if (msg.type === "notification" && onDistributionEvent) {
             const data = msg.data as Record<string, unknown>;
             if (
+              data.type === "distribution_prepared" ||
               data.type === "distribution_completed" ||
               data.type === "secondary_distribution_completed" ||
               data.type === "secondary_sale_recorded"

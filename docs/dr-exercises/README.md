@@ -32,8 +32,8 @@ retained for a year. Download it and commit it here.
       "status": "passed",
       "durationSeconds": 42,
       "checkpoints": [
-        { "name": "backup-taken",       "elapsedSeconds": 3 },
-        { "name": "restore-completed",  "elapsedSeconds": 28 },
+        { "name": "backup-taken", "elapsedSeconds": 3 },
+        { "name": "restore-completed", "elapsedSeconds": 28 },
         { "name": "integrity-verified", "elapsedSeconds": 42 }
       ]
     }
@@ -53,4 +53,4 @@ File an issue. A failing recovery procedure is a production risk, not a
 test-maintenance chore: it means the documented recovery path does not work,
 and that will only be discovered again during an actual incident.
 
-See [`docs/DISASTER_RECOVERY_RUNBOOK.md`](../DISASTER_RECOVERY_RUNBOOK.md).
+See [`docs/disaster-recovery-runbook-main.md`](../disaster-recovery-runbook-main.md).

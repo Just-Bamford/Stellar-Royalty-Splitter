@@ -163,10 +163,10 @@ export const CrossChainBridge: React.FC<CrossChainBridgeProps> = ({
   const effectiveRate = useMemo(() => {
     if (!quote || !quote.inputAmount || !quote.minOutput) return null;
     try {
-      const in = BigInt(quote.inputAmount);
-      const out = BigInt(quote.minOutput);
-      if (in === 0n) return null;
-      return Number(out) / Number(in);
+      const inAmount = BigInt(quote.inputAmount);
+      const outAmount = BigInt(quote.minOutput);
+      if (inAmount === 0n) return null;
+      return Number(outAmount) / Number(inAmount);
     } catch {
       return null;
     }
@@ -244,7 +244,7 @@ export const CrossChainBridge: React.FC<CrossChainBridgeProps> = ({
               <ul>
                 {quote.plan.map((part, idx) => (
                   <li key={idx}>
-                    {part.provider}: {formatAmount(part.amount)} -> {formatAmount(part.minOutput)}
+                    {part.provider}: {formatAmount(part.amount)} &rarr; {formatAmount(part.minOutput)}
                   </li>
                 ))}
               </ul>

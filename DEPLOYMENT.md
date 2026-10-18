@@ -112,6 +112,39 @@ If a deployment is misconfigured or broken:
 
 ---
 
+## Contract Version Alignment
+
+The release workflow (`release.yml`) enforces that the Soroban contract version
+in `Cargo.toml` shares the same `major.minor` as the frontend and backend before
+a release tag is created (#1144).
+
+The contract version is parsed directly from `Cargo.toml`:
+
+```bash
+grep '^version' Cargo.toml | head -1 | awk -F'"' '{print $2}'
+```
+
+If the contract, frontend, and backend are all at `0.1.x`, a release proceeds.
+If the contract is at `0.1.x` but frontend/backend have advanced to `0.2.x`, the
+release job fails with:
+
+```
+❌ Contract version mismatch: contract 0.1.0, frontend/backend 0.2.0
+```
+
+To resolve this, bump the contract version in `Cargo.toml` to match the
+`major.minor` of the other components before cutting a release.
+
+You can verify the three versions locally at any time:
+
+```bash
+node -e "console.log(require('./frontend/package.json').version)"
+node -e "console.log(require('./backend/package.json').version)"
+grep '^version' Cargo.toml | head -1 | awk -F'"' '{print $2}'
+```
+
+---
+
 ## Blue-Green Deployment
 
 Soroban contracts are immutable and cannot be reverted in place. That is

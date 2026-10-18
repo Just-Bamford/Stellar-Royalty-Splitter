@@ -32,6 +32,25 @@ afterEach(async () => {
 });
 
 describe("signing-key (#293)", () => {
+  test("warns and returns null when no signing key is configured", async () => {
+    const { default: logger } = await import("../src/logger.js");
+    const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
+
+    const { initializeSigningKey, getSigningPublicKey } = await import(
+      "../src/signing-key.js"
+    );
+    const result = await initializeSigningKey();
+
+    expect(result).toBeNull();
+    expect(getSigningPublicKey()).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/SERVER_SECRET_KEY.*SIGNING_KEY_FILE.*SIGNATURE_VERIFICATION_ENABLED/),
+      expect.objectContaining({ event: "signing_key_unconfigured" })
+    );
+
+    warnSpy.mockRestore();
+  });
+
   test("loads key from SERVER_SECRET_KEY", async () => {
     const kp = StellarSdk.Keypair.random();
     process.env.SERVER_SECRET_KEY = kp.secret();

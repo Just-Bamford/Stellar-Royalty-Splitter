@@ -52,6 +52,18 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
   getMigrationVersion: jest.fn(() => 1),
 }));
 
+const broadcastToContract = jest.fn(() => 0);
+
+await jest.unstable_mockModule("../src/websocket.js", () => ({
+  initializeWebSocket: jest.fn(),
+  sendNotification: jest.fn(),
+  broadcastToContract,
+  broadcastFinalityUpdate: jest.fn(),
+  broadcastTransactionStatus: jest.fn(),
+  broadcastContractEdit: jest.fn(),
+  broadcastAuditEvent: jest.fn(),
+}));
+
 const { distributeRouter } = await import("../src/routes/distribute.js");
 const { resetMetrics } = await import("../src/metrics.js");
 const { notFoundHandler, errorHandler } = await import("../src/error-response.js");
@@ -82,6 +94,24 @@ describe("POST /api/v1/distribute", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ xdr: "distribute-xdr", transactionId: "tx-456" });
+  });
+
+  test("broadcasts distribution_prepared, not distribution_completed, once the XDR is built (#1125)", async () => {
+    retryBuildTx.mockResolvedValue("distribute-xdr");
+    recordTransaction.mockReturnValue("tx-456");
+
+    const res = await request(app).post("/api/v1/distribute").send(validBody);
+
+    expect(res.status).toBe(200);
+    expect(broadcastToContract).toHaveBeenCalledTimes(1);
+    expect(broadcastToContract).toHaveBeenCalledWith(
+      CONTRACT,
+      expect.objectContaining({ type: "distribution_prepared", transactionId: "tx-456" }),
+    );
+    expect(broadcastToContract).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "distribution_completed" }),
+    );
   });
 
   test("400 when contractId is missing", async () => {
