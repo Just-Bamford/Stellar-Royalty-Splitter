@@ -112,7 +112,15 @@ router.get("/earnings-history/:walletAddress", (req, res) => {
       ? contracts.split(",").map((id) => id.trim()).filter(Boolean)
       : null;
 
-    const cKey = cacheKey("earningsHistory", walletAddress, startDate.toISOString(), endDate.toISOString(), contracts || "all");
+    // #1175: normalise the contracts key so that ?contracts=B,A and
+    // ?contracts=A,B (or a single-element array vs a comma-joined string) all
+    // hash to the same cache entry. Sort and deduplicate the parsed IDs before
+    // joining them, and fall back to "all" when none are supplied.
+    const normalizedContractsKey = contractIds
+      ? [...new Set(contractIds)].sort().join(",") || "all"
+      : "all";
+
+    const cKey = cacheKey("earningsHistory", walletAddress, startDate.toISOString(), endDate.toISOString(), normalizedContractsKey);
     const cached = cacheGet(cKey);
     if (cached !== undefined) {
       return res.json(cached);

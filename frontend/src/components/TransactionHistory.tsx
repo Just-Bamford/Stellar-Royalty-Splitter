@@ -57,6 +57,9 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   // Export panel state
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // #1172: track how many rows have been fetched so far during a large export
+  // so the user sees progress rather than a frozen UI.
+  const [exportProgress, setExportProgress] = useState<{ fetched: number; total: number } | null>(null);
   const [exportFilter, setExportFilter] = useState<{ startDate: string | null; endDate: string | null }>({
     startDate: null,
     endDate: null,
@@ -245,12 +248,33 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     URL.revokeObjectURL(url);
   }
 
+  // #1172: fetch in pages of 500 so the user sees incremental progress
+  // instead of staring at a frozen "Exporting…" button for many seconds.
+  const EXPORT_PAGE_SIZE = 500;
+
   const handleExport = async () => {
     setExporting(true);
+    setExportProgress(null);
+    const collected: TransactionRecord[] = [];
     try {
-      const result = await api.getTransactionHistory(contractId, 10_000, 0);
-      const all: TransactionRecord[] = result.data ?? [];
-      const filtered = filterByDateRange(all, exportFilter);
+      // First page — also tells us the total so we can show N/total progress.
+      const firstPage = await api.getTransactionHistory(contractId, EXPORT_PAGE_SIZE, 0);
+      const serverTotal: number = firstPage.pagination?.total ?? 0;
+      collected.push(...(firstPage.data ?? []));
+      setExportProgress({ fetched: collected.length, total: serverTotal });
+
+      // Fetch remaining pages.
+      let pageOffset = EXPORT_PAGE_SIZE;
+      while (collected.length < serverTotal) {
+        const page = await api.getTransactionHistory(contractId, EXPORT_PAGE_SIZE, pageOffset);
+        const rows = page.data ?? [];
+        if (rows.length === 0) break; // guard against an infinite loop
+        collected.push(...rows);
+        pageOffset += EXPORT_PAGE_SIZE;
+        setExportProgress({ fetched: collected.length, total: serverTotal });
+      }
+
+      const filtered = filterByDateRange(collected, exportFilter);
       if (filtered.length === 0) {
         alert("No transactions found for the selected date range.");
         return;
@@ -262,6 +286,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       alert(err instanceof Error ? err.message : "Export failed");
     } finally {
       setExporting(false);
+      setExportProgress(null);
     }
   };
 
@@ -511,10 +536,52 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               className="export-btn"
               onClick={handleExport}
               disabled={exporting}
+              aria-busy={exporting}
+              aria-label={
+                exporting
+                  ? exportProgress
+                    ? `Exporting — fetched ${exportProgress.fetched} of ${exportProgress.total} transactions`
+                    : "Exporting transactions…"
+                  : "Download CSV"
+              }
             >
               {exporting ? "Exporting…" : "Download CSV"}
             </button>
           </div>
+
+          {/* #1172: live progress bar and status text shown while a large export is in flight */}
+          {exporting && (
+            <div
+              className="export-progress"
+              role="status"
+              aria-live="polite"
+              aria-label={
+                exportProgress
+                  ? `Fetching transactions: ${exportProgress.fetched} of ${exportProgress.total}`
+                  : "Starting export…"
+              }
+            >
+              {exportProgress ? (
+                <>
+                  <progress
+                    className="export-progress-bar"
+                    value={exportProgress.fetched}
+                    max={exportProgress.total}
+                    aria-valuemin={0}
+                    aria-valuemax={exportProgress.total}
+                    aria-valuenow={exportProgress.fetched}
+                  />
+                  <span className="export-progress-text">
+                    Fetching {exportProgress.fetched.toLocaleString()} /{" "}
+                    {exportProgress.total.toLocaleString()} transactions…
+                  </span>
+                </>
+              ) : (
+                <span className="export-progress-text">Starting export…</span>
+              )}
+            </div>
+          )}
+
           <p className="export-hint">
             Leave dates blank to export all transactions. Amounts are converted from stroops to XLM.
           </p>

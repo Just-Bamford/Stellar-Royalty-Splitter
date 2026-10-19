@@ -8159,3 +8159,303 @@ mod vesting {
         );
     }
 }
+
+// ── Issue #1147: multisig module integration tests ───────────────────────────
+//
+// src/multisig.rs is a public module that implements the M-of-N threshold
+// verification primitive used by propose_operation / approve_operation and
+// the off-chain multisig-manager.js. These tests exercise the module's public
+// API at the integration level (calling through the contract client), verifying
+// that:
+//   1. set_admins + threshold + propose/approve round-trips work end-to-end.
+//   2. verify_m_of_n and threshold_met semantics are reflected by real contract
+//      behaviour (threshold not met → not executed; threshold met → executed).
+//   3. Edge cases (zero threshold, threshold > admin count, duplicate approver)
+//      are rejected by the live contract, not just by the unit tests inside the
+//      module.
+
+/// #1147 — verify_m_of_n: threshold is met when provided == required (exact).
+/// Reflected via approve_operation: a 1-of-1 multi-sig proposal executes on
+/// the first (and only) approval, i.e. threshold_met(1, 1) == true.
+#[test]
+fn test_multisig_threshold_met_exact_via_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // 1-of-1 multi-sig: the proposer's implicit approval already satisfies the
+    // threshold, so approve_operation should execute immediately on first call.
+    client.set_admins(&vec![&env, admin.clone()], &1_u32);
+
+    let prop_id = client.propose_operation(&admin, &SensitiveOperation::Pause, &3600_u64);
+
+    // The proposal was proposed by admin — 1 approval, threshold == 1 — so it
+    // must have been executed immediately (is_paused transitions to true).
+    assert!(
+        client.is_paused(),
+        "1-of-1 threshold: contract must be paused immediately after propose"
+    );
+
+    let proposal = client.get_operation_proposal(&prop_id);
+    assert_eq!(proposal.approvals_count, 1, "approvals_count must be 1");
+    assert!(proposal.executed, "proposal must be marked executed");
+}
+
+/// #1147 — verify_m_of_n: threshold NOT met when provided < required.
+/// A 2-of-2 proposal must not execute after only 1 approval (threshold_met(2,1) == false).
+#[test]
+fn test_multisig_threshold_not_met_below_required_via_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let co = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    client.set_admins(&vec![&env, admin.clone(), co.clone()], &2_u32);
+
+    // Admin proposes — counts as 1 approval.  Threshold is 2, so not yet met.
+    let prop_id = client.propose_operation(&admin, &SensitiveOperation::Pause, &3600_u64);
+
+    assert!(
+        !client.is_paused(),
+        "threshold not yet met: contract must NOT be paused after only 1 of 2 approvals"
+    );
+
+    let proposal = client.get_operation_proposal(&prop_id);
+    assert_eq!(proposal.approvals_count, 1);
+    assert!(!proposal.executed, "proposal must NOT be executed yet");
+}
+
+/// #1147 — verify_m_of_n: threshold met when provided > required (surplus signers).
+/// A 2-of-3 proposal executes as soon as the 2nd admin approves, even though a
+/// 3rd admin exists (threshold_met(2, 2) == true before the 3rd signs).
+#[test]
+fn test_multisig_threshold_met_more_than_required_via_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let co1 = Address::generate(&env);
+    let co2 = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // 2-of-3 multi-sig
+    client.set_admins(&vec![&env, admin.clone(), co1.clone(), co2.clone()], &2_u32);
+
+    let prop_id = client.propose_operation(&admin, &SensitiveOperation::Pause, &3600_u64);
+    assert!(!client.is_paused());
+
+    // Second approval brings count to 2, which meets the threshold of 2.
+    let executed = client.approve_operation(&co1, &prop_id);
+    assert!(
+        executed,
+        "2-of-3: proposal must execute as soon as 2nd approval arrives"
+    );
+    assert!(client.is_paused());
+
+    // The 3rd admin cannot approve an already-executed proposal.
+    let result = client.try_approve_operation(&co2, &prop_id);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::ProposalAlreadyExecuted.into())),
+        "approving an already-executed proposal must return ProposalAlreadyExecuted"
+    );
+}
+
+/// #1147 — unconfigured threshold (zero) is never satisfied.
+/// verify_m_of_n(0, N) must always be false; the contract rejects threshold=0
+/// at set_admins time so this tests that the guard exists before the primitive
+/// can even be invoked.
+#[test]
+fn test_multisig_unconfigured_zero_threshold_rejected_by_set_admins() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // threshold=0 must be rejected before any proposal can be created with it.
+    let result = client.try_set_admins(&vec![&env, admin.clone()], &0_u32);
+    assert!(
+        result.is_err(),
+        "set_admins must reject threshold=0 (verify_m_of_n false-positive guard)"
+    );
+}
+
+/// #1147 — threshold_met alias: set_admins with threshold > admin list size is rejected.
+/// This ensures the contract validates N >= M before storing, which complements
+/// the threshold_met / verify_m_of_n unit tests in the module.
+#[test]
+fn test_multisig_threshold_exceeds_admin_count_rejected() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // 2-admin list but threshold=3 — impossible to ever satisfy.
+    let result = client.try_set_admins(&vec![&env, admin.clone(), b.clone()], &3_u32);
+    assert!(
+        result.is_err(),
+        "threshold > admin count must be rejected (can never satisfy verify_m_of_n)"
+    );
+}
+
+/// #1147 — propose_operation stores the threshold at proposal time.
+/// Even if set_admins is called again with a different threshold after the
+/// proposal is created, the existing proposal continues to use its original
+/// snapshot threshold.
+#[test]
+fn test_multisig_proposal_snapshot_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let co = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Start with 2-of-2
+    client.set_admins(&vec![&env, admin.clone(), co.clone()], &2_u32);
+
+    let prop_id = client.propose_operation(&admin, &SensitiveOperation::Pause, &7200_u64);
+    let proposal = client.get_operation_proposal(&prop_id);
+    assert_eq!(proposal.threshold, 2, "proposal must snapshot the threshold at creation time");
+    assert_eq!(proposal.approvals_count, 1);
+    assert!(!proposal.executed);
+
+    // Upgrading to 1-of-2 should NOT retroactively execute the existing proposal.
+    client.set_admins(&vec![&env, admin.clone(), co.clone()], &1_u32);
+    assert!(
+        !client.is_paused(),
+        "lowering the live threshold must not retroactively execute an in-flight proposal"
+    );
+
+    // The proposal still requires 2 approvals (its original snapshot).
+    let executed = client.approve_operation(&co, &prop_id);
+    assert!(executed, "2nd approval must satisfy the snapshot threshold=2");
+    assert!(client.is_paused());
+}
+
+/// #1147 — full propose → approve → execute round-trip for SetRoyaltyRate.
+/// Exercises the SensitiveOperation variant that carries a payload, verifying
+/// both the threshold logic and the side-effect (royalty rate changes).
+#[test]
+fn test_multisig_propose_approve_set_royalty_rate_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let co = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    client.set_admins(&vec![&env, admin.clone(), co.clone()], &2_u32);
+
+    assert_eq!(client.get_royalty_rate(), 0, "rate must be 0 before any change");
+
+    let prop_id =
+        client.propose_operation(&admin, &SensitiveOperation::SetRoyaltyRate(750_u32), &3600_u64);
+
+    // Rate must not have changed yet — only 1 of 2 approvals collected.
+    assert_eq!(client.get_royalty_rate(), 0);
+
+    // Second approval executes the operation.
+    let executed = client.approve_operation(&co, &prop_id);
+    assert!(executed);
+    assert_eq!(
+        client.get_royalty_rate(),
+        750,
+        "royalty rate must be 750 bps after the proposal executes"
+    );
+}
+
+/// #1147 — propose_operation can only be called by a member of the admin list.
+/// A collaborator who is NOT in the admin list must receive UnauthorizedEmergencySigner.
+#[test]
+fn test_multisig_propose_operation_non_admin_rejected() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    let outsider = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    client.set_admins(&vec![&env, admin.clone()], &1_u32);
+
+    let result =
+        client.try_propose_operation(&outsider, &SensitiveOperation::Pause, &3600_u64);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::UnauthorizedEmergencySigner.into())),
+        "non-admin must not be able to propose an operation"
+    );
+}
+
+/// #1147 — duplicate approval by the same admin is rejected with AlreadyVoted.
+/// This directly tests the "distinct approvers" invariant of verify_m_of_n.
+#[test]
+fn test_multisig_duplicate_approval_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+    let admin = Address::generate(&env);
+    let co = Address::generate(&env);
+    let b = Address::generate(&env);
+
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+    client.set_admins(&vec![&env, admin.clone(), co.clone()], &2_u32);
+
+    let prop_id = client.propose_operation(&admin, &SensitiveOperation::Pause, &3600_u64);
+
+    // The proposer (admin) tries to double-approve.
+    let result = client.try_approve_operation(&admin, &prop_id);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::AlreadyVoted.into())),
+        "same admin approving twice must be rejected (verify_m_of_n requires DISTINCT signers)"
+    );
+    // Proposal still needs one more distinct approval.
+    assert!(!client.is_paused());
+}
