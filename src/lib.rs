@@ -3329,11 +3329,13 @@ impl RoyaltySplitter {
             start_time: env.ledger().timestamp(),
             claimed_shares: 0,
         };
+        let key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
         storage::persistent_set(
             &env,
-            &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone())),
+            &key,
             &schedule,
         );
+        storage::extend_persistent_ttl_for(&env, &key);
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_set")),
             (beneficiary, total_shares, cliff_days, vesting_days),
@@ -3343,7 +3345,13 @@ impl RoyaltySplitter {
 
     pub fn get_vesting_schedule(env: Env, beneficiary: Address) -> Option<VestingSchedule> {
         storage::extend_instance_ttl(&env);
-        storage::persistent_get(&env, &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary)))
+        let key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary));
+        if let Some(schedule) = storage::persistent_get::<VestingSchedule>(&env, &key) {
+            storage::extend_persistent_ttl_for(&env, &key);
+            Some(schedule)
+        } else {
+            None
+        }
     }
 
     /// Shares vested out of `schedule.total_shares` as of `current_time`:
@@ -3453,6 +3461,7 @@ impl RoyaltySplitter {
         let key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
         let mut schedule: VestingSchedule =
             storage::persistent_get(&env, &key).ok_or(ContractError::NO_VESTING_SCHEDULE)?;
+        storage::extend_persistent_ttl_for(&env, &key);
 
         let vested_now = Self::vested_shares_at(&schedule, env.ledger().timestamp());
         let newly_claimable = vested_now.saturating_sub(schedule.claimed_shares);
@@ -3462,6 +3471,7 @@ impl RoyaltySplitter {
 
         schedule.claimed_shares = schedule.claimed_shares.saturating_add(newly_claimable);
         storage::persistent_set(&env, &key, &schedule);
+        storage::extend_persistent_ttl_for(&env, &key);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_clm")),

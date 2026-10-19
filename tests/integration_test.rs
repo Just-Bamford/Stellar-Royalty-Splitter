@@ -6,7 +6,7 @@ use soroban_sdk::{
     vec, Address, BytesN, Env, IntoVal, Map, String, TryFromVal, Val, Vec as SorobanVec,
 };
 use stellar_royalty_splitter::{
-    auth, ContractError, DataKey, OperationProposal, OperationType, Recipient, RoyaltyRateChange,
+    auth, ContractError, DataKey, ExtKey, OperationProposal, OperationType, Recipient, RoyaltyRateChange,
     RoyaltySplitterClient, SensitiveOperation, StorageKey, MIN_TTL, RATE_HISTORY_CAP, VERSION,
 };
 
@@ -3750,6 +3750,61 @@ fn test_rate_history_capped_at_limit() {
         first.timestamp, expected_ts,
         "oldest entry should have been evicted"
     );
+}
+
+#[test]
+fn rate_history_cap_is_enforced() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Call set_royalty_rate 25 times and assert get_royalty_rate_history().len() == 20
+    for i in 1..=25 {
+        let rate = if i % 2 == 0 { 100_u32 } else { 200_u32 };
+        env.ledger().with_mut(|l| l.timestamp = i as u64 * 10);
+        client.set_royalty_rate(&rate);
+    }
+
+    assert_eq!(client.get_royalty_rate_history().len(), 20);
+}
+
+#[test]
+fn rate_history_cap_drops_oldest() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (_, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Call set_royalty_rate 21 times with distinct rates
+    for i in 1..=21 {
+        let rate = i as u32 * 10;
+        env.ledger().with_mut(|l| l.timestamp = i as u64 * 10);
+        client.set_royalty_rate(&rate);
+    }
+
+    let history = client.get_royalty_rate_history();
+    assert_eq!(history.len(), 20);
+
+    // Assert the first rate (10) is no longer in the history
+    for entry in history.iter() {
+        assert_ne!(entry.new_rate, 10_u32, "the first rate should have been dropped");
+    }
+
+    // Verify oldest remaining entry is the 2nd one (rate 20)
+    assert_eq!(history.get(0).unwrap().new_rate, 20_u32);
 }
 
 #[test]
@@ -7834,6 +7889,39 @@ mod vesting {
         assert_eq!(schedule.vesting_days, 120);
         assert_eq!(schedule.start_time, 1_000_000);
         assert_eq!(schedule.claimed_shares, 0);
+    }
+
+    #[test]
+    fn vesting_schedule_storage_entry_has_ttl_extended() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup(&env);
+        let admin = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        client.initialize(
+            &vec![&env, admin.clone(), beneficiary.clone()],
+            &vec![&env, 5_000_u32, 5_000_u32],
+        );
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+        client.set_vesting_schedule(&beneficiary, &1_000_u32, &30_u32, &120_u32);
+
+        env.as_contract(&contract_id, || {
+            let key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
+            assert!(env.storage().persistent().has(&key));
+        });
+
+        let schedule = client.get_vesting_schedule(&beneficiary);
+        assert!(schedule.is_some());
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000 + 35 * DAY);
+        let claimed = client.claim_vested_shares(&beneficiary);
+        assert!(claimed > 0);
+
+        env.as_contract(&contract_id, || {
+            let key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
+            assert!(env.storage().persistent().has(&key));
+        });
     }
 
     #[test]

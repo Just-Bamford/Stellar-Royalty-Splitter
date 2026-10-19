@@ -61,7 +61,7 @@ import { ToastContainer } from "react-toastify";
 
 import "./App.css";
 
-function isValidContractId(id: string): boolean {
+export function isValidContractId(id: string): boolean {
   return id.startsWith("C") && id.length === 56;
 }
 
@@ -72,9 +72,10 @@ export default function App() {
     () => !localStorage.getItem("srs_help_seen"),
   );
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [contractId, setContractId] = useState(
-    () => localStorage.getItem("lastContractId") ?? "",
-  );
+  const [contractId, setContractId] = useState(() => {
+    const saved = localStorage.getItem("lastContractId") ?? "";
+    return isValidContractId(saved) ? saved : "";
+  });
   const [contractIdError, setContractIdError] = useState<string | null>(null);
   const [contractInitialized, setContractInitialized] = useState<
     boolean | null
