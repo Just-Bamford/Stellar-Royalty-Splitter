@@ -91,6 +91,17 @@ setInterval(() => {
   }
 }, 60000).unref();
 
+// Periodically emit cache counter metrics so hits/misses/stales are visible
+// in logs even when no external metrics scraper is attached.
+setInterval(() => {
+  logger.info(`[cache:metrics] collaborators hits=${hitCount} misses=${missCount} stales=${staleCount}`);
+}, 60000).unref();
+
+/** Expose cache counters for the /api/metrics endpoint or health checks. */
+export function getCacheMetrics() {
+  return { hitCount, missCount, staleCount };
+}
+
 // Evict this module's local "stale" fallback value whenever a distribution
 // or admin action invalidates the cache (#926) — locally, or on another
 // backend instance via Redis pub/sub. Without this, the warm-window
@@ -124,15 +135,15 @@ collaboratorsRouter.get("/:contractId", validateContractIdMiddleware, async (req
 
     const cached = cacheGet(key);
     if (cached !== undefined) {
-      // hitCount++;
+      hitCount++;
       logger.debug(`[cache] HIT ${contractId}`);
       if (!timers.has(key)) schedule(key, contractId);
       return res.json(cached);
     }
 
-    // missCount++;
+    missCount++;
     if (stale.has(key)) {
-      // staleCount++;
+      staleCount++;
       logger.info(`[cache] STALE ${contractId}`);
       if (!inflight.has(key)) refresh(key, contractId).catch(() => {});
       return res.json(stale.get(key));
