@@ -48,7 +48,8 @@ export interface ExportMetadata {
  * Returns a date string formatted as `YYYY-MM-DD` (ISO-8601 calendar date).
  */
 export function formatDateStamp(date: Date = new Date()): string {
-  return date.toISOString().split("T")[0];
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /**
@@ -86,7 +87,12 @@ export function escapeCSV(value: string | number | null | undefined): string {
   }
 
   // RFC 4180 escaping: wrap in double quotes if containing comma, quote, or newline
-  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+  if (
+    str.includes(",") ||
+    str.includes('"') ||
+    str.includes("\n") ||
+    str.includes("\r")
+  ) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -128,7 +134,10 @@ export function buildCollaboratorsJSON(
   collaborators: CollaboratorExportItem[],
   metadata: ExportMetadata = {},
 ): string {
-  const totalBasisPoints = collaborators.reduce((sum, c) => sum + (c.basisPoints || 0), 0);
+  const totalBasisPoints = collaborators.reduce(
+    (sum, c) => sum + (c.basisPoints || 0),
+    0,
+  );
   const payload = {
     metadata: {
       contractId: metadata.contractId ?? null,
@@ -181,7 +190,11 @@ export function buildEarningsCSV(
 
   const sections: string[] = [];
   sections.push("# Collaborator Earnings Breakdown");
-  sections.push([collabHeaders.join(","), ...collabRows.map((r) => r.join(","))].join("\r\n"));
+  sections.push(
+    [collabHeaders.join(","), ...collabRows.map((r) => r.join(","))].join(
+      "\r\n",
+    ),
+  );
 
   if (payouts.length > 0) {
     const payoutHeaders = [
@@ -205,7 +218,11 @@ export function buildEarningsCSV(
 
     sections.push("");
     sections.push("# Recent Payout History");
-    sections.push([payoutHeaders.join(","), ...payoutRows.map((r) => r.join(","))].join("\r\n"));
+    sections.push(
+      [payoutHeaders.join(","), ...payoutRows.map((r) => r.join(","))].join(
+        "\r\n",
+      ),
+    );
   }
 
   return sections.join("\r\n");

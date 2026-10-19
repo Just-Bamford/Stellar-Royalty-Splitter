@@ -4,7 +4,8 @@
  *
  * A single contractId can be cached under several different keys —
  * `collaborators:{contractId}`, `contractState:{contractId}:{tokenId}`,
- * `history:{contractId}:...` — so a plain `invalidateContract(contractId)`
+ * `history:{contractId}:...`, and `secondaryRoyaltyPool:{contractId}` — so a
+ * plain `invalidateContract(contractId)`
  * (the pre-#926 behavior in distribute.js/batch-distribute.js/initialize.js)
  * never actually matched any of them and was a silent no-op. This helper
  * invalidates every namespaced key with that contractId as a prefix
@@ -14,7 +15,12 @@
 
 import { invalidateCacheDistributed } from "./cache.js";
 
-const INVALIDATED_RESOURCE_TYPES = ["collaborators", "contractState", "history"];
+const INVALIDATED_RESOURCE_TYPES = [
+  "collaborators",
+  "contractState",
+  "history",
+  "secondaryRoyaltyPool",
+];
 
 /**
  * Invalidate every cached entry (in-memory + Redis, local + distributed)

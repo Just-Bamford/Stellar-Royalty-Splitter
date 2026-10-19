@@ -34,6 +34,7 @@ import {
   recordSecondarySaleProcessing,
 } from "../metrics.js";
 import { cacheGet, cacheSet, cacheKey, TTL } from "../cache.js";
+import { invalidateContractCaches } from "../cache-invalidation.js";
 
 export const secondaryRoyaltyRouter = Router();
 
@@ -194,27 +195,28 @@ secondaryRoyaltyRouter.post("/set-rate", validate(setRoyaltyRateSchema), async (
  * POST /api/secondary-royalty/set-pool-limit
  * Body: { contractId, walletAddress, maxPoolSize }
  */
-secondaryRoyaltyRouter.post("/set-pool-limit", validate(setSecondaryPoolLimitSchema), async (req, res, next) => {
-  try {
-    const { contractId, walletAddress, maxPoolSize } = req.body;
-    const transactionId = recordTransaction(
-      contractId,
-      "secondary_pool_limit",
-      walletAddress,
-      { maxPoolSize: maxPoolSize.toString() },
-    );
-    const txXdr = await buildTx(walletAddress, contractId, "set_max_secondary_pool_size", [
-      i128ToScVal(maxPoolSize),
-    ]);
-    addAuditLog(contractId, "secondary_pool_limit_set", walletAddress, {
-      transactionId,
-      maxPoolSize: maxPoolSize.toString(),
-    });
-    res.json({ xdr: txXdr, transactionId });
-  } catch (err) {
-    next(err);
+secondaryRoyaltyRouter.post(
+  "/set-pool-limit",
+  validate(setSecondaryPoolLimitSchema),
+  async (req, res, next) => {
+    try {
+      const { contractId, walletAddress, maxPoolSize } = req.body;
+      const transactionId = recordTransaction(contractId, "secondary_pool_limit", walletAddress, {
+        maxPoolSize: maxPoolSize.toString(),
+      });
+      const txXdr = await buildTx(walletAddress, contractId, "set_max_secondary_pool_size", [
+        i128ToScVal(maxPoolSize),
+      ]);
+      addAuditLog(contractId, "secondary_pool_limit_set", walletAddress, {
+        transactionId,
+        maxPoolSize: maxPoolSize.toString(),
+      });
+      res.json({ xdr: txXdr, transactionId });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 /**
  * GET /api/secondary-royalty/rate/:contractId
@@ -279,6 +281,7 @@ secondaryRoyaltyRouter.post(
       // Mark sales as distributed
       markSalesDistributed(pendingSales.map((s) => s.id));
       recordSecondaryRoyaltyDistributed(contractId, totalRoyalties);
+      invalidateContractCaches(contractId, { reason: "secondary-distribute" });
 
       addAuditLog(contractId, "secondary_distribution_initiated", walletAddress, {
         transactionId,
@@ -396,11 +399,7 @@ secondaryRoyaltyRouter.get(
       if (!pagination) return;
       const { limit, offset } = pagination;
 
-      const distributions = getSecondaryRoyaltyDistributions(
-        contractId,
-        limit,
-        offset
-      );
+      const distributions = getSecondaryRoyaltyDistributions(contractId, limit, offset);
 
       res.json({ distributions, pagination: { limit, offset } });
     } catch (err) {
