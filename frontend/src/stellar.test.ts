@@ -67,7 +67,7 @@ describe("signAndSubmitTransaction", () => {
     const promise = signAndSubmitTransaction("unsigned-xdr", "testnet", { onRetry: vi.fn() });
 
     await vi.advanceTimersByTimeAsync(0); // let signing + submission settle
-    await vi.advanceTimersByTimeAsync(3000); // one confirmation poll
+    await vi.advanceTimersByTimeAsync(3500); // one confirmation poll (3000ms + up to 500ms jitter)
 
     const hash = await promise;
     expect(hash).toBe("HASH1");
@@ -102,7 +102,7 @@ describe("signAndSubmitTransaction", () => {
     expect(mocks.sendTransaction).toHaveBeenCalledTimes(2);
 
     // Confirmation poll succeeds.
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3500);
     const hash = await promise;
     expect(hash).toBe("HASH2");
 
@@ -133,7 +133,7 @@ describe("signAndSubmitTransaction", () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(mocks.sendTransaction).toHaveBeenCalledTimes(4);
 
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3500);
     const hash = await promise;
     expect(hash).toBe("HASH3");
     expect(onRetry).toHaveBeenCalledTimes(3);
@@ -190,7 +190,7 @@ describe("signAndSubmitTransaction", () => {
 
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(100);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3500);
 
     const hash = await promise;
     expect(hash).toBe("LANDED");
@@ -226,11 +226,11 @@ describe("signAndSubmitTransaction", () => {
     const promise = signAndSubmitTransaction("unsigned-xdr", "testnet");
 
     await vi.advanceTimersByTimeAsync(0);
-    // Poll 1 (t=3000): transient network error → keep polling.
-    await vi.advanceTimersByTimeAsync(3000);
+    // Poll 1 (t=3500): transient network error → keep polling.
+    await vi.advanceTimersByTimeAsync(3500);
     expect(mocks.getTransaction).toHaveBeenCalledTimes(1);
-    // Poll 2 (t=6000): confirmed.
-    await vi.advanceTimersByTimeAsync(3000);
+    // Poll 2 (t=7000): confirmed.
+    await vi.advanceTimersByTimeAsync(3500);
 
     const hash = await promise;
     expect(hash).toBe("HASH4");
@@ -248,7 +248,7 @@ describe("signAndSubmitTransaction", () => {
     const assertion = expect(promise).rejects.toThrow("bad request");
 
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3500);
 
     await assertion;
   });
@@ -262,9 +262,29 @@ describe("signAndSubmitTransaction", () => {
     const assertion = expect(promise).rejects.toThrow("Transaction failed on-chain: HASH6");
 
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(3500);
 
     await assertion;
+  });
+
+  test("polling delay includes random jitter between 0 and 500ms", async () => {
+    setFreighter();
+    mocks.sendTransaction.mockResolvedValueOnce({ status: "PENDING", hash: "HASH_JITTER" });
+    mocks.getTransaction.mockResolvedValueOnce({ status: "SUCCESS" });
+
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5); // 3000 + 250 = 3250ms
+    const promise = signAndSubmitTransaction("unsigned-xdr", "testnet");
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(3249);
+    expect(mocks.getTransaction).toHaveBeenCalledTimes(0);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.getTransaction).toHaveBeenCalledTimes(1);
+
+    randomSpy.mockRestore();
+    const hash = await promise;
+    expect(hash).toBe("HASH_JITTER");
   });
 
   test("throws when Freighter is not installed", async () => {
