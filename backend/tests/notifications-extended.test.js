@@ -4,6 +4,7 @@ import request from "supertest";
 const mockGetNotifications = jest.fn();
 const mockGetArchivedNotifications = jest.fn();
 const mockGetUnreadNotificationCount = jest.fn();
+const mockGetUnreadCountByType = jest.fn();
 const mockMarkNotificationRead = jest.fn();
 const mockMarkNotificationUnread = jest.fn();
 const mockMarkAllNotificationsRead = jest.fn();
@@ -28,7 +29,7 @@ jest.unstable_mockModule("../src/database/notifications.js", () => ({
   getNotifications: mockGetNotifications,
   getArchivedNotifications: mockGetArchivedNotifications,
   getUnreadNotificationCount: mockGetUnreadNotificationCount,
-  getUnreadCountByType: jest.fn(),
+  getUnreadCountByType: mockGetUnreadCountByType,
   markNotificationRead: mockMarkNotificationRead,
   markNotificationUnread: mockMarkNotificationUnread,
   markAllNotificationsRead: mockMarkAllNotificationsRead,
@@ -204,19 +205,46 @@ describe("Notifications - Extended CRUD", () => {
 
   describe("Unread by type", () => {
     test("GET /:walletAddress/unread-by-type returns unread counts by type", async () => {
-      mockGetNotificationsByType.mockImplementation((walletAddress, type) => {
-        if (type === "dispute_created") {
-          return [
-            { id: 1, walletAddress, type, title: "Dispute", read: 0 },
-            { id: 2, walletAddress, type, title: "Read dispute", read: 1 },
-          ];
-        }
-        return [];
-      });
+      mockGetUnreadCountByType.mockReturnValue({ dispute_created: 1 });
 
       const res = await request(app).get(`/api/v1/notifications/${WALLET}/unread-by-type`);
       expect(res.status).toBe(200);
       expect(res.body.data.dispute_created).toBe(1);
+      expect(mockGetUnreadCountByType).toHaveBeenCalledWith(WALLET);
+    });
+
+    // #1180: the old implementation ran getNotificationsByType(..., limit: 1,
+    // offset: 0) per type and filtered for unread, so it could only ever
+    // report 0 or 1 regardless of how many were actually unread. This pins
+    // that a type with many unread notifications now reports its real count.
+    test("reports an accurate count greater than 1 for a type with many unread notifications", async () => {
+      mockGetUnreadCountByType.mockReturnValue({ dispute_created: 42, payment_received: 7 });
+
+      const res = await request(app).get(`/api/v1/notifications/${WALLET}/unread-by-type`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ dispute_created: 42, payment_received: 7 });
+      // Never falls back to the per-type getNotificationsByType loop.
+      expect(mockGetNotificationsByType).not.toHaveBeenCalled();
+    });
+
+    test("makes exactly one database call, not one per notification type", async () => {
+      mockGetUnreadCountByType.mockReturnValue({});
+
+      await request(app).get(`/api/v1/notifications/${WALLET}/unread-by-type`);
+
+      expect(mockGetUnreadCountByType).toHaveBeenCalledTimes(1);
+    });
+
+    test("propagates a database error as a 500 with the documented error code", async () => {
+      mockGetUnreadCountByType.mockImplementation(() => {
+        throw new Error("db unavailable");
+      });
+
+      const res = await request(app).get(`/api/v1/notifications/${WALLET}/unread-by-type`);
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("unread_by_type_error");
     });
   });
 
