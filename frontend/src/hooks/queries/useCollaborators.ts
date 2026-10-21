@@ -10,5 +10,6 @@ export function useCollaborators(contractId: string | undefined) {
     queryKey: ["collaborators", contractId],
     queryFn: () => api.getCollaborators(contractId!),
     enabled: !!contractId,
+    staleTime: 5 * 60_000,
   });
 }
