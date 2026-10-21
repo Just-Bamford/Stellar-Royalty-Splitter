@@ -9,7 +9,7 @@
  */
 
 import db from "../database/index.js";
-import { createSnapshot, ensureSnapshotTable } from "../database/contract-snapshots.js";
+import { createSnapshot, ensureSnapshotTable, pruneSnapshots } from "../database/contract-snapshots.js";
 import logger from "../logger.js";
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -37,10 +37,18 @@ function getActiveContractIds() {
 /**
  * Compute a summary of contract state from stored data.
  *
+ * Basis-point share configuration is only held on-chain (`get_all_shares`);
+ * the backend does not persist it — the collaborators route caches it in
+ * memory and the initialize audit log records requested, unconfirmed shares
+ * without addresses. `shares` is therefore stored as `null` with
+ * `sharesSource: "unavailable"` and cannot be used for configuration recovery
+ * until an on-chain read is added to this job. Cumulative payout totals are
+ * recorded in `balances`.
+ *
  * @param {string} contractId
- * @returns {{ collaborators: string[], shares: object, balances: object, transactionCount: number, lastTransactionId: number|null }}
+ * @returns {{ collaborators: string, shares: string, sharesSource: string, balances: string, transactionCount: number, lastTransactionId: number|null }}
  */
-function computeContractState(contractId) {
+export function computeContractState(contractId) {
   // Get unique collaborator addresses
   const collaboratorRows = db
     .prepare(
@@ -63,8 +71,8 @@ function computeContractState(contractId) {
     .get(contractId);
   const lastTransactionId = lastTx?.id ?? null;
 
-  // Build shares map from contributor_status or distribution_payouts
-  const shareRows = db
+  // Build balances map from cumulative payouts
+  const balanceRows = db
     .prepare(
       `SELECT collaboratorAddress, SUM(CAST(amountReceived AS REAL)) AS totalReceived
        FROM distribution_payouts
@@ -73,18 +81,16 @@ function computeContractState(contractId) {
     )
     .all(contractId);
 
-  const shares = {};
   const balances = {};
 
-  for (const row of shareRows) {
-    const amount = Math.round(row.totalReceived * 100) / 100;
-    shares[row.collaboratorAddress] = amount;
-    balances[row.collaboratorAddress] = amount;
+  for (const row of balanceRows) {
+    balances[row.collaboratorAddress] = Math.round(row.totalReceived * 100) / 100;
   }
 
   return {
     collaborators: JSON.stringify(collaborators),
-    shares: JSON.stringify(shares),
+    shares: JSON.stringify(null),
+    sharesSource: "unavailable",
     balances: JSON.stringify(balances),
     transactionCount,
     lastTransactionId,
@@ -128,9 +134,7 @@ export async function executeSnapshotRun({ forceLabel } = {}) {
       snapshotsCreated++;
 
       // Prune old snapshots beyond retention
-      const pruned = await import("../database/contract-snapshots.js").then((mod) =>
-        mod.pruneSnapshots(contractId, SNAPSHOT_RETENTION_COUNT)
-      );
+      const pruned = pruneSnapshots(contractId, SNAPSHOT_RETENTION_COUNT);
       if (pruned > 0) {
         logger.debug(`Pruned ${pruned} old snapshots for contract ${contractId}`);
       }
