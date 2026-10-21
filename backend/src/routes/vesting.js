@@ -44,6 +44,7 @@ router.post("/vesting/create", attachRole, requireRole("admin"), (req, res) => {
       return sendError(res, 400, "validation_failed", "Missing required fields");
     }
 
+    if (!validateContractId(contractId, res)) return;
     if (!validateStellarAddress(beneficiary, res)) return;
     if (!validateContractId(tokenAddress, res)) return;
 
@@ -192,6 +193,7 @@ router.get("/vesting/beneficiary/:address", attachRole, requireRole("viewer"), (
 router.get("/vesting/contract/:contractId", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const schedules = getVestingSchedulesByContract(contractId);
 
     // Calculate current vested amounts for each schedule
