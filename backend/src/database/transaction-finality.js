@@ -184,3 +184,18 @@ export function deleteOldFinalityRecords(cutoff) {
   if (result.changes > 0) countWrite();
   return result.changes;
 }
+
+/**
+ * Fetch pending finality records older than the given cutoff.
+ * Used by the cleanup job to perform a final Horizon status check before deletion.
+ *
+ * @param {Date} cutoff
+ * @returns {object[]} Array of pending records older than cutoff
+ */
+export function getPendingFinalityRecordsOlderThan(cutoff) {
+  return db.prepare(`
+    SELECT * FROM transaction_finality
+    WHERE status = 'pending'
+      AND submission_at < ?
+  `).all(cutoff.toISOString());
+}

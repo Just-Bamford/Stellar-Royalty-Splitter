@@ -61,21 +61,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
 export const useSettings = (): SettingsContextType => {
   const context = useContext(SettingsContext);
-  const baseSettings = useSettingsStore((s) => s.settings);
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
-  const trackedContracts = useContractsStore((s) => s.trackedContracts);
-  const addTrackedContract = useContractsStore((s) => s.addTrackedContract);
-  const removeTrackedContract = useContractsStore((s) => s.removeTrackedContract);
 
-  if (context) {
-    return context;
+  if (!context) {
+    throw new Error(
+      "useSettings must be used within a SettingsProvider. " +
+      "Ensure SettingsProvider is mounted above the component calling useSettings."
+    );
   }
-  return {
-    settings: { ...DEFAULTS, ...baseSettings, trackedContracts },
-    updateSettings,
-    addTrackedContract,
-    removeTrackedContract,
-  };
+
+  return context;
 };
 
 export default SettingsProvider;

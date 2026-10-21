@@ -13,15 +13,6 @@ export function initializeWebSocket(server) {
     ws.isAlive = true;
     ws.on("pong", () => { ws.isAlive = true; });
 
-    // Set timeout for auto-disconnect (10 minutes)
-    const timeout = setTimeout(() => {
-      if (ws.readyState === 1) {
-        logger.info("WebSocket auto-disconnect timeout", { ip });
-        ws.terminate();
-      }
-    }, 10 * 60 * 1000); // 10 minutes
-    ws._timeout = timeout;
-
     ws.on("message", (data) => {
       try {
         const msg = JSON.parse(data.toString());
@@ -81,11 +72,6 @@ export function initializeWebSocket(server) {
     });
 
     ws.on("close", () => {
-      // Clear timeout
-      if (ws._timeout) {
-        clearTimeout(ws._timeout);
-      }
-
       if (ws.walletAddress && clients.has(ws.walletAddress)) {
         clients.get(ws.walletAddress).delete(ws);
         if (clients.get(ws.walletAddress).size === 0) {
