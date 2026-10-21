@@ -21,6 +21,7 @@ import {
   recordTransactionFee,
   getTransactionFee,
   getFeesByContract,
+  getFeeCountByContract,
 } from "../database/index.js";
 
 export const feesRouter = Router();
@@ -40,11 +41,12 @@ const recordFeeSchema = z.object({
 
 feesRouter.get("/:contractId", validateContractIdMiddleware, (req, res) => {
   const { contractId } = req.params;
-  const pagination = parsePagination(req.query, res);
+  const pagination = parsePagination(req.query, res, 50, 100);
   if (!pagination) return;
 
   const fees = getFeesByContract(contractId, pagination.limit, pagination.offset);
-  return res.json({ success: true, data: fees, pagination });
+  const total = getFeeCountByContract(contractId);
+  return res.json({ success: true, data: fees, pagination: { ...pagination, total } });
 });
 
 // ─── GET /api/v1/fees/transaction/:transactionId ───────────────────────────

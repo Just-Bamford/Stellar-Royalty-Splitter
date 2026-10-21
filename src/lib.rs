@@ -456,7 +456,8 @@ pub enum ExtKey {
 pub const RATE_HISTORY_CAP: u32 = 20;
 
 /// Maximum number of distribution records kept in history (#775).
-/// Oldest entries are dropped when the cap is reached (FIFO).
+/// Oldest entries are dropped when the cap is reached (FIFO). Each drop emits
+/// a `(hist_trunc, drop)` event carrying the evicted record's id (#1219).
 pub const DISTRIBUTION_HISTORY_LIMIT: u32 = 500;
 
 /// Maximum distribution history items per pagination request (#775).
@@ -4724,6 +4725,17 @@ impl RoyaltySplitter {
             storage::persistent_get(env, &StorageKey::DistributionRecords).unwrap_or(Vec::new(env));
 
         if records.len() >= DISTRIBUTION_HISTORY_LIMIT {
+            let dropped_id = records.get(0).unwrap().id;
+
+            // #1219: make the eviction observable. Without this, an indexer
+            // rebuilding the full audit trail from on-chain history would see
+            // a silent gap once the cap is reached; on this event it should
+            // fall back to Horizon for the dropped range.
+            env.events().publish(
+                (Symbol::new(env, "hist_trunc"), symbol_short!("drop")),
+                dropped_id,
+            );
+
             let mut trimmed: Vec<DistributionRecord> = Vec::new(env);
             for i in 1..records.len() {
                 trimmed.push_back(records.get(i).unwrap());

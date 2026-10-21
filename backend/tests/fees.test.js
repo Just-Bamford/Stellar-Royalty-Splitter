@@ -8,17 +8,20 @@ import express from "express";
 const mockRecordTransactionFee = jest.fn();
 const mockGetTransactionFee    = jest.fn();
 const mockGetFeesByContract    = jest.fn();
+const mockGetFeeCountByContract = jest.fn();
 
 await jest.unstable_mockModule("../src/database/transaction-fees.js", () => ({
   recordTransactionFee: mockRecordTransactionFee,
   getTransactionFee:    mockGetTransactionFee,
   getFeesByContract:    mockGetFeesByContract,
+  getFeeCountByContract: mockGetFeeCountByContract,
 }));
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransactionFee: mockRecordTransactionFee,
   getTransactionFee:    mockGetTransactionFee,
   getFeesByContract:    mockGetFeesByContract,
+  getFeeCountByContract: mockGetFeeCountByContract,
   initializeDatabase:   jest.fn(),
   getMigrationVersion:  jest.fn(() => 10),
 }));
@@ -43,17 +46,23 @@ const feeRecord = (txId = 1) => ({
 });
 
 describe("GET /api/v1/fees/:contractId", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetFeeCountByContract.mockReturnValue(0);
+  });
 
   test("returns fee list for a valid contract", async () => {
     mockGetFeesByContract.mockReturnValue([feeRecord(1), feeRecord(2)]);
+    mockGetFeeCountByContract.mockReturnValue(2);
 
     const res = await request(app).get(`/api/v1/fees/${CONTRACT}`);
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveLength(2);
+    expect(res.body.pagination).toEqual({ limit: 50, offset: 0, total: 2 });
     expect(mockGetFeesByContract).toHaveBeenCalledWith(CONTRACT, 50, 0);
+    expect(mockGetFeeCountByContract).toHaveBeenCalledWith(CONTRACT);
   });
 
   test("returns empty array when no fees exist", async () => {
@@ -63,6 +72,7 @@ describe("GET /api/v1/fees/:contractId", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
+    expect(res.body.pagination.total).toBe(0);
   });
 
   test("400 when contractId is invalid", async () => {
@@ -78,6 +88,16 @@ describe("GET /api/v1/fees/:contractId", () => {
     await request(app).get(`/api/v1/fees/${CONTRACT}?limit=10&offset=20`);
 
     expect(mockGetFeesByContract).toHaveBeenCalledWith(CONTRACT, 10, 20);
+  });
+
+  test("caps limit at 100", async () => {
+    mockGetFeesByContract.mockReturnValue([]);
+
+    const res = await request(app).get(`/api/v1/fees/${CONTRACT}?limit=1000`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.pagination.limit).toBe(100);
+    expect(mockGetFeesByContract).toHaveBeenCalledWith(CONTRACT, 100, 0);
   });
 });
 

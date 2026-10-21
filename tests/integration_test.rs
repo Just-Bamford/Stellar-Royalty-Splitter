@@ -3,11 +3,12 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
-    vec, Address, BytesN, Env, IntoVal, Map, String, TryFromVal, Val, Vec as SorobanVec,
+    vec, Address, BytesN, Env, IntoVal, Map, String, Symbol, TryFromVal, Val, Vec as SorobanVec,
 };
 use stellar_royalty_splitter::{
-    auth, ContractError, DataKey, OperationProposal, OperationType, Recipient, RoyaltyRateChange,
-    RoyaltySplitterClient, SensitiveOperation, StorageKey, MIN_TTL, RATE_HISTORY_CAP, VERSION,
+    auth, ContractError, DataKey, DistributionRecord, OperationProposal, OperationType, Recipient,
+    RoyaltyRateChange, RoyaltySplitterClient, SensitiveOperation, StorageKey,
+    DISTRIBUTION_HISTORY_LIMIT, MIN_TTL, RATE_HISTORY_CAP, VERSION,
 };
 
 fn setup(env: &Env) -> (Address, RoyaltySplitterClient<'_>) {
@@ -8072,4 +8073,63 @@ mod vesting {
             Err(Ok(ContractError::NOTHING_TO_CLAIM))
         );
     }
+}
+
+/// #1219 — once the distribution history cap is reached, dropping the oldest
+/// record must emit an observable event carrying the evicted record's id.
+#[test]
+fn test_distribution_history_truncation_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let recipient = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(&vec![&env, recipient], &vec![&env, 10_000_u32]);
+
+    // Seed a full history directly. Running 500 real distributions first would
+    // trip the test host's accumulated-event limit long before the cap.
+    let mut records: SorobanVec<DistributionRecord> = SorobanVec::new(&env);
+    for id in 1..=DISTRIBUTION_HISTORY_LIMIT as u64 {
+        records.push_back(DistributionRecord {
+            id,
+            token: token.clone(),
+            total_amount: 1,
+            recipient_count: 1,
+            timestamp: 0,
+            status: String::from_str(&env, "completed"),
+        });
+    }
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&StorageKey::DistributionRecords, &records);
+    });
+
+    // The next distribution drops record #1, the oldest.
+    mint(&env, &token, &contract_id, 1);
+    client.distribute(&token);
+
+    let events = env.events().all();
+    let found = events.iter().any(|(cid, topics, data)| {
+        cid == contract_id
+            && topics
+                == vec![
+                    &env,
+                    Symbol::new(&env, "hist_trunc").into_val(&env),
+                    symbol_short!("drop").into_val(&env),
+                ]
+            && val_eq(&env, data, 1_u64)
+    });
+    assert!(
+        found,
+        "hist_trunc/drop event must carry the dropped record id (1)"
+    );
+
+    // The evicted record is gone and the next-oldest record now leads history.
+    let history = client.get_distribution_history(&1, &0);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.get(0).unwrap().id, 2);
 }
