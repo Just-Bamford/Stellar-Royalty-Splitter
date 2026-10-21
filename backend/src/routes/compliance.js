@@ -63,13 +63,14 @@ function parseCommonParams(req, res, { requireWallet = false } = {}) {
     }
   }
 
-  const year = taxYear ? String(taxYear) : String(new Date().getFullYear() - 1);
-  if (!/^\d{4}$/.test(year) || Number(year) < 2020 || Number(year) > new Date().getFullYear()) {
+  const currentYear = new Date().getUTCFullYear();
+  const year = taxYear ? String(taxYear) : String(currentYear - 1);
+  if (!/^\d{4}$/.test(year) || Number(year) < 2020 || Number(year) > currentYear) {
     sendError(
       res,
       400,
       "invalid_tax_year",
-      `taxYear must be a 4-digit year between 2020 and ${new Date().getFullYear()}`,
+      `taxYear must be a 4-digit year between 2020 and ${currentYear}`,
     );
     return null;
   }
@@ -346,7 +347,7 @@ complianceRouter.post("/verify", async (req, res) => {
     return sendError(res, 400, "invalid_wallet_address", "walletAddress must be a valid Stellar G-address");
   }
 
-  const year = taxYear ? String(taxYear) : String(new Date().getFullYear() - 1);
+  const year = taxYear ? String(taxYear) : String(new Date().getUTCFullYear() - 1);
   if (!/^\d{4}$/.test(year)) {
     return sendError(res, 400, "invalid_tax_year", "taxYear must be a 4-digit year");
   }
