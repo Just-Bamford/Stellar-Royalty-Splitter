@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { analytics } from '../lib/analytics';
 
 export type Theme = 'light' | 'dark' | 'system';
 export type Language = 'en' | 'es' | 'fr' | 'de';
@@ -22,7 +23,8 @@ const defaultPreferences: Preferences = {
   units: 'USD',
   notificationFrequency: 'daily',
   dataPrivacy: {
-    allowTracking: true,
+    // Opt-in only: analytics tracking requires an explicit user choice (#1238).
+    allowTracking: false,
     shareDataWithPartners: false,
   },
 };
@@ -104,6 +106,10 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
   useEffect(() => {
     localStorage.setItem('userPreferences', JSON.stringify(preferences));
   }, [preferences]);
+
+  useEffect(() => {
+    analytics.setTrackingConsent(preferences.dataPrivacy.allowTracking);
+  }, [preferences.dataPrivacy.allowTracking]);
 
   const updatePreference = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setPreferences((prev) => ({

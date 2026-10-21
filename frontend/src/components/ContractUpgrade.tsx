@@ -129,6 +129,7 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
           type={status.type}
           message={status.message}
           network={network}
+          onDismiss={clearStatus}
         />
       )}
     </form>

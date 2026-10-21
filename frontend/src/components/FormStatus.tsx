@@ -8,6 +8,8 @@ interface FormStatusProps {
   message: string;
   txHash?: string;
   network?: Network;
+  /** Clears the status immediately. Errors persist until dismissed (#1236). */
+  onDismiss?: () => void;
   distributionData?: {
     totalDistributed?: number;
     recipientCount?: number;
@@ -19,9 +21,11 @@ export default function FormStatus({
   message,
   txHash,
   network,
+  onDismiss,
   distributionData,
 }: FormStatusProps) {
   const showTxLink = type === "ok" && txHash && network;
+  const showDismiss = type === "error" && onDismiss;
 
   async function handleShare() {
     if (!txHash || !network) return;
@@ -84,6 +88,16 @@ ${distributionData?.recipientCount ? `Recipients: ${distributionData.recipientCo
             Share
           </button>
         </div>
+      )}
+      {showDismiss && (
+        <button
+          type="button"
+          className="form-status__dismiss"
+          onClick={onDismiss}
+          aria-label="Dismiss error message"
+        >
+          ×
+        </button>
       )}
     </div>
   );

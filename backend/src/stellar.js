@@ -54,6 +54,17 @@ const TRANSACTION_POLL_INTERVAL_MS = parsePositiveInt(
 export const server = new SorobanRpc.Server(RPC_URL, { allowHttp: false });
 export const networkPassphrase = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 
+/**
+ * Shared source account for simulation-only transactions (#1235).
+ *
+ * Read-only Soroban simulations (get_version, is_initialized, ...) need a
+ * well-formed source account but never sign or submit a transaction, so this
+ * account does not need to exist on-chain or hold any funds. Keeping the
+ * address in one place avoids the slightly different hardcoded copies that
+ * used to be scattered across the route handlers.
+ */
+export const SIMULATION_DUMMY_ACCOUNT = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+
 export function getNetworkLabel() {
   return NETWORK === "mainnet" ? "Mainnet" : "Testnet";
 }
@@ -166,10 +177,7 @@ export async function checkContractDeploymentStatus(contractId) {
 
   try {
     const contract = new Contract(contractId);
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
-    );
+    const dummyAccount = new Account(SIMULATION_DUMMY_ACCOUNT, "0");
     const tx = new TransactionBuilder(dummyAccount, {
       fee: BASE_FEE,
       networkPassphrase,
@@ -754,7 +762,7 @@ export function bytes32ToScVal(hex) {
  */
 export async function getRoyaltyRateFromContract(contractId) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+  const dummyAccount = new Account(SIMULATION_DUMMY_ACCOUNT, "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -778,7 +786,7 @@ export async function getRoyaltyRateFromContract(contractId) {
  */
 export async function isContractInitialized(contractId) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+  const dummyAccount = new Account(SIMULATION_DUMMY_ACCOUNT, "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,
@@ -802,7 +810,7 @@ export async function isContractInitialized(contractId) {
  */
 export async function getContractVersionFromContract(contractId) {
   const contract = new Contract(contractId);
-  const dummyAccount = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+  const dummyAccount = new Account(SIMULATION_DUMMY_ACCOUNT, "0");
   const tx = new TransactionBuilder(dummyAccount, {
     fee: BASE_FEE,
     networkPassphrase,

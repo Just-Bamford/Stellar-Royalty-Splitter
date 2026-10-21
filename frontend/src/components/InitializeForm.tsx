@@ -113,7 +113,7 @@ export default function InitializeForm({
   const [collaborators, setCollaborators] = useState<Collaborator[]>([
     { address: "", basisPoints: "" },
   ]);
-  const { status, setStatus } = useFormStatus();
+  const { status, setStatus, clearStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
   const [pendingCommit, setPendingCommit] = useState<{
     collaborators: string[];
@@ -704,7 +704,9 @@ export default function InitializeForm({
       <div className="sr-only" aria-live="assertive" aria-atomic="true">
         {status?.message ?? ""}
       </div>
-      {status && <FormStatus type={status.type} message={status.message} />}
+      {status && (
+        <FormStatus type={status.type} message={status.message} onDismiss={clearStatus} />
+      )}
     </div>
   );
 }

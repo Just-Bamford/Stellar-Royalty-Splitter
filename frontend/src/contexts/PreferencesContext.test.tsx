@@ -87,7 +87,8 @@ describe("PreferencesContext import validation #1221", () => {
 
     fireEvent.click(screen.getByText("invalid privacy"));
 
-    expect(screen.getByTestId("tracking").textContent).toBe("true");
+    // Tracking is opt-in, so the invalid value leaves the secure default (#1238).
+    expect(screen.getByTestId("tracking").textContent).toBe("false");
     expect(screen.getByTestId("partners").textContent).toBe("false");
   });
 

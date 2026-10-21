@@ -517,6 +517,7 @@ export default function DistributeForm({
           message={status.message}
           txHash={txEntry?.txHash ?? undefined}
           network={network}
+          onDismiss={clearStatus}
           distributionData={
             status.type === "ok"
               ? {
