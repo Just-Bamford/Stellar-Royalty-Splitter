@@ -6,6 +6,7 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./context/ThemeContext";
 import { SettingsProvider } from "./context/SettingsContext";
+import { PreferencesProvider } from "./contexts/PreferencesContext";
 import { NetworkProvider } from "./context/NetworkContext";
 import { WalletProvider } from "./context/WalletContext";
 import { TransactionProvider } from "./context/TransactionContext";
@@ -43,19 +44,21 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <ThemeProvider>
-          <NetworkProvider>
-            <WalletProvider>
-              <SettingsProvider>
-                <TransactionProvider>
-                  <NotificationProvider>
-                    <App />
-                  </NotificationProvider>
-                </TransactionProvider>
-              </SettingsProvider>
-            </WalletProvider>
-          </NetworkProvider>
-        </ThemeProvider>
+        <PreferencesProvider>
+          <ThemeProvider>
+            <NetworkProvider>
+              <WalletProvider>
+                <SettingsProvider>
+                  <TransactionProvider>
+                    <NotificationProvider>
+                      <App />
+                    </NotificationProvider>
+                  </TransactionProvider>
+                </SettingsProvider>
+              </WalletProvider>
+            </NetworkProvider>
+          </ThemeProvider>
+        </PreferencesProvider>
       </ErrorBoundary>
       {/* ReactQueryDevtools only renders in development mode */}
       <ReactQueryDevtools initialIsOpen={false} />

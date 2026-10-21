@@ -8,7 +8,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import StellarSdk from "@stellar/stellar-sdk";
-import { server, networkPassphrase, retryBuildTx } from "../stellar.js";
+import { server, networkPassphrase, retryBuildTx, SIMULATION_DUMMY_ACCOUNT } from "../stellar.js";
 import { sendError, sendValidationError } from "../error-response.js";
 import { stellarAddress, contractAddress, validateContractIdMiddleware } from "../validation.js";
 import { addAuditLog } from "../database/index.js";
@@ -63,6 +63,18 @@ const rollbackUpgradeSchema = z.object({
   reason: z.string().optional(),
 });
 
+/**
+ * Map governance errors to their HTTP status (#1239).
+ *
+ * `upgradeManager` throws validation/conflict errors with `status: 400` and
+ * not-found errors with `status: 404`; anything else is an unexpected internal
+ * failure and must surface as 500 rather than being disguised as a bad request.
+ */
+function sendUpgradeError(res, err, fallbackCode) {
+  const status = err.status ?? err.statusCode ?? 500;
+  return sendError(res, status, err.code ?? fallbackCode, err.message);
+}
+
 // ─── POST /api/v1/contract/upgrade ────────────────────────────────────────
 upgradeRouter.post("/upgrade", async (req, res, next) => {
   const result = upgradeSchema.safeParse(req.body);
@@ -110,7 +122,7 @@ upgradeRouter.post("/upgrade/propose", async (req, res, next) => {
     });
     return res.status(201).json({ success: true, data: proposal });
   } catch (err) {
-    return sendError(res, 400, "propose_upgrade_failed", err.message);
+    return sendUpgradeError(res, err, "propose_upgrade_failed");
   }
 });
 
@@ -128,7 +140,7 @@ upgradeRouter.post("/upgrade/vote", async (req, res, next) => {
     const proposal = await upgradeManager.castVote(result.data);
     return res.json({ success: true, data: proposal });
   } catch (err) {
-    return sendError(res, 400, "vote_upgrade_failed", err.message);
+    return sendUpgradeError(res, err, "vote_upgrade_failed");
   }
 });
 
@@ -146,7 +158,7 @@ upgradeRouter.post("/upgrade/schedule", async (req, res, next) => {
     const scheduled = await upgradeManager.scheduleUpgrade(result.data);
     return res.json({ success: true, data: scheduled });
   } catch (err) {
-    return sendError(res, 400, "schedule_upgrade_failed", err.message);
+    return sendUpgradeError(res, err, "schedule_upgrade_failed");
   }
 });
 
@@ -164,7 +176,7 @@ upgradeRouter.post("/upgrade/execute", async (req, res, next) => {
     const executed = await upgradeManager.executeUpgrade(result.data);
     return res.json({ success: true, data: executed });
   } catch (err) {
-    return sendError(res, 400, "execute_upgrade_failed", err.message);
+    return sendUpgradeError(res, err, "execute_upgrade_failed");
   }
 });
 
@@ -182,7 +194,7 @@ upgradeRouter.post("/upgrade/rollback", async (req, res, next) => {
     const rollback = await upgradeManager.rollbackUpgrade(result.data);
     return res.json({ success: true, data: rollback });
   } catch (err) {
-    return sendError(res, 400, "rollback_upgrade_failed", err.message);
+    return sendUpgradeError(res, err, "rollback_upgrade_failed");
   }
 });
 
@@ -212,10 +224,7 @@ upgradeRouter.get("/version/:contractId", validateContractIdMiddleware, async (r
     const { contractId } = req.params;
     const contract = new Contract(contractId);
 
-    const dummyAccount = new Account(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-      "0"
-    );
+    const dummyAccount = new Account(SIMULATION_DUMMY_ACCOUNT, "0");
 
     const tx = new TransactionBuilder(dummyAccount, {
       fee: BASE_FEE,
