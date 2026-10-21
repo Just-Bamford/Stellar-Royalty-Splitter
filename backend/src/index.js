@@ -89,7 +89,11 @@ import { startEditSessionCleanup } from "./jobs/edit-session-cleanup.js";
 import { setupGraphQL } from "./graphql.js";
 import { requestComplexityMiddleware } from "./request-complexity.js";
 import { auditTrailRouter } from "./routes/audit-trail.js";
-import { startAuditTrailVerifier, closeAuditTrail } from "./services/audit-trail.js";
+import {
+  startAuditTrailVerifier,
+  startRetentionScheduler,
+  closeAuditTrail,
+} from "./services/audit-trail.js";
 import { setSecondaryRoyaltyPoolSource } from "./metrics.js";
 import { httpMetricsMiddleware } from "./middleware/http-metrics.js";
 import { responseTimeMiddleware } from "./middleware/response-time.js";
@@ -708,8 +712,12 @@ async function startServer() {
   // #935: pool balance gauge reads the database at scrape time.
   setSecondaryRoyaltyPoolSource(getPendingRoyaltyPools);
 
-  // #938: periodic hash-chain verification + retention enforcement.
+  // #938: periodic hash-chain verification.
   const auditTrailVerifier = startAuditTrailVerifier();
+
+  // #1215: retention runs on its own schedule and prunes at startup, even if
+  // verification is disabled or never started.
+  const auditTrailRetentionScheduler = startRetentionScheduler();
 
   // Start capacity planning monitor (#traffic-shaping).
   capacityPlanner.start();
@@ -776,6 +784,9 @@ async function startServer() {
       capacityPlanner.stop();
       if (auditTrailVerifier) {
         auditTrailVerifier.stop();
+      }
+      if (auditTrailRetentionScheduler) {
+        auditTrailRetentionScheduler.stop();
       }
       closeAuditTrail();
       if (l1WarmingInterval) {

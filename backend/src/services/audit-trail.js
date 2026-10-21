@@ -11,6 +11,8 @@
  *   - startAuditTrailVerifier(): re-verifies the whole hash chain on an
  *     interval, records the result, ships the head hash off-box as a
  *     checkpoint log line, and alerts on any integrity failure.
+ *   - startRetentionScheduler(): runs enforceRetention() on its own interval,
+ *     independently of verification, so expired entries are always pruned.
  *   - enforceRetention(): purges entries older than the retention period
  *     (7 years by default), oldest first, behind an anchor.
  *   - buildComplianceExport(): SOX / FINRA / GDPR report bundles in JSON or CSV,
@@ -20,6 +22,7 @@
  *   AUDIT_TRAIL_DB_PATH               Separate SQLite file (default: backend/audit-trail.db)
  *   AUDIT_TRAIL_HMAC_KEY              Enables HMAC-SHA256 chaining (recommended in production)
  *   AUDIT_TRAIL_RETENTION_DAYS        Default 2557 (7 years)
+ *   AUDIT_TRAIL_RETENTION_INTERVAL_MS Default 86400000 (daily)
  *   AUDIT_TRAIL_VERIFY_INTERVAL_MS    Default 3600000 (hourly)
  *   AUDIT_TRAIL_ALERT_WEBHOOK_URL     Optional: POSTed to on integrity failure
  *   AUDIT_TRAIL_ENABLED               Set to "false" to disable entirely
@@ -59,8 +62,11 @@ export const COMPLIANCE_STANDARDS = {
   },
 };
 
+const DEFAULT_RETENTION_INTERVAL_MS = 86_400_000;
+
 let store = null;
 let verifierTimer = null;
+let retentionTimer = null;
 
 function isEnabled() {
   return process.env.AUDIT_TRAIL_ENABLED !== "false";
@@ -96,6 +102,7 @@ export function setAuditTrailStore(next) {
 
 export function closeAuditTrail() {
   stopAuditTrailVerifier();
+  stopRetentionScheduler();
   if (store) {
     store.close();
     store = null;
@@ -181,7 +188,44 @@ export function enforceRetention() {
 }
 
 /**
- * Start periodic verification and retention enforcement.
+ * Start periodic retention enforcement.
+ *
+ * Retention has its own timer and does not depend on startAuditTrailVerifier():
+ * verification and pruning have different cadences, and a process that never
+ * starts the verifier (or has it disabled) still prunes expired entries.
+ * Runs once immediately so entries that expired while the process was stopped
+ * are removed at startup. Purge is idempotent, so repeated runs are safe.
+ */
+export function startRetentionScheduler({ intervalMs } = {}) {
+  const period =
+    intervalMs ??
+    (parseInt(process.env.AUDIT_TRAIL_RETENTION_INTERVAL_MS ?? "", 10) || DEFAULT_RETENTION_INTERVAL_MS);
+
+  const tick = () => {
+    try {
+      enforceRetention();
+    } catch (err) {
+      logger.error("Audit trail retention scheduler error", { error: err.message ?? String(err) });
+    }
+  };
+
+  stopRetentionScheduler();
+  tick();
+  retentionTimer = setInterval(tick, period);
+  if (retentionTimer.unref) retentionTimer.unref();
+  return { stop: stopRetentionScheduler };
+}
+
+export function stopRetentionScheduler() {
+  if (retentionTimer) {
+    clearInterval(retentionTimer);
+    retentionTimer = null;
+  }
+}
+
+/**
+ * Start periodic chain verification.
+ * Retention is scheduled separately by startRetentionScheduler().
  * Runs once immediately so a tampered trail is reported at startup.
  */
 export function startAuditTrailVerifier({ intervalMs } = {}) {
@@ -192,7 +236,6 @@ export function startAuditTrailVerifier({ intervalMs } = {}) {
   const tick = async () => {
     try {
       await verifyAuditTrail();
-      enforceRetention();
     } catch (err) {
       logger.error("Audit trail verifier error", { error: err.message ?? String(err) });
     }

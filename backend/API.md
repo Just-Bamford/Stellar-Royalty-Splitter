@@ -454,6 +454,39 @@ curl "http://localhost:3001/api/v1/secondary-royalty/distributions/C...?limit=20
 
 See route module `src/routes/secondary-royalty.js` for pool, stats, and set-rate endpoints.
 
+## Transaction fees
+
+### `GET /api/v1/fees/:contractId`
+
+Returns paginated fee records for a contract, ordered by most recent first.
+
+**Query params:**
+
+| Param | Type | Default | Min | Max | Description |
+| ----- | ---- | ------- | --- | --- | ----------- |
+| `limit` | integer | `50` | `1` | `100` | Number of fee records to return; values above `100` are capped at `100` |
+| `offset` | integer | `0` | `0` | — | Number of rows to skip (pagination offset) |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [ /* fee objects */ ],
+  "pagination": { "limit": 50, "offset": 0, "total": 5000 }
+}
+```
+
+`pagination.total` is the total number of fee records for the contract across all
+pages. Non-numeric `limit` or `offset` values return `400 Bad Request`
+(`invalid_query_parameter`).
+
+**Example — page 50 with 100 results per page:**
+
+```bash
+curl "http://localhost:3001/api/v1/fees/C...?limit=100&offset=4900"
+```
+
 ## History & analytics
 
 - `GET /api/v1/history/:contractId`
