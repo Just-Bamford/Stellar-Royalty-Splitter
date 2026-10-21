@@ -23,7 +23,7 @@ const { Contract, TransactionBuilder, BASE_FEE, Account, SorobanRpc } = StellarS
 /**
  * Run one pass of the payment schedule checker.
  *
- * @returns {{ triggered: number, skipped: number, failed: number }}
+ * @returns {{ triggered: number, failed: number }}
  */
 export async function runPaymentSchedules() {
   const now = new Date();
@@ -32,11 +32,10 @@ export async function runPaymentSchedules() {
   const due = getSchedulesDue(nowIso);
 
   if (due.length === 0) {
-    return { triggered: 0, skipped: 0, failed: 0 };
+    return { triggered: 0, failed: 0 };
   }
 
   let triggered = 0;
-  let skipped = 0;
   let failed = 0;
 
   for (const schedule of due) {
@@ -175,7 +174,7 @@ export async function runPaymentSchedules() {
     }
   }
 
-  return { triggered, skipped, failed };
+  return { triggered, failed };
 }
 
 /**
