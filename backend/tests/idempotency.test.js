@@ -1,15 +1,27 @@
 import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
-import {
+const loggerWarn = jest.fn();
+
+await jest.unstable_mockModule("../src/logger.js", () => ({
+  default: {
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: loggerWarn,
+  },
+}));
+
+const {
   getCachedResponse,
   cacheResponse,
   clearCache,
   getCacheStats,
   idempotencyMiddleware,
-} from "../src/idempotency.js";
+} = await import("../src/idempotency.js");
 
 describe("Idempotency cache", () => {
   beforeEach(() => {
     clearCache();
+    loggerWarn.mockClear();
   });
 
   afterEach(() => {
@@ -288,3 +300,57 @@ describe("Idempotency middleware", () => {
   });
 });
 
+describe("Idempotency startup warning", () => {
+  async function loadIdempotencyModuleWithEnv(nodeEnv, sharedStoreConfigured) {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalSharedStoreConfig = process.env.IDEMPOTENCY_SHARED_STORE_CONFIGURED;
+
+    if (nodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = nodeEnv;
+    }
+
+    if (sharedStoreConfigured === undefined) {
+      delete process.env.IDEMPOTENCY_SHARED_STORE_CONFIGURED;
+    } else {
+      process.env.IDEMPOTENCY_SHARED_STORE_CONFIGURED = sharedStoreConfigured;
+    }
+
+    jest.resetModules();
+    loggerWarn.mockClear();
+
+    try {
+      await import("../src/idempotency.js");
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+
+      if (originalSharedStoreConfig === undefined) {
+        delete process.env.IDEMPOTENCY_SHARED_STORE_CONFIGURED;
+      } else {
+        process.env.IDEMPOTENCY_SHARED_STORE_CONFIGURED = originalSharedStoreConfig;
+      }
+    }
+  }
+
+  test("warns at startup in production when no shared store is configured", async () => {
+    await loadIdempotencyModuleWithEnv("production", undefined);
+
+    expect(loggerWarn).toHaveBeenCalledWith(
+      "Idempotency in-flight deduplication is process-local. " +
+        "In multi-instance deployments, concurrent duplicate requests may not be deduplicated. " +
+        "Configure a shared store (e.g. Redis) for cross-instance idempotency.",
+      { event: "idempotency_shared_store_not_configured" },
+    );
+  });
+
+  test("does not warn at startup in development", async () => {
+    await loadIdempotencyModuleWithEnv("development", undefined);
+
+    expect(loggerWarn).not.toHaveBeenCalled();
+  });
+});
