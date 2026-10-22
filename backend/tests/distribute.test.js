@@ -9,6 +9,8 @@ import {
 } from "./test-helpers.js";
 
 const retryBuildTx = jest.fn();
+const runHook = jest.fn(async () => []);
+const loggerError = jest.fn();
 
 const stellarSdkMock = {
   Address: { fromScVal: jest.fn((scVal) => ({ toString: () => scVal })) },
@@ -47,6 +49,19 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   getRecommendedFee: jest.fn(async () => "12345"),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
+}));
+
+await jest.unstable_mockModule("../src/plugins/plugin-framework.js", () => ({
+  runHook,
+}));
+
+await jest.unstable_mockModule("../src/logger.js", () => ({
+  default: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: loggerError,
+    debug: jest.fn(),
+  },
 }));
 
 const recordTransaction = jest.fn(() => "tx-456");
@@ -91,6 +106,7 @@ const validBody = buildDistributePayload({
 describe("POST /api/v1/distribute", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    runHook.mockImplementation(async () => []);
     resetMetrics();
   });
 
@@ -102,6 +118,52 @@ describe("POST /api/v1/distribute", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ xdr: "distribute-xdr", transactionId: "tx-456" });
+  });
+
+  test("returns before the afterDistribute hook completes", async () => {
+    retryBuildTx.mockResolvedValue("distribute-xdr");
+    recordTransaction.mockReturnValue("tx-456");
+
+    let finishHook;
+    runHook.mockImplementation((hookName) => {
+      if (hookName === "afterDistribute") {
+        return new Promise((resolve) => {
+          finishHook = resolve;
+        });
+      }
+      return Promise.resolve([]);
+    });
+
+    let timeoutId;
+    const responsePromise = request(app).post("/api/v1/distribute").send(validBody);
+    const result = await Promise.race([
+      responsePromise.then((res) => ({ type: "response", res })),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve({ type: "timeout" }), 1000);
+      }),
+    ]);
+    clearTimeout(timeoutId);
+    finishHook([]);
+
+    expect(result.type).toBe("response");
+    expect(result.res.status).toBe(200);
+  });
+
+  test("logs afterDistribute hook failures", async () => {
+    retryBuildTx.mockResolvedValue("distribute-xdr");
+    recordTransaction.mockReturnValue("tx-456");
+    runHook.mockImplementation((hookName) =>
+      hookName === "afterDistribute"
+        ? Promise.reject(new Error("plugin failed"))
+        : Promise.resolve([]),
+    );
+
+    const res = await request(app).post("/api/v1/distribute").send(validBody);
+
+    expect(res.status).toBe(200);
+    expect(loggerError).toHaveBeenCalledWith("afterDistribute plugin hook failed", {
+      error: "plugin failed",
+    });
   });
 
   test("records the transaction fee after a successful distribution", async () => {

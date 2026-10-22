@@ -93,8 +93,12 @@ distributeRouter.post(
       });
 
       // Plugin hook: afterDistribute — post-process after distribution is built (#998).
-      // Fire-and-forget: runs after response is sent so plugins don't add latency.
-      await runHook("afterDistribute", { contractId, walletAddress, transactionId, xdr });
+      // Fire-and-forget: do not await — plugins must not block the response.
+      void runHook("afterDistribute", { contractId, walletAddress, transactionId, xdr }).catch(
+        (err) => {
+          logger.error("afterDistribute plugin hook failed", { error: err.message });
+        },
+      );
 
       res.json({ xdr, transactionId });
     } catch (err) {
