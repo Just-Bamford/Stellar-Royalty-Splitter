@@ -52,8 +52,30 @@ describe("computeContractState", () => {
     expect(state.sharesSource).toBe("unavailable");
     expect(JSON.parse(state.balances)).toEqual({ [ALICE]: 75.12, [BOB]: 25 });
     expect(JSON.parse(state.collaborators)).toEqual([ALICE, BOB]);
+    expect(state.collaboratorsSource).toBe("distribution_payouts");
     expect(state.transactionCount).toBe(3);
     expect(state.lastTransactionId).toBe(7);
+  });
+
+  test("falls back to audit_log when no distributions exist", () => {
+    // Query order:
+    // 1. distribution_payouts (empty)
+    // 2. audit_log (with collaborators)
+    // 3. transaction count
+    // 4. last transaction
+    // 5. balances (empty)
+    mockAll
+      .mockReturnValueOnce([]) // No distribution_payouts
+      .mockReturnValueOnce([{ details: JSON.stringify({ collaborators: [{ address: ALICE }, { address: BOB }] }) }]) // audit_log
+      .mockReturnValueOnce([]); // No balances
+    mockGet.mockReturnValueOnce({ cnt: 1 }).mockReturnValueOnce({ id: 5 });
+
+    const state = computeContractState(CONTRACT);
+
+    expect(JSON.parse(state.collaborators)).toEqual([ALICE, BOB]);
+    expect(state.collaboratorsSource).toBe("audit_log");
+    expect(state.transactionCount).toBe(1);
+    expect(state.lastTransactionId).toBe(5);
   });
 });
 

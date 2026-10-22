@@ -108,333 +108,381 @@ function sendCsv(res, csv, filename) {
   return res.status(200).send(csv);
 }
 
-complianceRouter.get("/form-8949", async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: true });
-  if (!params) return;
+complianceRouter.get("/form-8949", async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: true });
+    if (!params) return;
 
-  const { walletAddress, taxYear } = params;
-  const { costBasisUsdPerXlm = 0, shortTerm = "true", force = "false" } = req.query;
-  const distributions = parseDistributions(req);
+    const { walletAddress, taxYear } = params;
+    const { costBasisUsdPerXlm = 0, shortTerm = "true", force = "false" } = req.query;
+    const distributions = parseDistributions(req);
 
-  const result = await generateForm8949({
-    walletAddress,
-    taxYear,
-    distributions,
-    costBasisUsdPerXlm: parseFloat(costBasisUsdPerXlm) || 0,
-    shortTerm: shortTerm === "true",
-    force: force === "true",
-  });
+    const result = await generateForm8949({
+      walletAddress,
+      taxYear,
+      distributions,
+      costBasisUsdPerXlm: parseFloat(costBasisUsdPerXlm) || 0,
+      shortTerm: shortTerm === "true",
+      force: force === "true",
+    });
 
-  if (!result.ok) {
-    return sendError(res, 400, result.reason, result.reason);
+    if (!result.ok) {
+      return sendError(res, 400, result.reason, result.reason);
+    }
+
+    return res.json({ success: true, data: result.form });
+  } catch (err) {
+    next(err);
   }
-
-  return res.json({ success: true, data: result.form });
 });
 
-complianceRouter.get("/turbotax", async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: true });
-  if (!params) return;
+complianceRouter.get("/turbotax", async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: true });
+    if (!params) return;
 
-  const { walletAddress, taxYear } = params;
-  const { costBasisUsdPerXlm = 0, force = "false" } = req.query;
-  const distributions = parseDistributions(req);
+    const { walletAddress, taxYear } = params;
+    const { costBasisUsdPerXlm = 0, force = "false" } = req.query;
+    const distributions = parseDistributions(req);
 
-  const result = await generateTurboTaxImport({
-    walletAddress,
-    taxYear,
-    distributions,
-    costBasisUsdPerXlm: parseFloat(costBasisUsdPerXlm) || 0,
-    force: force === "true",
-  });
+    const result = await generateTurboTaxImport({
+      walletAddress,
+      taxYear,
+      distributions,
+      costBasisUsdPerXlm: parseFloat(costBasisUsdPerXlm) || 0,
+      force: force === "true",
+    });
 
-  if (!result.ok) {
-    return sendError(res, 400, result.reason, result.reason);
+    if (!result.ok) {
+      return sendError(res, 400, result.reason, result.reason);
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.get("/csv-export", async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: false });
-  if (!params) return;
+complianceRouter.get("/csv-export", async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: false });
+    if (!params) return;
 
-  const { walletAddress, taxYear } = params;
-  const { country = null, format = "detailed" } = req.query;
+    const { walletAddress, taxYear } = params;
+    const { country = null, format = "detailed" } = req.query;
 
-  const allowedCountries = ["US", "CA", "EU"];
-  if (country && !allowedCountries.includes(country)) {
-    return sendError(res, 400, "invalid_country", `country must be one of: ${allowedCountries.join(", ")}`);
+    const allowedCountries = ["US", "CA", "EU"];
+    if (country && !allowedCountries.includes(country)) {
+      return sendError(res, 400, "invalid_country", `country must be one of: ${allowedCountries.join(", ")}`);
+    }
+
+    const result = await generateCsvExport({
+      walletAddress,
+      taxYear,
+      country,
+      format,
+    });
+
+    if (!result.ok) {
+      return sendError(res, 404, result.reason, result.reason);
+    }
+
+    if (req.query.download === "true") {
+      return sendCsv(res, result.csv, `tax-export-${taxYear}${walletAddress ? `-${walletAddress.slice(0, 8)}` : ""}.csv`);
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  const result = await generateCsvExport({
-    walletAddress,
-    taxYear,
-    country,
-    format,
-  });
-
-  if (!result.ok) {
-    return sendError(res, 404, result.reason, result.reason);
-  }
-
-  if (req.query.download === "true") {
-    return sendCsv(res, result.csv, `tax-export-${taxYear}${walletAddress ? `-${walletAddress.slice(0, 8)}` : ""}.csv`);
-  }
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.get("/generic-ledger", async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: false });
-  if (!params) return;
+complianceRouter.get("/generic-ledger", async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: false });
+    if (!params) return;
 
-  const { walletAddress, startDate, endDate } = params;
-  const { contractId = "ALL", format = "json" } = req.query;
+    const { walletAddress, startDate, endDate } = params;
+    const { contractId = "ALL", format = "json" } = req.query;
 
-  if (!startDate || !endDate) {
-    return sendError(res, 400, "missing_date_range", "startDate and endDate are required (YYYY-MM-DD)");
+    if (!startDate || !endDate) {
+      return sendError(res, 400, "missing_date_range", "startDate and endDate are required (YYYY-MM-DD)");
+    }
+
+    const allowedFormats = ["json", "csv"];
+    if (!allowedFormats.includes(format)) {
+      return sendError(res, 400, "invalid_format", `format must be one of: ${allowedFormats.join(", ")}`);
+    }
+
+    const result = await generateGenericLedger({
+      walletAddress,
+      startDate,
+      endDate,
+      contractId,
+      format,
+    });
+
+    if (!result.ok) {
+      return sendError(res, 400, result.reason, result.reason);
+    }
+
+    if (format === "csv" && req.query.download === "true") {
+      return sendCsv(res, result.csv, `generic-ledger-${startDate}-to-${endDate}.csv`);
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  const allowedFormats = ["json", "csv"];
-  if (!allowedFormats.includes(format)) {
-    return sendError(res, 400, "invalid_format", `format must be one of: ${allowedFormats.join(", ")}`);
-  }
-
-  const result = await generateGenericLedger({
-    walletAddress,
-    startDate,
-    endDate,
-    contractId,
-    format,
-  });
-
-  if (!result.ok) {
-    return sendError(res, 400, result.reason, result.reason);
-  }
-
-  if (format === "csv" && req.query.download === "true") {
-    return sendCsv(res, result.csv, `generic-ledger-${startDate}-to-${endDate}.csv`);
-  }
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.get("/sec-form-d", requireRole("admin"), async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: true });
-  if (!params) return;
+complianceRouter.get("/sec-form-d", requireRole("admin"), async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: true });
+    if (!params) return;
 
-  const { walletAddress, taxYear } = params;
-  const distributions = parseDistributions(req);
-  const { issuerName, issuerCik, issuerAddress, issuerState } = req.query;
+    const { walletAddress, taxYear } = params;
+    const distributions = parseDistributions(req);
+    const { issuerName, issuerCik, issuerAddress, issuerState } = req.query;
 
-  const result = await generateSecFormD({
-    walletAddress,
-    taxYear,
-    distributions,
-    issuerInfo: {
-      name: issuerName,
-      cik: issuerCik,
-      address: issuerAddress,
-      stateOfIncorporation: issuerState,
-    },
-  });
+    const result = await generateSecFormD({
+      walletAddress,
+      taxYear,
+      distributions,
+      issuerInfo: {
+        name: issuerName,
+        cik: issuerCik,
+        address: issuerAddress,
+        stateOfIncorporation: issuerState,
+      },
+    });
 
-  if (!result.ok) {
-    return sendError(res, 400, result.reason, result.reason);
+    if (!result.ok) {
+      return sendError(res, 400, result.reason, result.reason);
+    }
+
+    return res.json({ success: true, data: result.form });
+  } catch (err) {
+    next(err);
   }
-
-  return res.json({ success: true, data: result.form });
 });
 
-complianceRouter.get("/finra-trace", requireRole("admin"), async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: false });
-  if (!params) return;
+complianceRouter.get("/finra-trace", requireRole("admin"), async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: false });
+    if (!params) return;
 
-  const { walletAddress, startDate, endDate } = params;
-  const { contractId = "ALL" } = req.query;
+    const { walletAddress, startDate, endDate } = params;
+    const { contractId = "ALL" } = req.query;
 
-  if (!startDate || !endDate) {
-    return sendError(res, 400, "missing_date_range", "startDate and endDate are required (YYYY-MM-DD)");
+    if (!startDate || !endDate) {
+      return sendError(res, 400, "missing_date_range", "startDate and endDate are required (YYYY-MM-DD)");
+    }
+
+    const result = await generateFinraTrace({
+      walletAddress,
+      startDate,
+      endDate,
+      contractId,
+    });
+
+    if (!result.ok) {
+      return sendError(res, 400, result.reason, result.reason);
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  const result = await generateFinraTrace({
-    walletAddress,
-    startDate,
-    endDate,
-    contractId,
-  });
-
-  if (!result.ok) {
-    return sendError(res, 400, result.reason, result.reason);
-  }
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.get("/export", requireRole("admin"), async (req, res) => {
-  const params = parseCommonParams(req, res, { requireWallet: false });
-  if (!params) return;
+complianceRouter.get("/export", requireRole("admin"), async (req, res, next) => {
+  try {
+    const params = parseCommonParams(req, res, { requireWallet: false });
+    if (!params) return;
 
-  const { walletAddress, taxYear, startDate, endDate } = params;
-  const { country = null, format = "json" } = req.query;
+    const { walletAddress, taxYear, startDate, endDate } = params;
+    const { country = null, format = "json" } = req.query;
 
-  const allowedCountries = ["US", "CA", "EU"];
-  if (country && !allowedCountries.includes(country)) {
-    return sendError(res, 400, "invalid_country", `country must be one of: ${allowedCountries.join(", ")}`);
+    const allowedCountries = ["US", "CA", "EU"];
+    if (country && !allowedCountries.includes(country)) {
+      return sendError(res, 400, "invalid_country", `country must be one of: ${allowedCountries.join(", ")}`);
+    }
+
+    const allowedFormats = ["json", "csv"];
+    if (!allowedFormats.includes(format)) {
+      return sendError(res, 400, "invalid_format", `format must be one of: ${allowedFormats.join(", ")}`);
+    }
+
+    const result = await exportComplianceReport({
+      taxYear,
+      format,
+      walletAddress,
+      country,
+      startDate,
+      endDate,
+    });
+
+    if (!result.ok) {
+      return sendError(res, 400, result.reason, result.reason);
+    }
+
+    if (format === "csv" && req.query.download === "true") {
+      return sendCsv(res, result.csv, `compliance-export-${taxYear}.csv`);
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  const allowedFormats = ["json", "csv"];
-  if (!allowedFormats.includes(format)) {
-    return sendError(res, 400, "invalid_format", `format must be one of: ${allowedFormats.join(", ")}`);
-  }
-
-  const result = await exportComplianceReport({
-    taxYear,
-    format,
-    walletAddress,
-    country,
-    startDate,
-    endDate,
-  });
-
-  if (!result.ok) {
-    return sendError(res, 400, result.reason, result.reason);
-  }
-
-  if (format === "csv" && req.query.download === "true") {
-    return sendCsv(res, result.csv, `compliance-export-${taxYear}.csv`);
-  }
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.get("/audit-trail", async (req, res) => {
-  const { walletAddress, startDate, endDate, limit = 100, offset = 0 } = req.query;
+complianceRouter.get("/audit-trail", async (req, res, next) => {
+  try {
+    const { walletAddress, startDate, endDate, limit = 100, offset = 0 } = req.query;
 
-  if (walletAddress && typeof walletAddress === "string" && !/^G[A-Z2-7]{55}$/.test(walletAddress)) {
-    return sendError(res, 400, "invalid_stellar_address", "walletAddress must be a valid Stellar G-address");
+    if (walletAddress && typeof walletAddress === "string" && !/^G[A-Z2-7]{55}$/.test(walletAddress)) {
+      return sendError(res, 400, "invalid_stellar_address", "walletAddress must be a valid Stellar G-address");
+    }
+
+    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      sendError(res, 400, "invalid_start_date", "startDate must be YYYY-MM-DD");
+      return;
+    }
+    if (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      sendError(res, 400, "invalid_end_date", "endDate must be YYYY-MM-DD");
+      return;
+    }
+
+    const result = await getAuditTrail({
+      walletAddress,
+      startDate,
+      endDate,
+      limit: Math.min(parseInt(limit, 10), 500),
+      offset: parseInt(offset, 10),
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-    sendError(res, 400, "invalid_start_date", "startDate must be YYYY-MM-DD");
-    return;
-  }
-  if (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-    sendError(res, 400, "invalid_end_date", "endDate must be YYYY-MM-DD");
-    return;
-  }
-
-  const result = await getAuditTrail({
-    walletAddress,
-    startDate,
-    endDate,
-    limit: Math.min(parseInt(limit, 10), 500),
-    offset: parseInt(offset, 10),
-  });
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.post("/verify", async (req, res) => {
-  const { reportId, walletAddress, taxYear, distributions } = req.body;
+complianceRouter.post("/verify", async (req, res, next) => {
+  try {
+    const { reportId, walletAddress, taxYear, distributions } = req.body;
 
-  if (!reportId || !Number.isInteger(reportId) || reportId <= 0) {
-    return sendError(res, 400, "invalid_report_id", "reportId must be a positive integer");
+    if (!reportId || !Number.isInteger(reportId) || reportId <= 0) {
+      return sendError(res, 400, "invalid_report_id", "reportId must be a positive integer");
+    }
+
+    if (!walletAddress || typeof walletAddress !== "string" || !/^G[A-Z2-7]{55}$/.test(walletAddress)) {
+      return sendError(res, 400, "invalid_wallet_address", "walletAddress must be a valid Stellar G-address");
+    }
+
+    const year = taxYear ? String(taxYear) : String(new Date().getUTCFullYear() - 1);
+    if (!/^\d{4}$/.test(year)) {
+      return sendError(res, 400, "invalid_tax_year", "taxYear must be a 4-digit year");
+    }
+
+    const dists = Array.isArray(distributions) ? distributions : [];
+
+    const result = await verifyReportAccuracy({
+      reportId,
+      walletAddress,
+      taxYear: year,
+      distributions: dists,
+    });
+
+    if (!result.ok) {
+      return sendError(res, 404, result.reason, result.reason);
+    }
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
   }
-
-  if (!walletAddress || typeof walletAddress !== "string" || !/^G[A-Z2-7]{55}$/.test(walletAddress)) {
-    return sendError(res, 400, "invalid_wallet_address", "walletAddress must be a valid Stellar G-address");
-  }
-
-  const year = taxYear ? String(taxYear) : String(new Date().getUTCFullYear() - 1);
-  if (!/^\d{4}$/.test(year)) {
-    return sendError(res, 400, "invalid_tax_year", "taxYear must be a 4-digit year");
-  }
-
-  const dists = Array.isArray(distributions) ? distributions : [];
-
-  const result = await verifyReportAccuracy({
-    reportId,
-    walletAddress,
-    taxYear: year,
-    distributions: dists,
-  });
-
-  if (!result.ok) {
-    return sendError(res, 404, result.reason, result.reason);
-  }
-
-  return res.json({ success: true, data: result });
 });
 
-complianceRouter.get("/list", async (req, res) => {
-  const { type, contractId, status, limit = 50, offset = 0 } = req.query;
+complianceRouter.get("/list", async (req, res, next) => {
+  try {
+    const { type, contractId, status, limit = 50, offset = 0 } = req.query;
 
-  const { listComplianceReports, countComplianceReports, REPORT_TYPES } = await import("../database/compliance-reports.js");
+    const { listComplianceReports, countComplianceReports, REPORT_TYPES } = await import("../database/compliance-reports.js");
 
-  const allowedTypes = REPORT_TYPES;
-  if (type && !allowedTypes.includes(type)) {
-    return sendError(res, 400, "invalid_type", `type must be one of: ${allowedTypes.join(", ")}`);
+    const allowedTypes = REPORT_TYPES;
+    if (type && !allowedTypes.includes(type)) {
+      return sendError(res, 400, "invalid_type", `type must be one of: ${allowedTypes.join(", ")}`);
+    }
+
+    const reports = listComplianceReports(
+      { type, contractId, status },
+      Math.min(parseInt(limit, 10), 200),
+      parseInt(offset, 10)
+    );
+    const total = countComplianceReports({ type, contractId, status });
+
+    return res.json({
+      success: true,
+      data: reports,
+      pagination: { total, limit: parseInt(limit, 10), offset: parseInt(offset, 10) },
+    });
+  } catch (err) {
+    next(err);
   }
-
-  const reports = listComplianceReports(
-    { type, contractId, status },
-    Math.min(parseInt(limit, 10), 200),
-    parseInt(offset, 10)
-  );
-  const total = countComplianceReports({ type, contractId, status });
-
-  return res.json({
-    success: true,
-    data: reports,
-    pagination: { total, limit: parseInt(limit, 10), offset: parseInt(offset, 10) },
-  });
 });
 
-complianceRouter.get("/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id) || id < 1) {
-    return sendError(res, 400, "invalid_id", "Report ID must be a positive integer");
+complianceRouter.get("/:id", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id < 1) {
+      return sendError(res, 400, "invalid_id", "Report ID must be a positive integer");
+    }
+
+    const { getComplianceReport } = await import("../database/compliance-reports.js");
+    const report = getComplianceReport(id);
+
+    if (!report) {
+      return sendError(res, 404, "report_not_found", `No compliance report with id ${id}`);
+    }
+
+    return res.json({ success: true, data: report });
+  } catch (err) {
+    next(err);
   }
-
-  const { getComplianceReport } = await import("../database/compliance-reports.js");
-  const report = getComplianceReport(id);
-
-  if (!report) {
-    return sendError(res, 404, "report_not_found", `No compliance report with id ${id}`);
-  }
-
-  return res.json({ success: true, data: report });
 });
 
-complianceRouter.get("/:id/download", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id) || id < 1) {
-    return sendError(res, 400, "invalid_id", "Report ID must be a positive integer");
-  }
+complianceRouter.get("/:id/download", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id < 1) {
+      return sendError(res, 400, "invalid_id", "Report ID must be a positive integer");
+    }
 
-  const { getComplianceReport } = await import("../database/compliance-reports.js");
-  const report = getComplianceReport(id);
+    const { getComplianceReport } = await import("../database/compliance-reports.js");
+    const report = getComplianceReport(id);
 
-  if (!report) {
-    return sendError(res, 404, "report_not_found", `No compliance report with id ${id}`);
-  }
+    if (!report) {
+      return sendError(res, 404, "report_not_found", `No compliance report with id ${id}`);
+    }
 
-  if (!report.filePath) {
-    return sendError(res, 404, "file_not_found", "Report file not found on disk");
-  }
-
-  import("fs").then(fs => {
-    if (!fs.existsSync(report.filePath)) {
+    if (!report.filePath) {
       return sendError(res, 404, "file_not_found", "Report file not found on disk");
     }
 
-    import("path").then(path => {
-      const fileName = path.basename(report.filePath);
-      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      fs.createReadStream(report.filePath).pipe(res);
-    });
-  });
+    import("fs").then(fs => {
+      if (!fs.existsSync(report.filePath)) {
+        return sendError(res, 404, "file_not_found", "Report file not found on disk");
+      }
+
+      import("path").then(path => {
+        const fileName = path.basename(report.filePath);
+        res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        fs.createReadStream(report.filePath).pipe(res);
+      }).catch(err => next(err));
+    }).catch(err => next(err));
+  } catch (err) {
+    next(err);
+  }
 });

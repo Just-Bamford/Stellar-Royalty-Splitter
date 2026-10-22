@@ -19,6 +19,7 @@ import {
 import {
   isValidAccountAddress,
   getAccountAddressError,
+  getAccountAddressErrorStrict,
   getPercentageValidationError,
   getFieldState,
   getFieldInputClass,
@@ -339,10 +340,11 @@ export default function InitializeForm({
     const nextErrors = collaborators.reduce<
       Record<number, { address?: string; basisPoints?: string }>
     >((acc, c, i) => {
-      if (!c.address || !isValidAccountAddress(c.address)) {
+      const addressError = getAccountAddressErrorStrict(c.address);
+      if (addressError) {
         acc[i] = {
           ...acc[i],
-          address: "Must be a valid Stellar address (G..., 56 chars)",
+          address: addressError,
         };
       }
       const percentageError = getPercentageError(c.basisPoints);

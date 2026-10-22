@@ -12,6 +12,7 @@ import { server, networkPassphrase, retryBuildTx, SIMULATION_DUMMY_ACCOUNT } fro
 import { sendError, sendValidationError } from "../error-response.js";
 import { stellarAddress, contractAddress, validateContractIdMiddleware } from "../validation.js";
 import { addAuditLog } from "../database/index.js";
+import { requireAdminBearerOrRole } from "../middleware/rbac.js";
 import {
   upgradeManager,
   MIN_UPGRADE_TIMELOCK_SECS,
@@ -76,7 +77,7 @@ function sendUpgradeError(res, err, fallbackCode) {
 }
 
 // ─── POST /api/v1/contract/upgrade ────────────────────────────────────────
-upgradeRouter.post("/upgrade", async (req, res, next) => {
+upgradeRouter.post("/upgrade", requireAdminBearerOrRole("admin"), async (req, res, next) => {
   const result = upgradeSchema.safeParse(req.body);
   if (!result.success) {
     return sendValidationError(

@@ -102,6 +102,40 @@ describe("getAccountAddressError", () => {
   });
 });
 
+// ── getAccountAddressErrorStrict ─────────────────────────────────────────────
+
+describe("getAccountAddressErrorStrict", () => {
+  const VALID_ADDRESS = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+  it("returns error for empty string", () => {
+    expect(getAccountAddressErrorStrict("")).toBe("Collaborator address is required.");
+  });
+
+  it("returns null for valid Stellar address", () => {
+    expect(getAccountAddressErrorStrict(VALID_ADDRESS)).toBeNull();
+  });
+
+  it("returns error for address starting with C", () => {
+    expect(getAccountAddressErrorStrict("CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).toBe(
+      INVALID_ACCOUNT_ADDRESS_MESSAGE,
+    );
+  });
+
+  it("returns error for too-short address", () => {
+    expect(getAccountAddressErrorStrict("GAAZI4TCR3TY")).toBe(INVALID_ACCOUNT_ADDRESS_MESSAGE);
+  });
+
+  it("returns error for address with lowercase", () => {
+    expect(getAccountAddressErrorStrict("gAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA")).toBe(
+      INVALID_ACCOUNT_ADDRESS_MESSAGE,
+    );
+  });
+
+  it("trims whitespace before validating", () => {
+    expect(getAccountAddressErrorStrict(`  ${VALID_ADDRESS}  `)).toBeNull();
+  });
+});
+
 // ── isValidAccountAddress ────────────────────────────────────────────────────
 
 describe("isValidAccountAddress", () => {
