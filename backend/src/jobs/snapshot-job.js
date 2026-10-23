@@ -46,10 +46,10 @@ function getActiveContractIds() {
  * recorded in `balances`.
  *
  * @param {string} contractId
- * @returns {{ collaborators: string, shares: string, sharesSource: string, balances: string, transactionCount: number, lastTransactionId: number|null }}
+ * @returns {{ collaborators: string, collaboratorsSource: string, shares: string, sharesSource: string, balances: string, transactionCount: number, lastTransactionId: number|null }}
  */
 export function computeContractState(contractId) {
-  // Get unique collaborator addresses
+  // Get unique collaborator addresses from distribution_payouts first
   const collaboratorRows = db
     .prepare(
       `SELECT DISTINCT collaboratorAddress
@@ -57,7 +57,37 @@ export function computeContractState(contractId) {
        WHERE contractId = ?`
     )
     .all(contractId);
-  const collaborators = collaboratorRows.map((r) => r.collaboratorAddress);
+  let collaborators = collaboratorRows.map((r) => r.collaboratorAddress);
+  let collaboratorsSource = "distribution_payouts";
+
+  // Fallback: if no distributions, try to get collaborators from audit_log (initialize events)
+  if (collaborators.length === 0) {
+    const auditRows = db
+      .prepare(
+        `SELECT details
+         FROM audit_log
+         WHERE contractId = ? AND action = 'initialize'
+         ORDER BY timestamp DESC
+         LIMIT 1`
+      )
+      .all(contractId);
+
+    if (auditRows.length > 0) {
+      try {
+        const details = JSON.parse(auditRows[0].details);
+        if (details.collaborators && Array.isArray(details.collaborators)) {
+          collaborators = details.collaborators.map((c) => c.address).filter(Boolean);
+          collaboratorsSource = "audit_log";
+        }
+      } catch (err) {
+        // Malformed audit log details - continue with empty collaborators
+        logger.warn(`Failed to parse audit_log details for contract ${contractId}`, {
+          contractId,
+          error: err.message,
+        });
+      }
+    }
+  }
 
   // Get transaction count
   const countRow = db
@@ -89,6 +119,7 @@ export function computeContractState(contractId) {
 
   return {
     collaborators: JSON.stringify(collaborators),
+    collaboratorsSource,
     shares: JSON.stringify(null),
     sharesSource: "unavailable",
     balances: JSON.stringify(balances),
