@@ -9,6 +9,7 @@ import {
   formatBasisPoints,
   parseFormattedBasisPoints,
   getAccountAddressError,
+  getAccountAddressErrorStrict,
   isValidAccountAddress,
   getContractAddressValidationError,
   getPercentageValidationError,
