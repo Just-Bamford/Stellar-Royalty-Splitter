@@ -86,6 +86,24 @@ router.post("/vesting/create", attachRole, requireRole("admin"), (req, res) => {
 });
 
 /**
+ * GET /api/v1/vesting/releasable
+ * Get all schedules with releasable tokens (admin only)
+ */
+router.get("/vesting/releasable", attachRole, requireRole("admin"), (req, res) => {
+  try {
+    const schedules = getSchedulesWithReleasableTokens();
+
+    res.json({
+      success: true,
+      schedules,
+    });
+  } catch (err) {
+    logger.error("Failed to get releasable schedules", { error: err.message });
+    return sendError(res, 500, "server_error", "Failed to get releasable schedules");
+  }
+});
+
+/**
  * GET /api/v1/vesting/:scheduleId
  * Get vesting schedule details with current vested amount
  */
@@ -186,6 +204,26 @@ router.get("/vesting/beneficiary/:address", attachRole, requireRole("viewer"), (
 });
 
 /**
+ * GET /api/v1/vesting/statistics/:beneficiary
+ * Get vesting statistics for a beneficiary
+ */
+router.get("/vesting/statistics/:beneficiary", attachRole, requireRole("viewer"), (req, res) => {
+  try {
+    const { beneficiary } = req.params;
+    if (!validateStellarAddress(beneficiary, res)) return;
+    const stats = getVestingStatistics(beneficiary);
+
+    res.json({
+      success: true,
+      statistics: stats,
+    });
+  } catch (err) {
+    logger.error("Failed to get vesting statistics", { error: err.message });
+    return sendError(res, 500, "server_error", "Failed to get vesting statistics");
+  }
+});
+
+/**
  * GET /api/v1/vesting/contract/:contractId
  * Get all vesting schedules for a contract
  */
@@ -233,24 +271,6 @@ router.get("/vesting/:scheduleId/releases", attachRole, requireRole("viewer"), (
 });
 
 /**
- * GET /api/v1/vesting/releasable
- * Get all schedules with releasable tokens (admin only)
- */
-router.get("/vesting/releasable", attachRole, requireRole("admin"), (req, res) => {
-  try {
-    const schedules = getSchedulesWithReleasableTokens();
-
-    res.json({
-      success: true,
-      schedules,
-    });
-  } catch (err) {
-    logger.error("Failed to get releasable schedules", { error: err.message });
-    return sendError(res, 500, "server_error", "Failed to get releasable schedules");
-  }
-});
-
-/**
  * DELETE /api/v1/vesting/:scheduleId
  * Cancel a vesting schedule (admin only)
  */
@@ -290,26 +310,6 @@ router.delete("/vesting/:scheduleId", attachRole, requireRole("admin"), (req, re
       return sendError(res, 404, "not_found", err.message);
     }
     return sendError(res, 500, "server_error", "Failed to cancel vesting schedule");
-  }
-});
-
-/**
- * GET /api/v1/vesting/statistics/:beneficiary
- * Get vesting statistics for a beneficiary
- */
-router.get("/vesting/statistics/:beneficiary", attachRole, requireRole("viewer"), (req, res) => {
-  try {
-    const { beneficiary } = req.params;
-    if (!validateStellarAddress(beneficiary, res)) return;
-    const stats = getVestingStatistics(beneficiary);
-
-    res.json({
-      success: true,
-      statistics: stats,
-    });
-  } catch (err) {
-    logger.error("Failed to get vesting statistics", { error: err.message });
-    return sendError(res, 500, "server_error", "Failed to get vesting statistics");
   }
 });
 
