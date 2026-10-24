@@ -432,7 +432,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             disabled={paymentData === null}
             title={
               paymentData === null
-                ? "Payment data unavailable ÔÇö connect wallet and fetch analytics to enable"
+                ? "Payment data unavailable — connect wallet and fetch analytics to enable"
                 : undefined
             }
             onChange={(e) =>
@@ -442,14 +442,24 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
               }))
             }
             aria-label="Filter by payment status"
+            aria-describedby={paymentData === null ? "payment-status-hint" : undefined}
           >
             <option value="all">All statuses</option>
             <option value="paid">Paid</option>
             <option value="unpaid">Unpaid</option>
           </select>
           {paymentData === null && (
-            <span className="collab-filter-hint" title="Payment status data is not yet available">
-              Ôôÿ
+            <span
+              id="payment-status-hint"
+              className="collab-filter-hint-text"
+              aria-live="polite"
+            >
+              Connect wallet to enable
+            </span>
+          )}
+          {paymentData === null && (
+            <span className="collab-filter-hint" title="Payment status data is not yet available" aria-hidden="true">
+              ⚘
             </span>
           )}
         </div>
