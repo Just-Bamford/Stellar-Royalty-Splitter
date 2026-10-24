@@ -273,6 +273,50 @@ export async function pollHorizonTransaction(txHash) {
   };
 }
 
+/**
+ * Perform a single Horizon transaction lookup without polling.
+ * Used by the finality cleanup job to check the status of old pending transactions.
+ * Returns { status, ledger, createdAt } if found, null if not found (404).
+ * Throws on HTTP errors other than 404.
+ */
+export async function getHorizonTransactionOnce(txHash) {
+  const url = `${HORIZON_URL.replace(/\/$/, "")}/transactions/${txHash}`;
+  const requestStart = Date.now();
+
+  try {
+    const response = await withTimeout(
+      fetch(url, { headers: { Accept: "application/json" } }),
+      HORIZON_TIMEOUT_MS,
+      "Horizon getTransactionOnce"
+    );
+    recordHorizonResponseTime(Date.now() - requestStart);
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Horizon returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      status: data.successful ? "confirmed" : "failed",
+      ledger: data.ledger,
+      createdAt: data.created_at ?? null,
+    };
+  } catch (error) {
+    if (error?.status === 504) {
+      throw error;
+    }
+    logger.warn?.("Horizon single transaction lookup failed", {
+      txHash: txHash.substring(0, 8),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
 // ── Dynamic fee (#274) ─────────────────────────────────────────────────────
 
 let feeCache = null; // { fee: string, fetchedAt: number }
