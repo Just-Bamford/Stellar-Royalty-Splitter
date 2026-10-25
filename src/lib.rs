@@ -1430,14 +1430,14 @@ impl RoyaltySplitter {
         );
     }
 
-    pub fn accept_admin(env: Env) {
+    pub fn accept_admin(env: Env) -> Result<(), ContractError> {
         storage::extend_instance_ttl(&env);
 
         let pending: Address = env
             .storage()
             .instance()
             .get(&StorageKey::PendingAdmin)
-            .expect("no pending admin transfer");
+            .ok_or(ContractError::NotInitialized)?;
 
         let context = String::from_str(&env, auth::msg::ACCEPT_ADMIN_PENDING);
         env.events().publish((symbol_short!("auth_req"),), context);
@@ -1447,7 +1447,7 @@ impl RoyaltySplitter {
             .storage()
             .instance()
             .get(&StorageKey::Admin)
-            .expect("not initialized");
+            .ok_or(ContractError::NotInitialized)?;
 
         storage::instance_set(&env, &StorageKey::Admin, &pending);
         env.storage().instance().remove(&StorageKey::PendingAdmin);
@@ -1456,6 +1456,7 @@ impl RoyaltySplitter {
             (symbol_short!("royalty"), symbol_short!("adm_acc")),
             (previous_admin, pending),
         );
+        Ok(())
     }
 
     pub fn unpause(env: Env) -> Result<(), ContractError> {

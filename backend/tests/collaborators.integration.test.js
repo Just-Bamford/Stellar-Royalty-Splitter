@@ -2,8 +2,8 @@
 import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
 
-const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const COLLAB1 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
+const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const COLLAB1 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FME3W2P";
 const COLLAB2 = "GBOW474QUGZMHVHF6YDRQKJ2JNOG27UPUCY4FU7E6UDBOKBZJJNWYPSI";
 
 // Mock Stellar SDK and related modules
@@ -12,7 +12,7 @@ const mockIsSimError = jest.fn(() => false);
 
 await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
   default: {
-    Address: { fromScVal: jest.fn((scv) => ({ toString: () => scv })) },
+    Address: { fromScVal: jest.fn((scvs) => ({ toString: () => scvs })) },
     Contract: jest.fn().mockImplementation(() => ({
       call: jest.fn((method) => ({ method })),
     })),
@@ -28,7 +28,7 @@ await jest.unstable_mockModule("@stellar/stellar-sdk", () => ({
     BASE_FEE: "100",
     Account: jest.fn(),
   },
-  Address: { fromScVal: jest.fn((scv) => ({ toString: () => scv })) },
+  Address: { fromScVal: jest.fn((scvs) => ({ toString: () => scvs })) },
   Contract: jest.fn().mockImplementation(() => ({
     call: jest.fn((method) => ({ method })),
   })),
@@ -63,7 +63,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
     getHealth: jest.fn().mockResolvedValue({ status: "healthy" }),
     submitTransaction: jest.fn().mockResolvedValue({ id: "tx-123" }),
   },
-  networkPassphrase: "Test SDF Network ; September 2015",
+  networkPassphrase: "Test DF Network ; September 2015",
   addressToScVal: jest.fn((a) => a),
   retryBuildTx: jest.fn(),
   pollHorizonTransaction: jest.fn(),
@@ -102,7 +102,7 @@ await jest.unstable_mockModule("../src/transaction-finality.js", () => ({
 const { default: app } = await import("./app.js");
 const { clearCache } = await import("../src/cache.js");
 
-describe("GET /api/v1/collaborators/:contractId – integration (caching)", () => {
+describe("GET /api/v1/collaborators/:contractId - integration (caching)", () => {
   beforeEach(() => {
     clearCache();
     mockSimulate.mockReset();
@@ -115,7 +115,7 @@ describe("GET /api/v1/collaborators/:contractId – integration (caching)", () =
       key: () => address,
       val: () => ({ u32: () => share }),
     });
-    mockSimulate.mockResolvedValueOnce({
+    mockSimulate.mockResolvedOnce({
       result: {
         retval: { map: () => ({ entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)] }) },
       },
@@ -137,7 +137,7 @@ describe("GET /api/v1/collaborators/:contractId – integration (caching)", () =
       key: () => address,
       val: () => ({ u32: () => share }),
     });
-    mockSimulate.mockResolvedValueOnce({
+    mockSimulate.mockResolvedOnce({
       result: {
         retval: { map: () => ({ entries: [makeEntry(COLLAB1, 5000), makeEntry(COLLAB2, 5000)] }) },
       },
