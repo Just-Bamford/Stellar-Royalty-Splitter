@@ -42,7 +42,7 @@ interface WalletContextType {
   setSelectedWallet: (type: string | null) => void;
 }
 
-const WalletContext = createContext<WalletContextType | undefined>(undefined);
+export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [wallet, setWallet] = useState<WalletState | null>(null);
@@ -64,9 +64,8 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             setAdapter(newAdapter);
           }
         } catch (err: any) {
-          // Ignore auto-connect failures (e.g., wallet not installed)
+          // Ignore auto-connect failures (e.g., wallet not installed) (#1176)
           console.warn("Auto-connect failed:", err.message);
-          setError("Auto-connect failed. Please select a wallet manually.");
         }
       }
     };

@@ -15,7 +15,7 @@ import { addAuditLog } from "../database/index.js";
 import logger from "../logger.js";
 import { server, addressToScVal, networkPassphrase } from "../stellar.js";
 import StellarSdk from "@stellar/stellar-sdk";
-import { getWebhooksByContractId } from "../database/webhooks.js";
+import { deliverWebhooks } from "../webhook-delivery.js";
 import { broadcastTransactionStatus } from "../websocket.js";
 
 const { Contract, TransactionBuilder, BASE_FEE, Account, SorobanRpc } = StellarSdk;
@@ -93,7 +93,7 @@ export async function runPaymentSchedules() {
         );
 
         // Notify webhooks of failure
-        await notifyWebhooks(schedule.contractId, {
+        deliverWebhooks(schedule.contractId, {
           event: "scheduled_distribution_failed",
           scheduleId: schedule.id,
           scheduleName: schedule.name,
@@ -148,7 +148,7 @@ export async function runPaymentSchedules() {
       });
 
       // Notify webhooks of successful trigger
-      await notifyWebhooks(schedule.contractId, {
+      deliverWebhooks(schedule.contractId, {
         event: "scheduled_distribution_triggered",
         scheduleId: schedule.id,
         scheduleName: schedule.name,
@@ -176,38 +176,6 @@ export async function runPaymentSchedules() {
   }
 
   return { triggered, skipped, failed };
-}
-
-/**
- * Notify registered webhooks of schedule events.
- *
- * @param {string} contractId
- * @param {object} payload
- */
-async function notifyWebhooks(contractId, payload) {
-  const webhooks = getWebhooksByContractId(contractId);
-  for (const webhook of webhooks) {
-    try {
-      const response = await fetch(webhook.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        logger.warn("Webhook notification failed", {
-          webhookId: webhook.id,
-          url: webhook.url,
-          status: response.status,
-        });
-      }
-    } catch (err) {
-      logger.warn("Webhook notification error", {
-        webhookId: webhook.id,
-        url: webhook.url,
-        error: err.message,
-      });
-    }
-  }
 }
 
 /**

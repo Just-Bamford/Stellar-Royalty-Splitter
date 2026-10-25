@@ -19,6 +19,7 @@ export function createGracefulShutdownHandler({
   closeDatabase,
   logger,
   onShutdown,
+  closeWebSocket,
   exit = process.exit,
   timeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS ?? "10000", 10),
 }) {
@@ -36,6 +37,7 @@ export function createGracefulShutdownHandler({
       forceTimeout = setTimeout(() => {
         logger.error(`Graceful shutdown timed out after ${timeoutMs}ms - forcing exit`);
         try {
+          if (closeWebSocket) closeWebSocket();
           if (onShutdown) onShutdown();
           closeDatabase();
         } catch (err) {
@@ -60,6 +62,7 @@ export function createGracefulShutdownHandler({
       }
 
       try {
+        if (closeWebSocket) closeWebSocket();
         if (onShutdown) onShutdown();
         closeDatabase();
         logger.info("Database connection closed");

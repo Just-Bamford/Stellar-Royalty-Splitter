@@ -2,6 +2,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { getFreighterNetwork } from "../lib/freighter";
 import { useUIStore } from "../store/uiStore";
+import { WalletContext } from "./WalletContext";
+import { walletManager } from "../services/wallet-manager";
 
 export type Network = "testnet" | "mainnet";
 
@@ -54,11 +56,35 @@ export function computeNetworkMismatch(
   return walletNetworkName !== FREIGHTER_NETWORK_NAMES[appNetwork];
 }
 
-export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({
+export interface NetworkProviderProps {
+  children: React.ReactNode;
+  walletAddress?: string | null;
+}
+
+export const NetworkProvider: React.FC<NetworkProviderProps> = ({
   children,
+  walletAddress: propWalletAddress,
 }) => {
   const [network, setNetworkState] = useState<Network>(INITIAL_NETWORK);
   const [walletNetworkName, setWalletNetworkName] = useState<string | null>(null);
+
+  const walletCtx = useContext(WalletContext);
+  const [managerAddress, setManagerAddress] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return walletManager.getSession()?.address ?? null;
+  });
+
+  useEffect(() => {
+    const unsubscribe = walletManager.subscribe((session) => {
+      setManagerAddress(session?.address ?? null);
+    });
+    return unsubscribe;
+  }, []);
+
+  const activeWalletAddress =
+    propWalletAddress !== undefined
+      ? propWalletAddress
+      : walletCtx?.wallet?.address ?? managerAddress;
 
   useEffect(() => {
     localStorage.setItem("srs_network", network);
@@ -69,11 +95,20 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({
     setWalletNetworkName(detected);
   }, []);
 
-  // Freighter has no reliable push event for network changes, so we poll
-  // while the extension is present. This also covers the "refresh app state
-  // after a network change" requirement (#663) without auto-switching the
-  // wallet ourselves.
+  // Initial detection on mount (#663)
   useEffect(() => {
+    refreshWalletNetwork();
+  }, [refreshWalletNetwork]);
+
+  // Freighter has no reliable push event for network changes, so we poll
+  // while the extension is present ONLY when a wallet is connected (#1161).
+  // When no wallet is connected, no polling interval is started.
+  // When the wallet disconnects, the interval is cleared immediately.
+  useEffect(() => {
+    if (!activeWalletAddress) {
+      return;
+    }
+
     refreshWalletNetwork();
     const interval = window.setInterval(refreshWalletNetwork, WALLET_NETWORK_POLL_MS);
 
@@ -86,7 +121,7 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [refreshWalletNetwork]);
+  }, [activeWalletAddress, refreshWalletNetwork]);
 
   function setNetwork(n: Network) {
     setNetworkState(n);

@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 
 import { api } from "../api";
-import { queryClient } from "../lib/queryClient";
+import { useCollaborators } from "../hooks/queries/useCollaborators";
+import { useAnalytics } from "../hooks/queries/useAnalytics";
 import { TableSkeleton } from "./Skeleton";
 import CollaboratorAllocationChart from "./CollaboratorAllocationChart";
 import {
@@ -96,90 +97,90 @@ function matchesShareRange(basisPoints: number, range: ShareRange): boolean {
 }
 
 export default function CollaboratorTable({ contractId, refreshKey }: Props) {
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  // Bumped by the error state's Retry button to re-run the fetch effect
-  // below without requiring the parent to change `refreshKey` (#747).
-  const [retryCount, setRetryCount] = useState(0);
   const [sort, setSort] = useState<SortKey>("share");
   const [copied, setCopied] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
-  // ÔöÇÔöÇ debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── debounced search ────────────────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ÔöÇÔöÇ filters ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── filters ────────────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<ActiveFilters>({
     shareRange: "all",
     paymentStatus: "all",
   });
 
-  // ÔöÇÔöÇ editable names ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── editable names ─────────────────────────────────────────────────────────────
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  // ÔöÇÔöÇ payment data (from analytics) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  const [paymentData, setPaymentData] = useState<Map<string, number> | null>(null);
-
-  // ÔöÇÔöÇ tier data ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── tier data ──────────────────────────────────────────────────────────────────
   const [tierData, setTierData] = useState<Map<string, string> | null>(null);
 
+  // ── React Query hooks ──────────────────────────────────────────────────────────
+  const {
+    data: collaborators = [],
+    isLoading: loading,
+    isError: isCollabError,
+    error: collabError,
+    refetch: refetchCollaborators,
+  } = useCollaborators(contractId);
+  const {
+    data: analyticsRes,
+    refetch: refetchAnalytics,
+  } = useAnalytics(contractId);
+
+  const error = isCollabError
+    ? (collabError instanceof Error ? collabError.message : "Failed to load collaborators")
+    : "";
+
+  // Refetch when refreshKey changes
+  useEffect(() => {
+    if (!contractId) return;
+    refetchCollaborators();
+    refetchAnalytics();
+  }, [contractId, refreshKey, refetchCollaborators, refetchAnalytics]);
+
+  // Load names when contractId changes
+  useEffect(() => {
+    if (contractId) setNames(loadNames(contractId));
+  }, [contractId]);
+
+  // Fetch tiers (no React Query hook exists for this yet)
   useEffect(() => {
     if (!contractId) return;
     let cancelled = false;
-
-    async function loadCollaborators() {
-      setLoading(true);
-      setError("");
-      try {
-        const [nextCollaborators, analyticsRes, tiersRes] = await Promise.all([
-          api.getCollaborators(contractId),
-          api.getAnalytics(contractId).catch(() => null),
-          api.getContractTiers(contractId).catch(() => ({ data: [] })),
-        ]);
-
+    api.getContractTiers(contractId)
+      .then((tiersRes) => {
         if (cancelled) return;
-
-        queryClient.setQueryData(["collaborators", contractId], nextCollaborators);
-        if (analyticsRes) {
-          queryClient.setQueryData(["analytics", contractId], analyticsRes);
-        }
-        setCollaborators(nextCollaborators);
-        setNames(loadNames(contractId));
-
-        if (analyticsRes?.success && analyticsRes.data.collaboratorStats) {
-          const map = new Map<string, number>();
-          for (const stat of analyticsRes.data.collaboratorStats) {
-            map.set(stat.address, stat.payoutCount);
-          }
-          setPaymentData(map);
-        } else {
-          setPaymentData(null);
-        }
-
         const tierMap = new Map<string, string>();
         for (const tier of tiersRes.data ?? []) {
           tierMap.set(tier.walletAddress, tier.tier);
         }
         setTierData(tierMap);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load collaborators");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadCollaborators();
-
+      })
+      .catch(() => {
+        if (!cancelled) setTierData(null);
+      });
     return () => {
       cancelled = true;
     };
-  }, [contractId, refreshKey, retryCount]);
+  }, [contractId, refreshKey]);
+
+  // Derive payment data from analytics
+  const paymentData = useMemo(() => {
+    if (analyticsRes?.success && analyticsRes.data.collaboratorStats) {
+      const map = new Map<string, number>();
+      for (const stat of analyticsRes.data.collaboratorStats) {
+        map.set(stat.address, stat.payoutCount);
+      }
+      return map;
+    }
+    return null;
+  }, [analyticsRes]);
 
   /* ÔöÇÔöÇ Debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   useEffect(() => {
@@ -328,7 +329,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     return (
       <div className="card status error" role="alert" data-testid="collaborators-error">
         <p>{error}</p>
-        <button type="button" className="retry-btn" onClick={() => setRetryCount((n) => n + 1)}>
+        <button type="button" className="retry-btn" onClick={() => refetchCollaborators()}>
           Retry
         </button>
       </div>
@@ -431,7 +432,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             disabled={paymentData === null}
             title={
               paymentData === null
-                ? "Payment data unavailable ÔÇö connect wallet and fetch analytics to enable"
+                ? "Payment data unavailable — connect wallet and fetch analytics to enable"
                 : undefined
             }
             onChange={(e) =>
@@ -441,14 +442,24 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
               }))
             }
             aria-label="Filter by payment status"
+            aria-describedby={paymentData === null ? "payment-status-hint" : undefined}
           >
             <option value="all">All statuses</option>
             <option value="paid">Paid</option>
             <option value="unpaid">Unpaid</option>
           </select>
           {paymentData === null && (
-            <span className="collab-filter-hint" title="Payment status data is not yet available">
-              Ôôÿ
+            <span
+              id="payment-status-hint"
+              className="collab-filter-hint-text"
+              aria-live="polite"
+            >
+              Connect wallet to enable
+            </span>
+          )}
+          {paymentData === null && (
+            <span className="collab-filter-hint" title="Payment status data is not yet available" aria-hidden="true">
+              ⚘
             </span>
           )}
         </div>

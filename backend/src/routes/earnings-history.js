@@ -11,6 +11,7 @@ import {
 } from "../database/analytics.js";
 
 const router = express.Router();
+const VALID_ROYALTY_TYPES = ["primary", "secondary"];
 
 function parseDate(value, fallback) {
   if (!value) return fallback;
@@ -53,7 +54,10 @@ router.get("/earnings-history/:walletAddress/export", (req, res) => {
       contractIds
     );
 
-    if (royaltyType && typeof royaltyType === "string") {
+    if (royaltyType) {
+      if (!VALID_ROYALTY_TYPES.includes(royaltyType.toLowerCase())) {
+        return sendError(res, 400, "invalid_query_parameter", `Invalid royaltyType. Valid values: ${VALID_ROYALTY_TYPES.join(", ")}`);
+      }
       records = records.filter(
         (r) => r.royaltyType?.toLowerCase() === royaltyType.toLowerCase()
       );

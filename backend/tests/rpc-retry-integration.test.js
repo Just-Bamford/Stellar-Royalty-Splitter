@@ -5,8 +5,12 @@
 
 import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import { withRetry, retryConfig } from "../src/rpc-retry.js";
+import { resetMetrics } from "../src/metrics.js";
 
 describe("RPC Retry Integration with Stellar Operations", () => {
+  beforeEach(() => {
+    resetMetrics();
+  });
   // Mock Horizon/Soroban responses
   const mockAccount = {
     id: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",

@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { addressToScVal } from "../stellar.js";
+import { addressToScVal, getRecommendedFee } from "../stellar.js";
 import { validate, distributeSchema } from "../validation.js";
 import { buildAndRecordTransaction } from "./_shared.js";
+import { recordTransactionFee } from "../database/index.js";
 import { deduplicationMiddleware, idempotencyMiddleware } from "../idempotency.js";
 import {
   recordDistributeCall,
@@ -69,18 +70,21 @@ distributeRouter.post(
       recordTransactionSuccess();
       recordDistributionLatency("build", Date.now() - buildStart);
       recordDistributionOutcomeMetric("built");
+
+      const feeStroops = await getRecommendedFee();
+      recordTransactionFee(transactionId, contractId, feeStroops);
       // Invalidate cached history and contract state so the new distribution
       // appears immediately on subsequent reads. Propagates via Redis
       // pub/sub to every other backend instance too (#926).
       invalidateContractCaches(contractId, { reason: "distribute" });
 
       // Broadcast to connected WebSocket clients that an unsigned XDR is ready
-      // (#1125). Nothing has been submitted or paid out yet — the wallet still
-      // has to sign and submit it — so this is "prepared", not "completed".
+      // (#1177). Nothing has been submitted or paid out yet — the wallet still
+      // has to sign and submit it — so this is "distribution_pending", not "distribution_completed".
       // `distribution_completed` is emitted by POST /transaction/confirm/:txHash
       // (routes/history.js) once Horizon reports the transaction confirmed.
       broadcastToContract(contractId, {
-        type: "distribution_prepared",
+        type: "distribution_pending",
         contractId,
         transactionId,
         timestamp: new Date().toISOString(),
@@ -89,8 +93,12 @@ distributeRouter.post(
       });
 
       // Plugin hook: afterDistribute — post-process after distribution is built (#998).
-      // Fire-and-forget: runs after response is sent so plugins don't add latency.
-      await runHook("afterDistribute", { contractId, walletAddress, transactionId, xdr });
+      // Fire-and-forget: do not await — plugins must not block the response.
+      void runHook("afterDistribute", { contractId, walletAddress, transactionId, xdr }).catch(
+        (err) => {
+          logger.error("afterDistribute plugin hook failed", { error: err.message });
+        },
+      );
 
       res.json({ xdr, transactionId });
     } catch (err) {

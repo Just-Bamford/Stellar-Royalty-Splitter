@@ -16,8 +16,9 @@ export interface PayoutPreviewRow {
 }
 
 /**
- * Mirrors the contract's `checked_bps_amount`: floor(amount * bps / 10_000)
- * per collaborator, computed independently (no remainder redistribution).
+ * Mirrors the contract's `checked_bps_amount` and last-recipient dust assignment:
+ * floor(amount * bps / 10_000) for the first N-1 collaborators, with the remainder
+ * assigned to the last collaborator (amount - sum_of_first_n_minus_1_payouts).
  * Uses BigInt so large sample amounts don't lose precision the way the
  * on-chain integer math never would. This is informational only — the
  * contract's own calculation at distribution time is authoritative.
@@ -28,17 +29,33 @@ export function calculatePayoutPreview(
 ): PayoutPreviewRow[] {
   const amountXlm = parseFloat(saleAmountXlm);
   if (!saleAmountXlm || Number.isNaN(amountXlm) || amountXlm < 0) return [];
+  if (collaborators.length === 0) return [];
 
   const amountStroops = BigInt(Math.round(amountXlm * STROOPS_PER_XLM));
 
-  return collaborators.map((c) => {
+  const parsed = collaborators.map((c) => {
     const pct = parseFloat(c.basisPoints);
     const basisPoints = Number.isNaN(pct) ? 0 : Math.round(pct * 100);
-    const payoutStroops = (amountStroops * BigInt(basisPoints)) / 10_000n;
+    return { c, basisPoints };
+  });
+
+  const totalBasisPoints = parsed.reduce((sum, item) => sum + item.basisPoints, 0);
+
+  let totalCalculated = 0n;
+  const lastIndex = parsed.length - 1;
+
+  return parsed.map((item, index) => {
+    let payoutStroops: bigint;
+    if (totalBasisPoints === 10_000 && index === lastIndex) {
+      payoutStroops = amountStroops - totalCalculated;
+    } else {
+      payoutStroops = (amountStroops * BigInt(item.basisPoints)) / 10_000n;
+      totalCalculated += payoutStroops;
+    }
 
     return {
-      address: c.address,
-      basisPoints,
+      address: item.c.address,
+      basisPoints: item.basisPoints,
       payoutStroops: payoutStroops.toString(),
       payoutXlm: Number(payoutStroops) / STROOPS_PER_XLM,
     };

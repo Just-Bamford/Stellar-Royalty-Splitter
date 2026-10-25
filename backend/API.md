@@ -283,13 +283,7 @@ Dry-run the `distribute` call via Soroban simulation. Returns the expected fee, 
     "resource_fee": 0,
     "total": 100
   },
-  "perRecipientEffectiveFee": 50,
-  "feeScalingComparison": [
-    { "collaborators": 2, "estimated_total_fee": 110 },
-    { "collaborators": 5, "estimated_total_fee": 140 },
-    { "collaborators": 10, "estimated_total_fee": 190 },
-    { "collaborators": 20, "estimated_total_fee": 290 }
-  ]
+  "perRecipientEffectiveFee": 50
 }
 ```
 
@@ -302,7 +296,6 @@ Dry-run the `distribute` call via Soroban simulation. Returns the expected fee, 
   - `resource_fee`: Soroban resource fee
   - `total`: Sum of all fee components
 - `perRecipientEffectiveFee`: Total fee divided by number of recipients
-- `feeScalingComparison`: Array showing estimated fee growth for 2, 5, 10, and 20 collaborators
 
 The endpoint only calls Soroban RPC simulation. It does not submit the transaction, record a transaction row, or modify contract state.
 
@@ -460,6 +453,39 @@ curl "http://localhost:3001/api/v1/secondary-royalty/distributions/C...?limit=20
 ```
 
 See route module `src/routes/secondary-royalty.js` for pool, stats, and set-rate endpoints.
+
+## Transaction fees
+
+### `GET /api/v1/fees/:contractId`
+
+Returns paginated fee records for a contract, ordered by most recent first.
+
+**Query params:**
+
+| Param | Type | Default | Min | Max | Description |
+| ----- | ---- | ------- | --- | --- | ----------- |
+| `limit` | integer | `50` | `1` | `100` | Number of fee records to return; values above `100` are capped at `100` |
+| `offset` | integer | `0` | `0` | — | Number of rows to skip (pagination offset) |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [ /* fee objects */ ],
+  "pagination": { "limit": 50, "offset": 0, "total": 5000 }
+}
+```
+
+`pagination.total` is the total number of fee records for the contract across all
+pages. Non-numeric `limit` or `offset` values return `400 Bad Request`
+(`invalid_query_parameter`).
+
+**Example — page 50 with 100 results per page:**
+
+```bash
+curl "http://localhost:3001/api/v1/fees/C...?limit=100&offset=4900"
+```
 
 ## History & analytics
 

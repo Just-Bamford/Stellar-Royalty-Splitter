@@ -100,12 +100,14 @@ export default function DistributeForm({
 
   useEffect(() => {
     if (!draftDecisionMade) return;
-
-    if (tokenId || amount) {
-      localStorage.setItem(draftKey, JSON.stringify({ tokenId, amount }));
-    } else {
-      localStorage.removeItem(draftKey);
-    }
+    const timer = setTimeout(() => {
+      if (tokenId || amount) {
+        localStorage.setItem(draftKey, JSON.stringify({ tokenId, amount }));
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
   }, [amount, draftDecisionMade, draftKey, tokenId]);
 
   useEffect(() => {
@@ -515,6 +517,7 @@ export default function DistributeForm({
           message={status.message}
           txHash={txEntry?.txHash ?? undefined}
           network={network}
+          onDismiss={clearStatus}
           distributionData={
             status.type === "ok"
               ? {

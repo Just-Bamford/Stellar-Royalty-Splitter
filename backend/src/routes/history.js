@@ -87,14 +87,22 @@ async function emitDistributionCompleted(transaction) {
   });
 }
 
-async function emitSecondaryDistributionCompleted(transaction) {
+// Exported for direct unit testing (#1188) without pulling in this route
+// module's full dependency graph (database, Horizon polling, metrics).
+export async function emitSecondaryDistributionCompleted(transaction) {
   const { emitWebhookEvent } = await import("../services/webhook-manager.js");
   await emitWebhookEvent({
     contractId: transaction.contractId,
     event: "distribution.completed",
     data: {
       transactionHash: transaction.txHash,
-      tokenId: transaction.tokenId,
+      // Secondary royalty transactions are recorded by POST
+      // /api/secondary-royalty using the `saleToken` field (see
+      // secondary-royalty.js), not `tokenId` — `transaction.tokenId` is
+      // never populated for these rows. Preferring `saleToken` fixes the
+      // webhook payload while staying backwards-compatible with any record
+      // that did store it under `tokenId` (#1188).
+      tokenId: transaction.saleToken ?? transaction.tokenId,
       kind: "secondary",
       requestedAmount: transaction.requestedAmount,
       status: transaction.status,
@@ -457,7 +465,7 @@ router.post("/transaction/confirm/:txHash", async (req, res) => {
       deliverDistributeWebhooks(confirmed);
       // Real-time subscribers (earnings counters, notification panel) learn the
       // distribution actually completed only now that it is confirmed on-chain
-      // (#1125). routes/distribute.js emits `distribution_prepared` earlier.
+      // (#1177). routes/distribute.js emits `distribution_pending` earlier.
       broadcastToContract(confirmed.contractId, {
         type: "distribution_completed",
         contractId: confirmed.contractId,

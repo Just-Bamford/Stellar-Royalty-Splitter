@@ -633,15 +633,16 @@ export const createScheduleSchema = z.object({
   tokenId: contractAddress,
   frequency: z.enum(["weekly", "biweekly", "monthly"]),
   dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
-  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28, "dayOfMonth must be 1–28 for monthly schedules to run reliably across all months").optional().nullable(),
   hourOfDay: z.number().int().min(0).max(23).optional().default(0),
   minuteOfHour: z.number().int().min(0).max(59).optional().default(0),
 }).superRefine(validateScheduleTiming);
 
 export const updateScheduleSchema = z.object({
+  walletAddress: stellarAddress.optional(),
   frequency: z.enum(["weekly", "biweekly", "monthly"]).optional(),
   dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
-  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28, "dayOfMonth must be 1–28 for monthly schedules to run reliably across all months").optional().nullable(),
   hourOfDay: z.number().int().min(0).max(23).optional(),
   minuteOfHour: z.number().int().min(0).max(59).optional(),
   enabled: z.boolean().optional(),

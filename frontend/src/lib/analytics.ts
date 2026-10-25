@@ -116,6 +116,12 @@ function defaultConsoleSink(event: DispatchedEvent): void {
 
 class Analytics {
   private enabled = false;
+  /**
+   * Consent mirrored from `preferences.dataPrivacy.allowTracking`.
+   * `null` means no explicit preference has been synced yet, in which case the
+   * legacy `analytics.enable()` opt-in remains authoritative.
+   */
+  private trackingConsent: boolean | null = null;
   private sessionId = makeSessionId();
   private buffer: DispatchedEvent[] = [];
   private config: Config = {
@@ -149,6 +155,19 @@ class Analytics {
     }
   }
 
+  /**
+   * Apply the user's `dataPrivacy.allowTracking` preference (#1238).
+   * Revoking consent stops tracking immediately and drops buffered events.
+   */
+  setTrackingConsent(allowTracking: boolean): void {
+    this.trackingConsent = allowTracking;
+    if (allowTracking) {
+      this.enable();
+    } else {
+      this.disable();
+    }
+  }
+
   isEnabled(): boolean {
     return this.enabled;
   }
@@ -166,6 +185,8 @@ class Analytics {
 
   dispatch(name: AnalyticsEvent, props: EventProps = {}): void {
     if (!this.enabled) return;
+    // No preference is stored/opted in by default, so tracking stays off.
+    if (this.trackingConsent === false) return;
     if (!ALLOWED_EVENTS.has(name)) return;
     const event: DispatchedEvent = {
       name,

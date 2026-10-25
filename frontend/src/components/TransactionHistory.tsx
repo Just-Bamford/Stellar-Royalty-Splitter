@@ -67,8 +67,10 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const [pendingFilters, setPendingFilters] = useState<HistoryFilters>(DEFAULT_FILTERS);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
 
-  // Client-side search/token/category/sort (#754): applied in memory over the
-  // fetched page, on top of the server-side date/type/recipient filters above.
+  // Client-side token/category/sort (#754): applied in memory over the
+  // fetched page, on top of the server-side date/type/recipient/search/token filters above.
+  // Note: categoryFilter (primary/secondary/batch) cannot be fully server-side without schema changes
+  // and remains client-side for now.
   const [searchQuery, setSearchQuery] = useState("");
   const [tokenFilter, setTokenFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"" | "primary" | "secondary" | "batch">("");
@@ -86,6 +88,8 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     if (filters.recipient) f.recipient = filters.recipient;
     if (filters.startDate) f.startDate = filters.startDate;
     if (filters.endDate) f.endDate = filters.endDate;
+    if (searchQuery) f.search = searchQuery;
+    if (tokenFilter) f.token = tokenFilter;
     return f;
   })();
 
@@ -180,21 +184,6 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     return !isSecondaryTx(tx.type);
   }
 
-  function matchesSearch(tx: TransactionRecord, query: string) {
-    if (!query) return true;
-    const q = query.trim().toLowerCase();
-    return (
-      (tx.txHash ?? "").toLowerCase().includes(q) ||
-      String(tx.id).toLowerCase().includes(q) ||
-      tx.initiatorAddress.toLowerCase().includes(q)
-    );
-  }
-
-  function matchesToken(tx: TransactionRecord, token: string) {
-    if (!token) return true;
-    return (tx.tokenId ?? "").toLowerCase().includes(token.trim().toLowerCase());
-  }
-
   function sortTransactions(txs: TransactionRecord[]): TransactionRecord[] {
     const dir = sortDirection === "asc" ? 1 : -1;
     return [...txs].sort((a, b) => {
@@ -211,12 +200,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   }
 
   const displayedTransactions = sortTransactions(
-    transactions.filter(
-      (tx) =>
-        matchesCategory(tx, categoryFilter) &&
-        matchesSearch(tx, searchQuery) &&
-        matchesToken(tx, tokenFilter),
-    ),
+    transactions.filter((tx) => matchesCategory(tx, categoryFilter)),
   );
 
   function filterByDateRange(

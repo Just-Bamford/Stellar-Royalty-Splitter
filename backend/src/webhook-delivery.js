@@ -66,29 +66,18 @@ export async function postWebhook(url, payload, options = {}) {
 }
 
 /**
- * Fire distribute-completion webhooks for a confirmed transaction.
- * Runs asynchronously; errors are logged but do not block the caller.
- * Failed deliveries are persisted to the database for background retry.
+ * Deliver a generic webhook payload to all webhooks registered for a contract.
+ * Failed deliveries are persisted to the database for retry by the
+ * background retry job (retry-failed-webhooks.js).
+ *
+ * @param {string} contractId
+ * @param {object} payload - Event payload to deliver.
  */
-export function deliverDistributeWebhooks(transaction) {
-  const webhooks = listWebhooks(transaction.contractId);
+export function deliverWebhooks(contractId, payload) {
+  const webhooks = listWebhooks(contractId);
   if (webhooks.length === 0) {
     return;
   }
-
-  const payload = {
-    event: "distribute.confirmed",
-    transactionHash: transaction.txHash,
-    contractId: transaction.contractId,
-    tokenId: transaction.tokenId,
-    requestedAmount: transaction.requestedAmount,
-    status: transaction.status,
-    recipients: (transaction.payouts ?? []).map((payout) => ({
-      address: payout.collaboratorAddress,
-      amount: payout.amountReceived,
-    })),
-    timestamp: transaction.blockTime ?? transaction.timestamp,
-  };
 
   const now = new Date();
 
@@ -132,6 +121,29 @@ export function deliverDistributeWebhooks(transaction) {
         }
       });
   }
+}
+
+/**
+ * Fire distribute-completion webhooks for a confirmed transaction.
+ * Runs asynchronously; errors are logged but do not block the caller.
+ * Failed deliveries are persisted to the database for background retry.
+ */
+export function deliverDistributeWebhooks(transaction) {
+  const payload = {
+    event: "distribute.confirmed",
+    transactionHash: transaction.txHash,
+    contractId: transaction.contractId,
+    tokenId: transaction.tokenId,
+    requestedAmount: transaction.requestedAmount,
+    status: transaction.status,
+    recipients: (transaction.payouts ?? []).map((payout) => ({
+      address: payout.collaboratorAddress,
+      amount: payout.amountReceived,
+    })),
+    timestamp: transaction.blockTime ?? transaction.timestamp,
+  };
+
+  deliverWebhooks(transaction.contractId, payload);
 }
 
 export const _config = {

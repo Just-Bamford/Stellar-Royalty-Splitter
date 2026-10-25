@@ -1,7 +1,13 @@
 import { Router } from "express";
 import { addressToScVal, BatchTransactionBuilder, buildTx, vecToScVal } from "../stellar.js";
 import { determineOptimalBatchSize, estimateBatchClaimCosts } from "../services/gas-optimizer.js";
-import { validate, batchDistributeSchema, MAX_BATCH_OPERATIONS } from "../validation.js";
+import {
+  validate,
+  batchDistributeSchema,
+  MAX_BATCH_OPERATIONS,
+  validateContractId,
+  validateStellarAddress,
+} from "../validation.js";
 import { recordTransaction, addAuditLog } from "../database/index.js";
 import { sendError } from "../error-response.js";
 import { invalidateContractCaches } from "../cache-invalidation.js";
@@ -158,6 +164,9 @@ batchDistributeRouter.post(
       if (!contractId || !walletAddress || !tokens || !Array.isArray(tokens)) {
         return sendError(res, 400, "invalid_request", "contractId, walletAddress, and tokens array are required");
       }
+
+      if (!validateContractId(contractId, res)) return;
+      if (!validateStellarAddress(walletAddress, res)) return;
 
       if (tokens.length === 0) {
         return sendError(res, 400, "invalid_request", "tokens array cannot be empty");

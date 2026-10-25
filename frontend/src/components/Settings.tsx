@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   SettingsType,
@@ -32,6 +32,8 @@ export const Settings: React.FC<SettingsProps> = ({
   const trackedContracts = useContractsStore((s) => s.trackedContracts);
   const addTrackedContract = useContractsStore((s) => s.addTrackedContract);
   const removeTrackedContract = useContractsStore((s) => s.removeTrackedContract);
+  const lastAddError = useContractsStore((s) => s.lastAddError);
+  const clearLastAddError = useContractsStore((s) => s.clearLastAddError);
   const [localSettings, setLocalSettings] = useState(() => ({ ...settings, trackedContracts }));
 
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -83,7 +85,6 @@ export const Settings: React.FC<SettingsProps> = ({
       return;
     }
     if (!addTrackedContract(trimmed)) {
-      setContractError("This contract is already being tracked");
       return;
     }
     setLocalSettings((s) => ({
@@ -109,6 +110,12 @@ export const Settings: React.FC<SettingsProps> = ({
     setSaveStatus(message);
     setTimeout(() => setSaveStatus(null), 3000);
   };
+
+  useEffect(() => {
+    if (!lastAddError) return;
+    const timer = setTimeout(() => clearLastAddError(), 3000);
+    return () => clearTimeout(timer);
+  }, [lastAddError, clearLastAddError]);
 
   return (
     <div className="settings">
@@ -188,6 +195,7 @@ export const Settings: React.FC<SettingsProps> = ({
                 onChange={(e) => {
                   setNewContractId(e.target.value);
                   setContractError(null);
+                  clearLastAddError();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleAddContract();
@@ -203,9 +211,9 @@ export const Settings: React.FC<SettingsProps> = ({
               </button>
             </div>
           </div>
-          {contractError && (
+          {(contractError || lastAddError) && (
             <p role="alert" className="contract-input-error">
-              {contractError}
+              {contractError ?? "This contract is already in your tracked list."}
             </p>
           )}
 

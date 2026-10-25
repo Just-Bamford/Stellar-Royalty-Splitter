@@ -14,6 +14,12 @@ export function useFormStatus(clearAfterMs = 5000) {
       return;
     }
 
+    // Errors stay visible until the user dismisses them or a new status
+    // replaces them — auto-clearing would hide messages they still need (#1236).
+    if (status.type === "error") {
+      return;
+    }
+
     const timer = window.setTimeout(() => {
       setStatusState(null);
     }, clearAfterMs);
@@ -29,5 +35,5 @@ export function useFormStatus(clearAfterMs = 5000) {
     setStatusState(null);
   }, []);
 
-  return { status, setStatus, clearStatus };
+  return { status, setStatus, clearStatus, dismiss: clearStatus };
 }

@@ -41,18 +41,6 @@ export function parseSigningSecret(secret) {
   }
 }
 
-function readSecretsFilePath() {
-  return normalizeSecret(process.env.SIGNING_KEY_FILE);
-}
-
-function readSecretFromFile(filePath) {
-  if (!existsSync(filePath)) {
-    throw new Error(`Signing key file not found: ${filePath}`);
-  }
-  const contents = readFileSync(filePath, "utf8");
-  return normalizeSecret(contents);
-}
-
 function setActiveKeypair(keypair, source) {
   const previousPublicKey = activeKeypair?.publicKey() ?? null;
   activeKeypair = keypair;
@@ -161,19 +149,6 @@ export async function reloadSigningKeyFromSecretsProvider() {
     });
     throw error;
   }
-}
-
-/**
- * Re-read SIGNING_KEY_FILE and apply the updated secret without redeploy.
- * @deprecated Use reloadSigningKeyFromSecretsProvider() instead
- */
-export function reloadSigningKeyFromSecretsFile() {
-  const filePath = readSecretsFilePath();
-  if (!filePath) {
-    throw new Error("SIGNING_KEY_FILE is not configured");
-  }
-  const secret = readSecretFromFile(filePath);
-  return rotateSigningKey(secret, { source: "file_reload" });
 }
 
 /**

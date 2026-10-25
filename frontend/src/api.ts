@@ -402,6 +402,8 @@ export const api = {
       recipient?: string;
       startDate?: string;
       endDate?: string;
+      search?: string;
+      token?: string;
     }
   ) => {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
@@ -409,6 +411,8 @@ export const api = {
     if (filters?.recipient) params.set("recipient", filters.recipient);
     if (filters?.startDate) params.set("startDate", filters.startDate);
     if (filters?.endDate) params.set("endDate", filters.endDate);
+    if (filters?.search) params.set("search", filters.search);
+    if (filters?.token) params.set("token", filters.token);
     return get<{
       success: boolean;
       data: TransactionRecord[];
@@ -432,7 +436,7 @@ export const api = {
   // Read-only: there is no client-side write path for audit entries. Audit
   // records are created exclusively server-side as a side effect of real
   // configuration/administrative actions (initialize, distribute,
-  // secondary-royalty routes) ÔÇö see backend/src/routes/history.js.
+  // secondary-royalty routes) ï¿½ï¿½ï¿½ see backend/src/routes/history.js.
   getAuditLog: (contractId: string, limit = 100, offset = 0) =>
     get<{ success: boolean; data: AuditLogEntry[] }>(
       `/audit/${contractId}?limit=${limit}&offset=${offset}`
@@ -810,7 +814,7 @@ export const api = {
 
   getContributorsMissingTaxInfo: () => get<any>("/contributor-tax/missing"),
 
-  // Contributor Tier APIs (#589) ÔÇö used by CollaboratorTable and the
+  // Contributor Tier APIs (#589) ï¿½ï¿½ï¿½ used by CollaboratorTable and the
   // Collaborator Directory (#923) to read/assign VIP/regular/trial tiers.
   getContractTiers: (contractId: string) =>
     get<{ success: boolean; data: ContributorTier[]; validTiers: string[] }>(
@@ -828,7 +832,7 @@ export const api = {
       notes: notes ?? null,
     }),
 
-  // Contributor Suspension / Deactivation APIs (#593) ÔÇö read by
+  // Contributor Suspension / Deactivation APIs (#593) ï¿½ï¿½ï¿½ read by
   // ContributorSuspension.tsx and the Collaborator Directory's bulk
   // suspend/unsuspend action (#923).
   getContributorStatuses: (contractId: string, includeActive = false) =>
@@ -850,7 +854,7 @@ export const api = {
       body
     ),
 
-  // Notification send API (#927) ÔÇö reused by the Collaborator Directory's
+  // Notification send API (#927) ï¿½ï¿½ï¿½ reused by the Collaborator Directory's
   // bulk "send message" action (#923) to message selected collaborators.
   sendNotification: (
     walletAddress: string,
@@ -925,7 +929,7 @@ export const api = {
   getCarbonShare: (walletAddress: string) =>
     get<{ success: boolean; data: CarbonSharePayload }>(`/carbon/share/${walletAddress}`),
 
-  // Advanced webhook system (#1059) — external integrations with HMAC
+  // Advanced webhook system (#1059) ï¿½ external integrations with HMAC
   // signatures, delivery history, and manual testing.
   getWebhookEvents: () => get<{ success: boolean; data: string[] }>("/webhooks/events"),
 
@@ -988,7 +992,7 @@ export const api = {
       `/webhooks/${contractId}/delivery-stats`
     ),
 
-  // Feature Flag APIs — mirror backend/src/routes/feature-flags.js: flags are
+  // Feature Flag APIs ï¿½ mirror backend/src/routes/feature-flags.js: flags are
   // addressed by name, and responses are returned unwrapped (no
   // `{ success, data }` envelope).
   listFeatureFlags: () => get<{ flags: FeatureFlag[] }>("/feature-flags"),

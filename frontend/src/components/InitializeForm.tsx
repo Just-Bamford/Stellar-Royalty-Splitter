@@ -19,6 +19,7 @@ import {
 import {
   isValidAccountAddress,
   getAccountAddressError,
+  getAccountAddressErrorStrict,
   getPercentageValidationError,
   getFieldState,
   getFieldInputClass,
@@ -113,7 +114,7 @@ export default function InitializeForm({
   const [collaborators, setCollaborators] = useState<Collaborator[]>([
     { address: "", basisPoints: "" },
   ]);
-  const { status, setStatus } = useFormStatus();
+  const { status, setStatus, clearStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
   const [pendingCommit, setPendingCommit] = useState<{
     collaborators: string[];
@@ -339,10 +340,11 @@ export default function InitializeForm({
     const nextErrors = collaborators.reduce<
       Record<number, { address?: string; basisPoints?: string }>
     >((acc, c, i) => {
-      if (!c.address || !isValidAccountAddress(c.address)) {
+      const addressError = getAccountAddressErrorStrict(c.address);
+      if (addressError) {
         acc[i] = {
           ...acc[i],
-          address: "Must be a valid Stellar address (G..., 56 chars)",
+          address: addressError,
         };
       }
       const percentageError = getPercentageError(c.basisPoints);
@@ -413,6 +415,10 @@ export default function InitializeForm({
 
       if (pendingCommit) {
         setPendingCommit(null);
+        setCollaborators([{ address: "", basisPoints: "" }]);
+        setTouched({});
+        setErrors({});
+        clearStatus();
         setStatus("ok", `Initialized. Tx: ${hash}`);
         onSuccess();
       } else {
@@ -704,7 +710,9 @@ export default function InitializeForm({
       <div className="sr-only" aria-live="assertive" aria-atomic="true">
         {status?.message ?? ""}
       </div>
-      {status && <FormStatus type={status.type} message={status.message} />}
+      {status && (
+        <FormStatus type={status.type} message={status.message} onDismiss={clearStatus} />
+      )}
     </div>
   );
 }

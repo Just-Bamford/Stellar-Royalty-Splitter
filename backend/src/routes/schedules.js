@@ -136,6 +136,11 @@ schedulesRouter.patch("/:id", validate(updateScheduleSchema), (req, res) => {
   const existing = getScheduleById(id);
   if (!existing) return scheduleNotFound(res, id);
 
+  const { walletAddress } = req.body;
+  if (walletAddress && walletAddress !== existing.walletAddress) {
+    return sendError(res, 403, "forbidden", "You do not own this schedule");
+  }
+
   const updates = {};
   const {
     frequency,
@@ -197,6 +202,14 @@ schedulesRouter.delete("/:id", (req, res) => {
 
   const existing = getScheduleById(id);
   if (!existing) return scheduleNotFound(res, id);
+
+  const walletAddress = req.body.walletAddress || req.query.walletAddress;
+  if (!walletAddress) {
+    return sendError(res, 400, "missing_parameter", "walletAddress is required");
+  }
+  if (walletAddress !== existing.walletAddress) {
+    return sendError(res, 403, "forbidden", "You do not own this schedule");
+  }
 
   deleteSchedule(id);
 

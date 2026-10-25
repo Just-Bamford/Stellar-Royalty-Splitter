@@ -20,7 +20,7 @@ export function DisputeDashboard({ walletAddress = null }: DisputeDashboardProps
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useWebSocket({
-    walletAddress: walletAddress ?? "GAAAAA...",
+    walletAddress,
     enabled: Boolean(walletAddress),
     onNotification: (data: unknown) => {
       const payload = data as Record<string, unknown> | null;

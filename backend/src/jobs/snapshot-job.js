@@ -9,7 +9,7 @@
  */
 
 import db from "../database/index.js";
-import { createSnapshot, ensureSnapshotTable } from "../database/contract-snapshots.js";
+import { createSnapshot, ensureSnapshotTable, pruneSnapshots } from "../database/contract-snapshots.js";
 import logger from "../logger.js";
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -37,11 +37,19 @@ function getActiveContractIds() {
 /**
  * Compute a summary of contract state from stored data.
  *
+ * Basis-point share configuration is only held on-chain (`get_all_shares`);
+ * the backend does not persist it — the collaborators route caches it in
+ * memory and the initialize audit log records requested, unconfirmed shares
+ * without addresses. `shares` is therefore stored as `null` with
+ * `sharesSource: "unavailable"` and cannot be used for configuration recovery
+ * until an on-chain read is added to this job. Cumulative payout totals are
+ * recorded in `balances`.
+ *
  * @param {string} contractId
- * @returns {{ collaborators: string[], shares: object, balances: object, transactionCount: number, lastTransactionId: number|null }}
+ * @returns {{ collaborators: string, collaboratorsSource: string, shares: string, sharesSource: string, balances: string, transactionCount: number, lastTransactionId: number|null }}
  */
-function computeContractState(contractId) {
-  // Get unique collaborator addresses
+export function computeContractState(contractId) {
+  // Get unique collaborator addresses from distribution_payouts first
   const collaboratorRows = db
     .prepare(
       `SELECT DISTINCT collaboratorAddress
@@ -49,7 +57,37 @@ function computeContractState(contractId) {
        WHERE contractId = ?`
     )
     .all(contractId);
-  const collaborators = collaboratorRows.map((r) => r.collaboratorAddress);
+  let collaborators = collaboratorRows.map((r) => r.collaboratorAddress);
+  let collaboratorsSource = "distribution_payouts";
+
+  // Fallback: if no distributions, try to get collaborators from audit_log (initialize events)
+  if (collaborators.length === 0) {
+    const auditRows = db
+      .prepare(
+        `SELECT details
+         FROM audit_log
+         WHERE contractId = ? AND action = 'initialize'
+         ORDER BY timestamp DESC
+         LIMIT 1`
+      )
+      .all(contractId);
+
+    if (auditRows.length > 0) {
+      try {
+        const details = JSON.parse(auditRows[0].details);
+        if (details.collaborators && Array.isArray(details.collaborators)) {
+          collaborators = details.collaborators.map((c) => c.address).filter(Boolean);
+          collaboratorsSource = "audit_log";
+        }
+      } catch (err) {
+        // Malformed audit log details - continue with empty collaborators
+        logger.warn(`Failed to parse audit_log details for contract ${contractId}`, {
+          contractId,
+          error: err.message,
+        });
+      }
+    }
+  }
 
   // Get transaction count
   const countRow = db
@@ -63,8 +101,8 @@ function computeContractState(contractId) {
     .get(contractId);
   const lastTransactionId = lastTx?.id ?? null;
 
-  // Build shares map from contributor_status or distribution_payouts
-  const shareRows = db
+  // Build balances map from cumulative payouts
+  const balanceRows = db
     .prepare(
       `SELECT collaboratorAddress, SUM(CAST(amountReceived AS REAL)) AS totalReceived
        FROM distribution_payouts
@@ -73,18 +111,17 @@ function computeContractState(contractId) {
     )
     .all(contractId);
 
-  const shares = {};
   const balances = {};
 
-  for (const row of shareRows) {
-    const amount = Math.round(row.totalReceived * 100) / 100;
-    shares[row.collaboratorAddress] = amount;
-    balances[row.collaboratorAddress] = amount;
+  for (const row of balanceRows) {
+    balances[row.collaboratorAddress] = Math.round(row.totalReceived * 100) / 100;
   }
 
   return {
     collaborators: JSON.stringify(collaborators),
-    shares: JSON.stringify(shares),
+    collaboratorsSource,
+    shares: JSON.stringify(null),
+    sharesSource: "unavailable",
     balances: JSON.stringify(balances),
     transactionCount,
     lastTransactionId,
@@ -128,9 +165,7 @@ export async function executeSnapshotRun({ forceLabel } = {}) {
       snapshotsCreated++;
 
       // Prune old snapshots beyond retention
-      const pruned = await import("../database/contract-snapshots.js").then((mod) =>
-        mod.pruneSnapshots(contractId, SNAPSHOT_RETENTION_COUNT)
-      );
+      const pruned = pruneSnapshots(contractId, SNAPSHOT_RETENTION_COUNT);
       if (pruned > 0) {
         logger.debug(`Pruned ${pruned} old snapshots for contract ${contractId}`);
       }

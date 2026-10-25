@@ -14,6 +14,34 @@ interface NavigationProps {
   wsConnected?: boolean;
 }
 
+const NAV_ITEMS = [
+  { id: "dashboard", labelKey: "dashboard", icon: "📊" },
+  { id: "earnings-dashboard", labelKey: "earningsDashboard", icon: "💎" },
+  { id: "earnings-history", labelKey: "earningsHistory", icon: "💹" },
+  { id: "onboarding", labelKey: "onboarding", icon: "🚀" },
+  { id: "transactions", labelKey: "transactions", icon: "📋" },
+  { id: "timeline", labelKey: "timeline", icon: "🕐" },
+  { id: "forecast", labelKey: "forecast", icon: "📈" },
+  { id: "tokenomics", labelKey: "tokenomics", icon: "🪙" },
+  { id: "earnings", labelKey: "multiContractEarnings", icon: "💵" },
+  { id: "admin", labelKey: "admin", icon: "👑" },
+  { id: "feature-flags", labelKey: "featureFlags", icon: "🚩" },
+  { id: "initialize", labelKey: "initialize", icon: "⚙️" },
+  { id: "distribute", labelKey: "distribute", icon: "💰" },
+  { id: "secondary", labelKey: "secondary", icon: "🔄" },
+  { id: "health", labelKey: "health", icon: "🏥" },
+  { id: "disputes", labelKey: "disputes", icon: "⚖️" },
+  { id: "impact", labelKey: "impact", icon: "🌱" },
+  { id: "webhooks", labelKey: "webhooks", icon: "🔔" },
+  { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
+  { id: "tax-info", labelKey: "taxInfo", icon: "🧾" },
+  { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },
+  { id: "profile", labelKey: "userProfile", icon: "👤" },
+  { id: "feed", labelKey: "activityFeed", icon: "📡" },
+  { id: "forum", labelKey: "communityForum", icon: "💬" },
+  { id: "settings", labelKey: "settings", icon: "⚡" },
+];
+
 export const Navigation: React.FC<NavigationProps> = ({
   currentPage,
   onPageChange,
@@ -46,37 +74,9 @@ export const Navigation: React.FC<NavigationProps> = ({
     };
   }, [isMobileMenuOpen]);
 
-  const navItems = [
-    { id: "dashboard", labelKey: "dashboard", icon: "📊" },
-    { id: "earnings-dashboard", labelKey: "earningsDashboard", icon: "💎" },
-    { id: "earnings-history", labelKey: "earningsHistory", icon: "💹" },
-    { id: "onboarding", labelKey: "onboarding", icon: "🚀" },
-    { id: "transactions", labelKey: "transactions", icon: "📋" },
-    { id: "timeline", labelKey: "timeline", icon: "🕐" },
-    { id: "forecast", labelKey: "forecast", icon: "📈" },
-    { id: "tokenomics", labelKey: "tokenomics", icon: "🪙" },
-    { id: "earnings", labelKey: "earnings", icon: "💎" },
-    { id: "admin", labelKey: "admin", icon: "👑" },
-    { id: "feature-flags", labelKey: "featureFlags", icon: "🚩" },
-    { id: "initialize", labelKey: "initialize", icon: "⚙️" },
-    { id: "distribute", labelKey: "distribute", icon: "💰" },
-    { id: "secondary", labelKey: "secondary", icon: "🔄" },
-    { id: "health", labelKey: "health", icon: "🏥" },
-    { id: "disputes", labelKey: "disputes", icon: "⚖️" },
-    { id: "impact", labelKey: "impact", icon: "🌱" },
-    { id: "webhooks", labelKey: "webhooks", icon: "🔔" },
-    { id: "bulk-import", labelKey: "bulkImport", icon: "📥" },
-    { id: "tax-info", labelKey: "taxInfo", icon: "📋" },
-    { id: "payment-holds", labelKey: "paymentHolds", icon: "⏸️" },
-    { id: "profile", labelKey: "userProfile", icon: "👤" },
-    { id: "feed", labelKey: "activityFeed", icon: "📡" },
-    { id: "forum", labelKey: "communityForum", icon: "💬" },
-    { id: "settings", labelKey: "settings", icon: "⚡" },
-  ];
-
   // Issue #156 — update browser tab title whenever the active page changes
   useEffect(() => {
-    const item = navItems.find((n) => n.id === currentPage);
+    const item = NAV_ITEMS.find((n) => n.id === currentPage);
     const label = item ? t(`navigation.${item.labelKey}`) : currentPage;
     document.title = `${label} - Stellar Royalty Splitter`;
   }, [currentPage, t]);
@@ -131,7 +131,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           className={`nav-links ${isMobileMenuOpen ? "active" : ""}`}
           role="list"
         >
-          {navItems.map((item) => (
+          {NAV_ITEMS.map((item) => (
             <li key={item.id}>
               <button
                 className={`nav-link ${currentPage === item.id ? "active" : ""}`}

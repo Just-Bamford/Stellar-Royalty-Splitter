@@ -63,6 +63,8 @@ export default function BatchClaiming({ contractId, walletAddress, pendingClaims
     setSelected((current) => new Set([...current].filter((token) => uniqueClaims.some((claim) => claim.tokenId === token))));
   }, [uniqueClaims]);
 
+  const selectedTokenIds = selectedClaims.map((claim) => claim.tokenId).join(',');
+
   useEffect(() => {
     let cancelled = false;
     if (selectedClaims.length === 0) {
@@ -73,7 +75,7 @@ export default function BatchClaiming({ contractId, walletAddress, pendingClaims
       .then((result) => { if (!cancelled) setEstimate(result); })
       .catch(() => { if (!cancelled) setEstimate(null); });
     return () => { cancelled = true; };
-  }, [selectedClaims.length]);
+  }, [selectedTokenIds]);
 
   const toggle = (tokenId: string) => setSelected((current) => {
     const next = new Set(current);

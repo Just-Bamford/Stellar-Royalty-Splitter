@@ -148,7 +148,6 @@ initializeRouter.post(
         transactionId,
         stateAfter: { initialized: true, collaboratorCount: collaborators.length },
         admin: walletAddress,
-        collaborators,
         timestamp: new Date().toISOString(),
       });
 

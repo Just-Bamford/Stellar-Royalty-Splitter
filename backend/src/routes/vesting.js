@@ -1,5 +1,6 @@
 import express from "express";
 import { sendError } from "../error-response.js";
+import { validateStellarAddress, validateContractId } from "../validation.js";
 import {
   createVestingSchedule,
   calculateVestedAmount,
@@ -43,6 +44,9 @@ router.post("/vesting/create", attachRole, requireRole("admin"), (req, res) => {
       return sendError(res, 400, "validation_failed", "Missing required fields");
     }
 
+    if (!validateStellarAddress(beneficiary, res)) return;
+    if (!validateContractId(tokenAddress, res)) return;
+
     const scheduleId = createVestingSchedule({
       contractId,
       beneficiary,
@@ -78,6 +82,24 @@ router.post("/vesting/create", attachRole, requireRole("admin"), (req, res) => {
   } catch (err) {
     logger.error("Failed to create vesting schedule", { error: err.message });
     return sendError(res, 500, "server_error", "Failed to create vesting schedule");
+  }
+});
+
+/**
+ * GET /api/v1/vesting/releasable
+ * Get all schedules with releasable tokens (admin only)
+ */
+router.get("/vesting/releasable", attachRole, requireRole("admin"), (req, res) => {
+  try {
+    const schedules = getSchedulesWithReleasableTokens();
+
+    res.json({
+      success: true,
+      schedules,
+    });
+  } catch (err) {
+    logger.error("Failed to get releasable schedules", { error: err.message });
+    return sendError(res, 500, "server_error", "Failed to get releasable schedules");
   }
 });
 
@@ -159,6 +181,7 @@ router.post("/vesting/:scheduleId/release", attachRole, requireRole("operator"),
 router.get("/vesting/beneficiary/:address", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { address } = req.params;
+    if (!validateStellarAddress(address, res)) return;
     const schedules = getVestingSchedulesByBeneficiary(address);
 
     // Calculate current vested amounts for each schedule
@@ -177,6 +200,26 @@ router.get("/vesting/beneficiary/:address", attachRole, requireRole("viewer"), (
   } catch (err) {
     logger.error("Failed to get beneficiary schedules", { error: err.message });
     return sendError(res, 500, "server_error", "Failed to get beneficiary schedules");
+  }
+});
+
+/**
+ * GET /api/v1/vesting/statistics/:beneficiary
+ * Get vesting statistics for a beneficiary
+ */
+router.get("/vesting/statistics/:beneficiary", attachRole, requireRole("viewer"), (req, res) => {
+  try {
+    const { beneficiary } = req.params;
+    if (!validateStellarAddress(beneficiary, res)) return;
+    const stats = getVestingStatistics(beneficiary);
+
+    res.json({
+      success: true,
+      statistics: stats,
+    });
+  } catch (err) {
+    logger.error("Failed to get vesting statistics", { error: err.message });
+    return sendError(res, 500, "server_error", "Failed to get vesting statistics");
   }
 });
 
@@ -228,24 +271,6 @@ router.get("/vesting/:scheduleId/releases", attachRole, requireRole("viewer"), (
 });
 
 /**
- * GET /api/v1/vesting/releasable
- * Get all schedules with releasable tokens (admin only)
- */
-router.get("/vesting/releasable", attachRole, requireRole("admin"), (req, res) => {
-  try {
-    const schedules = getSchedulesWithReleasableTokens();
-
-    res.json({
-      success: true,
-      schedules,
-    });
-  } catch (err) {
-    logger.error("Failed to get releasable schedules", { error: err.message });
-    return sendError(res, 500, "server_error", "Failed to get releasable schedules");
-  }
-});
-
-/**
  * DELETE /api/v1/vesting/:scheduleId
  * Cancel a vesting schedule (admin only)
  */
@@ -255,9 +280,12 @@ router.delete("/vesting/:scheduleId", attachRole, requireRole("admin"), (req, re
     const { reason } = req.body;
     const cancelledBy = req.user?.walletAddress || "admin";
 
-    cancelVestingSchedule(parseInt(scheduleId), cancelledBy, reason || "Cancelled by admin");
-
     const schedule = getVestingSchedule(parseInt(scheduleId));
+    if (!schedule) {
+      return sendError(res, 404, "not_found", "Vesting schedule not found");
+    }
+
+    cancelVestingSchedule(parseInt(scheduleId), cancelledBy, reason || "Cancelled by admin");
 
     // Add audit log entry
     addAuditEntry({
@@ -282,25 +310,6 @@ router.delete("/vesting/:scheduleId", attachRole, requireRole("admin"), (req, re
       return sendError(res, 404, "not_found", err.message);
     }
     return sendError(res, 500, "server_error", "Failed to cancel vesting schedule");
-  }
-});
-
-/**
- * GET /api/v1/vesting/statistics/:beneficiary
- * Get vesting statistics for a beneficiary
- */
-router.get("/vesting/statistics/:beneficiary", attachRole, requireRole("viewer"), (req, res) => {
-  try {
-    const { beneficiary } = req.params;
-    const stats = getVestingStatistics(beneficiary);
-
-    res.json({
-      success: true,
-      statistics: stats,
-    });
-  } catch (err) {
-    logger.error("Failed to get vesting statistics", { error: err.message });
-    return sendError(res, 500, "server_error", "Failed to get vesting statistics");
   }
 });
 
