@@ -311,3 +311,15 @@ export function broadcastAuditEvent(contractId, auditEvent) {
   }
   return sent;
 }
+
+/** Reset module state between tests. Do not use in production code. */
+export function clearClients() {
+  clients.clear();
+}
+
+/** Total number of subscribed sockets across all keys, for diagnostics in tests. */
+export function getClientCount() {
+  let total = 0;
+  clients.forEach((set) => { total += set.size; });
+  return total;
+}

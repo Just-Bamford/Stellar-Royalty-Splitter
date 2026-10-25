@@ -7,8 +7,8 @@
   "author": "Stellar Royalty Splitter Contributors",
   "license": "Apache-2.0",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
+    "start": "node init && electron .",
+    "dev": "node init && electron . --dev",
     "lint": "eslint \"src/**/*.js\" \"tests/**/*.js\" main.js preload.js",
     "lint:fix": "eslint \"src/**/*.js\" \"tests/**/*.js\" main.js preload.js --fix",
     "test": "vitest run",
@@ -22,7 +22,7 @@
   "build": {
     "appId": "org.stellar.royaltysplitter.desktop",
     "productName": "Stellar Royalty Splitter",
-    "copyright": "Copyright © 2026 Stellar Royalty Splitter Contributors",
+    "copyright": "Copyright \u00a9 2026 Stellar Royalty Splitter Contributors",
     "directories": {
       "output": "dist-electron",
       "buildResources": "assets"

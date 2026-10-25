@@ -71,6 +71,11 @@ auditTrailRouter.get("/export", (req, res, next) => {
       `standard must be one of ${Object.keys(COMPLIANCE_STANDARDS).join(", ")}`,
     );
   }
+
+  const VALID_FORMATS = ["json", "csv"];
+  if (!VALID_FORMATS.includes((format ?? "json").toLowerCase())) {
+    return sendError(res, 400, "bad_request", `format must be one of: ${VALID_FORMATS.join(", ")}`);
+  }
   for (const [name, value] of Object.entries({ from, to })) {
     if (value !== undefined && !isIsoDate(value)) {
       return sendError(res, 400, "bad_request", `${name} must be an ISO-8601 timestamp`);

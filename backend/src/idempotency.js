@@ -34,6 +34,15 @@ const CACHE_TTL_MS = parsePositiveInteger(process.env.IDEMPOTENCY_CACHE_TTL_MS, 
 const MAX_ENTRIES = parsePositiveInteger(process.env.IDEMPOTENCY_MAX_ENTRIES, 10000);
 const DEDUP_WINDOW_MS = parsePositiveInteger(process.env.IDEMPOTENCY_DEDUP_WINDOW_MS, 10000);
 
+if (process.env.NODE_ENV === "production" && !process.env.IDEMPOTENCY_SHARED_STORE_CONFIGURED) {
+  logger.warn(
+    "Idempotency in-flight deduplication is process-local. " +
+      "In multi-instance deployments, concurrent duplicate requests may not be deduplicated. " +
+      "Configure a shared store (e.g. Redis) for cross-instance idempotency.",
+    { event: "idempotency_shared_store_not_configured" },
+  );
+}
+
 /** Simple counters for deduplication observability. */
 export const dedupMetrics = {
   hits: 0,

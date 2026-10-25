@@ -31,7 +31,7 @@ export default function RecordSecondarySale({
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const { status, setStatus } = useFormStatus();
+  const { status, setStatus, clearStatus } = useFormStatus();
   const [loading, setLoading] = useState(false);
   const [calculatedRoyalty, setCalculatedRoyalty] = useState<bigint | null>(null);
 
@@ -207,7 +207,9 @@ export default function RecordSecondarySale({
           Your wallet is on the wrong network. Switch it to {network === "mainnet" ? "Mainnet" : "Testnet"} to record this sale.
         </div>
       )}
-      {status && <FormStatus type={status.type} message={status.message} />}
+      {status && (
+        <FormStatus type={status.type} message={status.message} onDismiss={clearStatus} />
+      )}
 
       <button onClick={submit} disabled={loading || !isFormValid || networkMismatch} className="btn-primary">
         {loading ? "Processing..." : "Record Sale"}

@@ -96,7 +96,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(
 const STORAGE_KEY = "srs_notification_history";
 const ARCHIVED_STORAGE_KEY = "srs_notification_archived";
 const PREFS_STORAGE_KEY = "srs_notification_prefs";
-const MAX_HISTORY = 50;
+const MAX_NOTIFICATION_HISTORY = 200;
 
 function loadHistory(): Notification[] {
   try {
@@ -138,7 +138,7 @@ function saveHistory(notifications: Notification[]) {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(notifications.slice(-MAX_HISTORY)),
+      JSON.stringify(notifications.slice(-MAX_NOTIFICATION_HISTORY)),
     );
   } catch {
     // ignore
@@ -149,7 +149,7 @@ function saveArchived(notifications: Notification[]) {
   try {
     localStorage.setItem(
       ARCHIVED_STORAGE_KEY,
-      JSON.stringify(notifications.slice(-MAX_HISTORY)),
+      JSON.stringify(notifications.slice(-MAX_NOTIFICATION_HISTORY)),
     );
   } catch {
     // ignore
@@ -257,7 +257,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       };
 
       setNotifications((prev) =>
-        [newNotification, ...prev].slice(0, MAX_HISTORY),
+        [newNotification, ...prev].slice(0, MAX_NOTIFICATION_HISTORY),
       );
 
       if (prefs.channels.in_app) {
@@ -321,7 +321,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setArchivedNotifications((prev) => {
       const notification = notifications.find((n) => n.id === id);
       return notification
-        ? [{ ...notification, archived: true }, ...prev].slice(0, MAX_HISTORY)
+        ? [{ ...notification, archived: true }, ...prev].slice(0, MAX_NOTIFICATION_HISTORY)
         : prev;
     });
   }, [notifications]);
@@ -331,7 +331,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setNotifications((prev) => {
       const notification = archivedNotifications.find((n) => n.id === id);
       return notification
-        ? [{ ...notification, archived: false }, ...prev].slice(0, MAX_HISTORY)
+        ? [{ ...notification, archived: false }, ...prev].slice(0, MAX_NOTIFICATION_HISTORY)
         : prev;
     });
   }, [archivedNotifications]);

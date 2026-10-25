@@ -456,7 +456,8 @@ pub enum ExtKey {
 pub const RATE_HISTORY_CAP: u32 = 20;
 
 /// Maximum number of distribution records kept in history (#775).
-/// Oldest entries are dropped when the cap is reached (FIFO).
+/// Oldest entries are dropped when the cap is reached (FIFO). Each drop emits
+/// a `(hist_trunc, drop)` event carrying the evicted record's id (#1219).
 pub const DISTRIBUTION_HISTORY_LIMIT: u32 = 500;
 
 /// Maximum distribution history items per pagination request (#775).
@@ -467,13 +468,57 @@ pub const DISTRIBUTION_HISTORY_PAGE_SIZE: u32 = 50;
 /// Configurable per-deployment via `set_max_secondary_pool_size`.
 pub const MAX_SECONDARY_POOL_SIZE: i128 = 1_000_000_000_000;
 
-/// Maximum number of collaborators accepted by `initialize`.
-/// Bounded by Soroban execution and storage costs.
+/// Maximum number of persistent contract collaborators accepted by `initialize`
+/// and `commit_initialize` (#1178).
+///
+/// ### Relationship with `MAX_RECIPIENTS`
+/// - **Domain distinction**: `MAX_COLLABORATORS` bounds the persistent contract
+///   members stored in `StorageKey::Collaborators` during contract initialization.
+///   These accounts hold governance weight (`TOTAL_SHARE_WEIGHT`), participate in
+///   proposal voting, and are tracked for vesting schedules and incentive bonuses.
+/// - **In-sync constraint**: `MAX_COLLABORATORS` and `MAX_RECIPIENTS` must remain
+///   in sync (`MAX_COLLABORATORS == MAX_RECIPIENTS`). When an admin updates the
+///   collaborator set post-initialization via `set_recipients`, that entry point
+///   validates the incoming list using `validate_recipient_list` (bounded by
+///   `MAX_RECIPIENTS`) and directly overwrites `StorageKey::Collaborators`. If
+///   `MAX_RECIPIENTS` were allowed to exceed `MAX_COLLABORATORS`, an admin could
+///   bypass the initialization collaborator bound post-facto.
+/// - **Resource bounding**: Both constants are pinned to 10 to guarantee that
+///   linear address loops (`validate_unique_addresses`, share validations, and
+///   payout token transfers) remain strictly within Soroban CPU/instruction and
+///   storage gas budgets.
+///
+/// ### Call sites guarded
+/// - `initialize` / `initialize_validated`: verifies `collaborators.len() <= MAX_COLLABORATORS`.
+/// - `commit_initialize`: verifies `collaborators.len() <= MAX_COLLABORATORS`.
 pub const MAX_COLLABORATORS: u32 = 10;
 
-/// Maximum number of recipients accepted by `set_recipients`, `set_default_recipients`,
-/// and `distribute_with_override`.
+/// Maximum number of split payout recipients accepted by `set_recipients`,
+/// `set_default_recipients`, `distribute_with_override`, and `clawback_dispute` (#1178).
+///
+/// ### Relationship with `MAX_COLLABORATORS`
+/// - **Domain distinction**: While `MAX_COLLABORATORS` limits the initial persistent
+///   governance and royalty collaborator set, `MAX_RECIPIENTS` limits payout
+///   targets across distribution and recipient configuration entry points.
+/// - **Why they must stay equal**: `set_recipients` accepts a `Vec<Recipient>`
+///   bounded by `MAX_RECIPIENTS`, but writes the resulting address list into
+///   `StorageKey::Collaborators`. Allowing `MAX_RECIPIENTS > MAX_COLLABORATORS`
+///   would permit expanding the stored collaborator list beyond the initialization
+///   capacity. Furthermore, both distribution execution costs and initialization
+///   validation costs scale linearly with recipient count; keeping both limits
+///   equal at 10 guarantees predictable, deterministic Soroban resource consumption.
+///
+/// ### Call sites guarded
+/// - `validate_recipient_list`: guards `set_recipients`, `set_default_recipients`,
+///   and `calculate_payouts` (used by `distribute_with_override`).
+/// - `clawback_dispute`: guards the batch clawback targets vector `from.len() <= MAX_RECIPIENTS`.
 pub const MAX_RECIPIENTS: u32 = 10;
+
+// Compile-time assertion: ensure MAX_COLLABORATORS and MAX_RECIPIENTS remain equal (#1178).
+const _: () = assert!(
+    MAX_COLLABORATORS == MAX_RECIPIENTS,
+    "MAX_COLLABORATORS and MAX_RECIPIENTS must remain in sync to preserve collaborator storage invariants"
+);
 
 /// Maximum number of admins in the multi-sig admin list (`set_admins`).
 pub const MAX_ADMIN_LIST: u32 = 10;
@@ -4724,6 +4769,17 @@ impl RoyaltySplitter {
             storage::persistent_get(env, &StorageKey::DistributionRecords).unwrap_or(Vec::new(env));
 
         if records.len() >= DISTRIBUTION_HISTORY_LIMIT {
+            let dropped_id = records.get(0).unwrap().id;
+
+            // #1219: make the eviction observable. Without this, an indexer
+            // rebuilding the full audit trail from on-chain history would see
+            // a silent gap once the cap is reached; on this event it should
+            // fall back to Horizon for the dropped range.
+            env.events().publish(
+                (Symbol::new(env, "hist_trunc"), symbol_short!("drop")),
+                dropped_id,
+            );
+
             let mut trimmed: Vec<DistributionRecord> = Vec::new(env);
             for i in 1..records.len() {
                 trimmed.push_back(records.get(i).unwrap());
@@ -5883,11 +5939,7 @@ impl RoyaltySplitter {
                 .checked_add(1)
                 .ok_or(ContractError::ArithmeticOverflow)?;
 
-        let proposer_weight = if let Ok(share) = Self::get_share(env.clone(), proposer.clone()) {
-            share
-        } else {
-            1_000
-        };
+        let proposer_weight = Self::get_share(env.clone(), proposer.clone()).unwrap_or(1_000);
 
         let proposal = UpgradeProposal {
             id,
@@ -5976,11 +6028,7 @@ impl RoyaltySplitter {
             return Err(ContractError::AlreadyVoted);
         }
 
-        let weight = if let Ok(share) = Self::get_share(env.clone(), voter.clone()) {
-            share
-        } else {
-            1_000
-        };
+        let weight = Self::get_share(env.clone(), voter.clone()).unwrap_or(1_000);
 
         if approve {
             proposal.yes_votes = proposal.yes_votes.saturating_add(weight);

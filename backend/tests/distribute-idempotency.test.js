@@ -13,15 +13,18 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   vecToScVal: jest.fn((v) => v),
   bytes32ToScVal: jest.fn((v) => v),
   i128ToScVal: jest.fn((v) => v),
+  getRecommendedFee: jest.fn(async () => "12345"),
   BatchTransactionBuilder: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
 }));
 
 const recordTransaction = jest.fn(() => "tx-456");
+const recordTransactionFee = jest.fn();
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction,
+  recordTransactionFee,
   addAuditLog: jest.fn(),
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
@@ -35,6 +38,7 @@ await jest.unstable_mockModule("../src/middleware/tieredRateLimit.js", () => ({
 
 // Import clearCache to reset between tests
 const { clearCache } = await import("../src/idempotency.js");
+const { resetMetrics } = await import("../src/metrics.js");
 const { default: app } = await import("./app.js");
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -46,6 +50,7 @@ const validBody = { contractId: CONTRACT, walletAddress: WALLET, tokenId: TOKEN 
 describe("POST /api/v1/distribute with idempotency", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMetrics();
     clearCache();
   });
 

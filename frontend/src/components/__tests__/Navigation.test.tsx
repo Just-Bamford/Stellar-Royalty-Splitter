@@ -97,6 +97,19 @@ describe("Navigation — mobile menu", () => {
     expect(screen.getByText("Settings")).toBeDefined();
   });
 
+  test("earnings pages have distinct labels and every nav item has a unique icon", () => {
+    setup();
+    expect(screen.getByText("Earnings Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Multi-Contract Earnings")).toBeInTheDocument();
+
+    const navButtons = screen
+      .getAllByRole("button")
+      .filter((button) => button.classList.contains("nav-link"));
+    const icons = navButtons.map((button) => button.querySelector(".nav-icon")?.textContent);
+
+    expect(new Set(icons).size).toBe(icons.length);
+  });
+
   test("active page has aria-current=page", () => {
     setup();
     const dashboardBtn = screen.getByRole("button", { name: /📊 Dashboard/ });

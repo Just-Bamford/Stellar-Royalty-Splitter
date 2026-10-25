@@ -4,10 +4,12 @@ import { devtools } from "zustand/middleware";
 export interface ContractsState {
   trackedContracts: string[];
   activeContractId: string | null;
+  lastAddError: string | null;
   addTrackedContract: (contractId: string) => boolean;
   removeTrackedContract: (contractId: string) => void;
   setTrackedContracts: (contracts: string[]) => void;
   setActiveContractId: (contractId: string | null) => void;
+  clearLastAddError: () => void;
 }
 
 const SETTINGS_STORAGE_KEY = "royaltySplitterSettings";
@@ -52,15 +54,19 @@ export const useContractsStore = create<ContractsState>()(
     (set, get) => ({
       trackedContracts: getInitialTrackedContracts(),
       activeContractId: null,
+      lastAddError: null,
 
       addTrackedContract: (contractId: string) => {
         const trimmed = contractId.trim();
         if (!isValidContractId(trimmed)) return false;
         const current = get().trackedContracts;
-        if (current.includes(trimmed)) return false;
+        if (current.includes(trimmed)) {
+          set({ lastAddError: "duplicate" }, false, "contracts/addTrackedContract");
+          return false;
+        }
         const updated = [...current, trimmed];
         syncTrackedContractsToLocalStorage(updated);
-        set({ trackedContracts: updated }, false, "contracts/addTrackedContract");
+        set({ trackedContracts: updated, lastAddError: null }, false, "contracts/addTrackedContract");
         return true;
       },
 
@@ -85,6 +91,10 @@ export const useContractsStore = create<ContractsState>()(
 
       setActiveContractId: (contractId: string | null) => {
         set({ activeContractId: contractId }, false, "contracts/setActiveContractId");
+      },
+
+      clearLastAddError: () => {
+        set({ lastAddError: null }, false, "contracts/clearLastAddError");
       },
     }),
     { name: "ContractsStore" },

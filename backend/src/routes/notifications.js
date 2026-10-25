@@ -4,6 +4,7 @@ import {
   getNotifications,
   getArchivedNotifications,
   getUnreadNotificationCount,
+  getUnreadCountByType,
   markNotificationRead,
   markNotificationUnread,
   markAllNotificationsRead,
@@ -94,13 +95,13 @@ notificationsRouter.get("/:walletAddress/search", (req, res) => {
 
 notificationsRouter.get("/:walletAddress/unread-by-type", (req, res) => {
   try {
-    const counts = {};
-    for (const type of NOTIFICATION_TYPES) {
-      const count = getNotificationsByType(req.params.walletAddress, type, 1, 0).filter(
-        (n) => !n.read
-      ).length;
-      if (count > 0) counts[type] = count;
-    }
+    // #1180: was one getNotificationsByType(..., limit: 1, ...) call per
+    // NOTIFICATION_TYPES entry, which could never report more than "0 or
+    // 1" unread for any type regardless of the real count. A single
+    // GROUP BY query returns the actual per-type count in one call, and
+    // (like the loop it replaces) a type with zero unread rows is simply
+    // absent from the result rather than present with a 0 value.
+    const counts = getUnreadCountByType(req.params.walletAddress);
     res.json({ success: true, data: counts });
   } catch (err) {
     sendError(res, 500, "unread_by_type_error", err.message);

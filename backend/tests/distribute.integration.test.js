@@ -15,6 +15,7 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
   vecToScVal: jest.fn((v) => v),
   bytes32ToScVal: jest.fn((v) => v),
   i128ToScVal: jest.fn((v) => v),
+  getRecommendedFee: jest.fn(async () => "12345"),
   BatchTransactionBuilder: jest.fn(),
   server: {},
   networkPassphrase: "Test SDF Network ; September 2015",
@@ -22,15 +23,18 @@ await jest.unstable_mockModule("../src/stellar.js", () => ({
 
 const recordTransaction = jest.fn(() => "tx-integration-001");
 const addAuditLog = jest.fn();
+const recordTransactionFee = jest.fn();
 
 await jest.unstable_mockModule("../src/database/index.js", () => ({
   recordTransaction,
   addAuditLog,
+  recordTransactionFee,
   initializeDatabase: jest.fn(),
   getMigrationVersion: jest.fn(() => 1),
 }));
 
 const { default: app } = await import("./app.js");
+const { resetMetrics } = await import("../src/metrics.js");
 
 // ── Test fixtures ─────────────────────────────────────────────────────────────
 
@@ -43,7 +47,10 @@ const validBody = { contractId: CONTRACT, walletAddress: WALLET, tokenId: TOKEN 
 // ── Integration tests ─────────────────────────────────────────────────────────
 
 describe("POST /api/v1/distribute — integration", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetMetrics();
+  });
 
   // ── Happy path ──────────────────────────────────────────────────────────────
 
