@@ -415,6 +415,10 @@ export default function InitializeForm({
 
       if (pendingCommit) {
         setPendingCommit(null);
+        setCollaborators([{ address: "", basisPoints: "" }]);
+        setTouched({});
+        setErrors({});
+        clearStatus();
         setStatus("ok", `Initialized. Tx: ${hash}`);
         onSuccess();
       } else {
