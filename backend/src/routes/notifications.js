@@ -32,7 +32,17 @@ const SMS_EVENT_PARAM_KEYS = {
   payment_failed: ["contractId", "reason"],
 };
 
-notificationsRouter.get("/:walletAddress", (req, res) => {
+// Stellar public keys are always 56-character base32 strings starting with "G".
+const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+
+function validateWalletAddress(req, res, next) {
+  if (!STELLAR_ADDRESS_RE.test(req.params.walletAddress)) {
+    return sendError(res, 400, "invalid_wallet_address", "walletAddress must be a valid Stellar public key (56-character base32 string starting with G)");
+  }
+  next();
+}
+
+notificationsRouter.get("/:walletAddress", validateWalletAddress, (req, res) => {
   try {
     const limit = parseInt(req.query.limit ?? "50");
     const offset = parseInt(req.query.offset ?? "0");
@@ -44,7 +54,7 @@ notificationsRouter.get("/:walletAddress", (req, res) => {
   }
 });
 
-notificationsRouter.get("/:walletAddress/unread-count", (req, res) => {
+notificationsRouter.get("/:walletAddress/unread-count", validateWalletAddress, (req, res) => {
   try {
     const count = getUnreadNotificationCount(req.params.walletAddress);
     res.json({ success: true, count });
@@ -53,7 +63,7 @@ notificationsRouter.get("/:walletAddress/unread-count", (req, res) => {
   }
 });
 
-notificationsRouter.get("/:walletAddress/by-type/:type", (req, res) => {
+notificationsRouter.get("/:walletAddress/by-type/:type", validateWalletAddress, (req, res) => {
   try {
     const { walletAddress, type } = req.params;
     const limit = parseInt(req.query.limit ?? "50");
@@ -75,7 +85,7 @@ notificationsRouter.get("/:walletAddress/by-type/:type", (req, res) => {
   }
 });
 
-notificationsRouter.get("/:walletAddress/search", (req, res) => {
+notificationsRouter.get("/:walletAddress/search", validateWalletAddress, (req, res) => {
   try {
     const { walletAddress } = req.params;
     const query = req.query.q;
@@ -93,7 +103,7 @@ notificationsRouter.get("/:walletAddress/search", (req, res) => {
   }
 });
 
-notificationsRouter.get("/:walletAddress/unread-by-type", (req, res) => {
+notificationsRouter.get("/:walletAddress/unread-by-type", validateWalletAddress, (req, res) => {
   try {
     // #1180: was one getNotificationsByType(..., limit: 1, ...) call per
     // NOTIFICATION_TYPES entry, which could never report more than "0 or
@@ -153,7 +163,7 @@ notificationsRouter.post("/:id/unarchive", (req, res) => {
   }
 });
 
-notificationsRouter.get("/:walletAddress/archived", (req, res) => {
+notificationsRouter.get("/:walletAddress/archived", validateWalletAddress, (req, res) => {
   try {
     const limit = parseInt(req.query.limit ?? "50");
     const offset = parseInt(req.query.offset ?? "0");
