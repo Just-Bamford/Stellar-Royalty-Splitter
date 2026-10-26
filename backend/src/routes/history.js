@@ -93,7 +93,7 @@ export async function emitSecondaryDistributionCompleted(transaction) {
   const { emitWebhookEvent } = await import("../services/webhook-manager.js");
   await emitWebhookEvent({
     contractId: transaction.contractId,
-    event: "distribution.completed",
+    event: "distribution.secondary_completed",
     data: {
       transactionHash: transaction.txHash,
       // Secondary royalty transactions are recorded by POST

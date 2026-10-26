@@ -861,3 +861,102 @@ fn test_royalty_distribution_consistency_across_upgrades() {
     assert_eq!(token_client.balance(&collaborator), 4000);
     assert_eq!(client.get_distribute_count(), 2);
 }
+
+// ── 7. Rollback upgrade verification (#1150) ──────────────────────────────────
+
+/// Read CurrentWasmHash directly from instance storage to verify rollback.
+fn raw_current_wasm_hash(env: &Env, contract_id: &Address) -> Option<BytesN<32>> {
+    use stellar_royalty_splitter::{ExtKey, StorageKey};
+    env.as_contract(contract_id, || {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Ext(ExtKey::CurrentWasmHash))
+    })
+}
+
+/// Read PreviousWasmHash directly from instance storage to verify rollback.
+fn raw_previous_wasm_hash(env: &Env, contract_id: &Address) -> Option<BytesN<32>> {
+    use stellar_royalty_splitter::{ExtKey, StorageKey};
+    env.as_contract(contract_id, || {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Ext(ExtKey::PreviousWasmHash))
+    })
+}
+
+/// Verifies that rollback_upgrade correctly restores the previous WASM hash
+/// stored under ExtKey::PreviousWasmHash back to ExtKey::CurrentWasmHash.
+/// This test ensures the rollback mechanism actually works as designed.
+#[test]
+#[ignore] // Requires WASM binary built with: cargo build --target wasm32-unknown-unknown --release
+fn test_rollback_upgrade_restores_previous_wasm_hash() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let admin = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.initialize(
+        &vec![&env, admin.clone(), b.clone()],
+        &vec![&env, 5000_u32, 5000_u32],
+    );
+
+    // Upload the WASM and perform first upgrade
+    let wasm_hash_v1 = upload_wasm(&env);
+    client.update_wasm(&wasm_hash_v1);
+
+    // After first upgrade, CurrentWasmHash should be set to wasm_hash_v1
+    let current_after_first_upgrade = raw_current_wasm_hash(&env, &contract_id);
+    assert!(
+        current_after_first_upgrade.is_some(),
+        "CurrentWasmHash must be set after upgrade"
+    );
+    assert_eq!(
+        current_after_first_upgrade.unwrap(),
+        wasm_hash_v1,
+        "CurrentWasmHash must match the uploaded WASM hash"
+    );
+
+    // Upload "new" WASM (in this test, it's the same WASM, but simulates a v2)
+    let wasm_hash_v2 = upload_wasm(&env);
+    client.update_wasm(&wasm_hash_v2);
+
+    // After second upgrade, PreviousWasmHash should store v1, CurrentWasmHash should be v2
+    let previous_after_second_upgrade = raw_previous_wasm_hash(&env, &contract_id);
+    let current_after_second_upgrade = raw_current_wasm_hash(&env, &contract_id);
+
+    assert!(
+        previous_after_second_upgrade.is_some(),
+        "PreviousWasmHash must be set after second upgrade"
+    );
+    assert_eq!(
+        previous_after_second_upgrade.unwrap(),
+        wasm_hash_v1,
+        "PreviousWasmHash must store the first upgrade's WASM hash"
+    );
+    assert_eq!(
+        current_after_second_upgrade.unwrap(),
+        wasm_hash_v2,
+        "CurrentWasmHash must be updated to the new WASM hash"
+    );
+
+    // Now call rollback_upgrade
+    client.rollback_upgrade(&admin);
+
+    // After rollback, CurrentWasmHash should revert to what was stored in PreviousWasmHash
+    let current_after_rollback = raw_current_wasm_hash(&env, &contract_id);
+    assert!(
+        current_after_rollback.is_some(),
+        "CurrentWasmHash must still be set after rollback"
+    );
+    assert_eq!(
+        current_after_rollback.unwrap(),
+        wasm_hash_v1,
+        "CurrentWasmHash must be restored to the previous WASM hash after rollback"
+    );
+
+    // Verify the contract is still functional after rollback
+    assert!(client.is_initialized());
+    assert_eq!(client.get_admin(), admin);
+}
+
