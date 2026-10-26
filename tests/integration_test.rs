@@ -4743,6 +4743,49 @@ fn test_batch_distribute_rejects_too_many_tokens() {
     assert_eq!(TokenClient::new(&env, &token0).balance(&contract_id), 1000);
 }
 
+/// Issue #1212 — batch_distribute bounds total effective operations
+/// (token_count * recipient_count <= MAX_BATCH_OPERATIONS).
+/// Capping operations at 100 prevents instruction budget exhaustion.
+#[test]
+fn test_batch_distribute_effective_operations_boundary() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let token_admin = Address::generate(&env);
+    let mut recipients: SorobanVec<Address> = SorobanVec::new(&env);
+    let mut shares: SorobanVec<u32> = SorobanVec::new(&env);
+    for _ in 0..stellar_royalty_splitter::MAX_RECIPIENTS {
+        recipients.push_back(Address::generate(&env));
+        shares.push_back(1000); // 10 recipients * 1000 bps = 10,000 bps total
+    }
+    client.initialize(&recipients, &shares);
+
+    // 10 tokens * 10 recipients = 100 effective ops (boundary: exactly MAX_BATCH_OPERATIONS of 100)
+    let mut tokens_10: SorobanVec<Address> = SorobanVec::new(&env);
+    for _ in 0..10 {
+        let token = make_token(&env, &token_admin);
+        mint(&env, &token, &contract_id, 1000);
+        tokens_10.push_back(token);
+    }
+    let res_10 = client.try_batch_distribute(&tokens_10);
+    assert!(res_10.is_ok(), "10 tokens with 10 recipients (100 operations) must succeed");
+
+    // 50 tokens * 10 recipients = 500 effective ops (exceeds MAX_BATCH_OPERATIONS of 100)
+    let mut tokens_50: SorobanVec<Address> = SorobanVec::new(&env);
+    for _ in 0..stellar_royalty_splitter::MAX_BATCH_TOKENS {
+        let token = make_token(&env, &token_admin);
+        mint(&env, &token, &contract_id, 1000);
+        tokens_50.push_back(token);
+    }
+    let res_50 = client.try_batch_distribute(&tokens_50);
+    assert_eq!(
+        res_50,
+        Err(Ok(ContractError::TooManyBatchTokens.into())),
+        "50 tokens with 10 recipients (500 operations) must return TooManyBatchTokens"
+    );
+}
+
 // ── Issue #664: expanded authorization / access-control coverage ────────────
 //
 // Fills gaps left by the existing auth tests: some protected operations only

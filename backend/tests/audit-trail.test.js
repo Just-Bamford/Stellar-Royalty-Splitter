@@ -24,7 +24,10 @@ import {
   setAuditTrailStore,
   verifyAuditTrail,
   enforceRetention,
+  startAuditTrailVerifier,
+  stopAuditTrailVerifier,
 } from "../src/services/audit-trail.js";
+import logger from "../src/logger.js";
 import { auditTrailRouter } from "../src/routes/audit-trail.js";
 import { prometheusMetrics, resetMetrics } from "../src/metrics.js";
 
@@ -410,5 +413,56 @@ describe("/admin/audit-trail routes", () => {
       (await request(app).get("/admin/audit-trail/export?standard=SOX&from=yesterday").set(auth)).status,
     ).toBe(400);
     expect((await request(app).get("/admin/audit-trail/export?standard=GDPR").set(auth)).status).toBe(400);
+  });
+});
+
+describe("startAuditTrailVerifier startup HMAC warning (#1220)", () => {
+  const origEnabled = process.env.AUDIT_TRAIL_ENABLED;
+  const origKey = process.env.AUDIT_TRAIL_HMAC_KEY;
+
+  afterEach(() => {
+    stopAuditTrailVerifier();
+    if (origEnabled !== undefined) process.env.AUDIT_TRAIL_ENABLED = origEnabled;
+    else delete process.env.AUDIT_TRAIL_ENABLED;
+    if (origKey !== undefined) process.env.AUDIT_TRAIL_HMAC_KEY = origKey;
+    else delete process.env.AUDIT_TRAIL_HMAC_KEY;
+    jest.restoreAllMocks();
+  });
+
+  test("emits a warn-level log when enabled and AUDIT_TRAIL_HMAC_KEY is missing", () => {
+    delete process.env.AUDIT_TRAIL_ENABLED;
+    delete process.env.AUDIT_TRAIL_HMAC_KEY;
+    const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
+
+    startAuditTrailVerifier();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("AUDIT_TRAIL_HMAC_KEY is not set"),
+      expect.objectContaining({ event: "audit_trail_hmac_key_missing" })
+    );
+  });
+
+  test("does not emit warning when AUDIT_TRAIL_HMAC_KEY is set", () => {
+    delete process.env.AUDIT_TRAIL_ENABLED;
+    process.env.AUDIT_TRAIL_HMAC_KEY = "super-secret-hmac-key";
+    const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
+
+    startAuditTrailVerifier();
+
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("AUDIT_TRAIL_HMAC_KEY is not set"),
+      expect.anything()
+    );
+  });
+
+  test("does not emit warning when AUDIT_TRAIL_ENABLED is false", () => {
+    process.env.AUDIT_TRAIL_ENABLED = "false";
+    delete process.env.AUDIT_TRAIL_HMAC_KEY;
+    const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
+
+    const res = startAuditTrailVerifier();
+
+    expect(res).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });

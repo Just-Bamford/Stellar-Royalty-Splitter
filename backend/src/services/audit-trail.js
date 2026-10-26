@@ -230,6 +230,15 @@ export function stopRetentionScheduler() {
  */
 export function startAuditTrailVerifier({ intervalMs } = {}) {
   if (!isEnabled()) return null;
+
+  if (!process.env.AUDIT_TRAIL_HMAC_KEY) {
+    logger.warn(
+      "AUDIT_TRAIL_HMAC_KEY is not set. Audit trail is using plain SHA-256 chaining. " +
+        "Set AUDIT_TRAIL_HMAC_KEY to enable HMAC-SHA256 tamper-evident chaining in production.",
+      { event: "audit_trail_hmac_key_missing" }
+    );
+  }
+
   const period =
     intervalMs ?? (parseInt(process.env.AUDIT_TRAIL_VERIFY_INTERVAL_MS ?? "3600000", 10) || 3_600_000);
 

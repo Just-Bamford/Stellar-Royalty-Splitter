@@ -576,6 +576,27 @@ pub const DEFAULT_UPGRADE_TIMELOCK: u64 = 86_400;
 /// Maximum number of tokens accepted per `batch_distribute` call.
 pub const MAX_BATCH_TOKENS: u32 = 50;
 
+/// Maximum combined transfer operations (tokens × recipients) allowed per
+/// `batch_distribute` invocation (#1212).
+///
+/// ### Soroban Instruction Budget Justification
+/// `batch_distribute` iterates over each provided token and transfers shares
+/// to all configured recipients (`token::Client::transfer`). Each transfer operation
+/// triggers cross-contract invocations, balance queries, and host environment metering.
+/// Soroban transaction execution has strict CPU instruction (100M limit) and ledger
+/// I/O read/write boundaries.
+///
+/// If a contract configured with `MAX_RECIPIENTS` (10) were called with
+/// `MAX_BATCH_TOKENS` (50), the call would perform 50 × 10 = 500 individual token
+/// transfers in a single transaction, virtually guaranteeing transaction failure due
+/// to exceeding Soroban's CPU instruction budget.
+///
+/// Setting `MAX_BATCH_OPERATIONS` to 100 provides a deterministic upper bound of at most
+/// 100 transfer operations per batch (e.g., 10 tokens with 10 recipients, or 50 tokens
+/// with 2 recipients), guaranteeing that execution stays reliably within Soroban's
+/// instruction and gas budget limits.
+pub const MAX_BATCH_OPERATIONS: u32 = 100;
+
 /// Maximum number of tokens in the approved-token whitelist (#840).
 pub const MAX_APPROVED_TOKENS: u32 = 25;
 
@@ -2449,6 +2470,11 @@ impl RoyaltySplitter {
         let recipients_to_use = Self::resolve_recipients(&env, Vec::new(&env))?;
         if recipients_to_use.is_empty() {
             return Err(ContractError::EmptyRecipients);
+        }
+
+        let effective_operations = tokens.len().saturating_mul(recipients_to_use.len());
+        if effective_operations > MAX_BATCH_OPERATIONS {
+            return Err(ContractError::TooManyBatchTokens);
         }
 
         let mut total_shares: u32 = 0;
