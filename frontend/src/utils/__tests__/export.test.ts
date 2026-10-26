@@ -18,15 +18,20 @@ describe("Export Utilities (#896)", () => {
       const d = new Date("2025-08-20T14:30:00Z");
       expect(formatDateStamp(d)).toBe("2025-08-20");
     });
+
+    it("uses the local calendar date rather than the UTC date", () => {
+      const lateLocalDate = new Date(2025, 7, 20, 23, 0, 0);
+      expect(formatDateStamp(lateLocalDate)).toBe("2025-08-20");
+    });
   });
 
   describe("buildExportFilename", () => {
     const testDate = new Date("2025-08-20T00:00:00Z");
 
     it("generates filename without contract ID", () => {
-      expect(buildExportFilename("collaborators", "csv", undefined, testDate)).toBe(
-        "collaborators-2025-08-20.csv",
-      );
+      expect(
+        buildExportFilename("collaborators", "csv", undefined, testDate),
+      ).toBe("collaborators-2025-08-20.csv");
       expect(buildExportFilename("earnings", "json", undefined, testDate)).toBe(
         "earnings-2025-08-20.json",
       );
@@ -34,14 +39,19 @@ describe("Export Utilities (#896)", () => {
 
     it("includes snippet when contract ID is provided", () => {
       expect(
-        buildExportFilename("collaborators", "csv", "CCONTRACT123456789", testDate),
+        buildExportFilename(
+          "collaborators",
+          "csv",
+          "CCONTRACT123456789",
+          testDate,
+        ),
       ).toBe("collaborators-CCONTRAC-2025-08-20.csv");
     });
 
     it("ignores __all__ contract pseudo-id", () => {
-      expect(
-        buildExportFilename("earnings", "csv", "__all__", testDate),
-      ).toBe("earnings-2025-08-20.csv");
+      expect(buildExportFilename("earnings", "csv", "__all__", testDate)).toBe(
+        "earnings-2025-08-20.csv",
+      );
     });
   });
 
@@ -122,15 +132,18 @@ describe("Export Utilities (#896)", () => {
     });
 
     it("handles large scale datasets (150+ collaborators) without loss or truncation", () => {
-      const largeList: CollaboratorExportItem[] = Array.from({ length: 150 }, (_, i) => ({
-        address: `GADDR${i.toString().padStart(6, "0")}`,
-        name: `Collaborator ${i}`,
-        basisPoints: 50,
-        sharePercentage: 0.5,
-        tier: i % 2 === 0 ? "VIP" : "Regular",
-        paymentStatus: i % 3 === 0 ? "Paid" : "Unpaid",
-        payoutCount: i % 3 === 0 ? 10 : 0,
-      }));
+      const largeList: CollaboratorExportItem[] = Array.from(
+        { length: 150 },
+        (_, i) => ({
+          address: `GADDR${i.toString().padStart(6, "0")}`,
+          name: `Collaborator ${i}`,
+          basisPoints: 50,
+          sharePercentage: 0.5,
+          tier: i % 2 === 0 ? "VIP" : "Regular",
+          paymentStatus: i % 3 === 0 ? "Paid" : "Unpaid",
+          payoutCount: i % 3 === 0 ? 10 : 0,
+        }),
+      );
 
       const csv = buildCollaboratorsCSV(largeList);
       const rows = csv.split("\r\n");
