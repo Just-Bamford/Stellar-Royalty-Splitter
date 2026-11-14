@@ -19,10 +19,46 @@ export const identityRouter = Router();
 // ── ENS constants ─────────────────────────────────────────────────────────────
 
 const ENS_SUBGRAPH_URL =
-  process.env.ENS_SUBGRAPH_URL ??
-  "https://api.thegraph.com/subgraphs/name/ensdomains/ens";
+  process.env.ENS_SUBGRAPH_URL ?? "https://api.thegraph.com/subgraphs/name/ensdomains/ens";
 
 const ENS_TIMEOUT_MS = 400;
+
+/** Strict 20-byte hex Ethereum address format (0x + 40 hex characters). */
+export const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+
+/**
+ * Validate whether a value is a well-formed Ethereum address (`0x` + 40 hex chars).
+ *
+ * @param {unknown} address
+ * @returns {address is string}
+ */
+export function isValidEthAddress(address) {
+  return typeof address === "string" && ETH_ADDRESS_REGEX.test(address);
+}
+
+const ENS_DOMAINS_QUERY = `
+  query ResolveEnsDomains($address: String!) {
+    domains(
+      where: { resolvedAddress: $address }
+      first: 1
+      orderBy: createdAt
+      orderDirection: desc
+    ) {
+      name
+      resolver {
+        texts(first: 5)
+      }
+    }
+  }
+`;
+
+const ENS_AVATAR_QUERY = `
+  query ResolveEnsAvatar($id: ID!) {
+    resolver(id: $id) {
+      texts
+    }
+  }
+`;
 
 /** Simple in-process ENS cache with 5-min TTL */
 const ensCache = new Map();
@@ -42,18 +78,19 @@ function setEnsCache(address, result) {
   ensCache.set(address, { result, expiresAt: Date.now() + ENS_CACHE_TTL_MS });
 }
 
+/** Clear the in-process ENS cache — exported for testing. */
+export function clearEnsCache() {
+  ensCache.clear();
+}
+
 // ── ENS resolution ────────────────────────────────────────────────────────────
 
 async function resolveEnsForAddress(address) {
-  const query = `{
-    domains(where: { resolvedAddress: "${address.toLowerCase()}" }, first: 1, orderBy: createdAt, orderDirection: desc) {
-      name
-      resolver {
-        texts(first: 5)
-      }
-    }
-  }`;
+  if (!isValidEthAddress(address)) {
+    return null;
+  }
 
+  const normalizedAddress = address.toLowerCase();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ENS_TIMEOUT_MS);
 
@@ -61,7 +98,10 @@ async function resolveEnsForAddress(address) {
     const res = await fetch(ENS_SUBGRAPH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({
+        query: ENS_DOMAINS_QUERY,
+        variables: { address: normalizedAddress },
+      }),
       signal: controller.signal,
     });
 
@@ -77,18 +117,16 @@ async function resolveEnsForAddress(address) {
 
     // Attempt to fetch the avatar text record via a second subgraph call
     let avatar = null;
-    const avatarQuery = `{
-      resolver(id: "${address.toLowerCase()}") {
-        texts
-      }
-    }`;
 
     // Best-effort avatar fetch — ignore on any error
     try {
       const avatarRes = await fetch(ENS_SUBGRAPH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: avatarQuery }),
+        body: JSON.stringify({
+          query: ENS_AVATAR_QUERY,
+          variables: { id: normalizedAddress },
+        }),
         signal: controller.signal,
       });
       if (avatarRes.ok) {
@@ -108,9 +146,12 @@ async function resolveEnsForAddress(address) {
     return { name, avatar, verified: true };
   } catch (err) {
     if (err?.name === "AbortError") {
-      logger.warn("ENS subgraph request timed out", { address });
+      logger.warn("ENS subgraph request timed out", { address: normalizedAddress });
     } else {
-      logger.warn("ENS subgraph fetch error", { address, error: err?.message });
+      logger.warn("ENS subgraph fetch error", {
+        address: normalizedAddress,
+        error: err?.message,
+      });
     }
     return null;
   } finally {
@@ -124,17 +165,25 @@ async function resolveEnsForAddress(address) {
  * GET /api/v1/identity/ens/:address
  *
  * Resolves ENS name and avatar for the given Ethereum address.
+ * Returns 400 when the address is not a valid 0x-prefixed 40-hex-char Ethereum address.
  * Returns 404 when the address has no ENS name.
  */
 identityRouter.get("/ens/:address", async (req, res, next) => {
   const { address } = req.params;
 
-  if (!address || typeof address !== "string" || address.length < 10) {
-    return sendError(res, 400, "invalid_address", "A valid address is required");
+  if (!isValidEthAddress(address)) {
+    return sendError(
+      res,
+      400,
+      "invalid_address",
+      "A valid Ethereum address (0x followed by 40 hex characters) is required"
+    );
   }
 
+  const normalizedAddress = address.toLowerCase();
+
   try {
-    const cached = getEnsCached(address);
+    const cached = getEnsCached(normalizedAddress);
     if (cached !== undefined) {
       if (cached === null) {
         return sendError(res, 404, "not_found", "No ENS name found for this address");
@@ -142,8 +191,8 @@ identityRouter.get("/ens/:address", async (req, res, next) => {
       return res.json(cached);
     }
 
-    const result = await resolveEnsForAddress(address);
-    setEnsCache(address, result);
+    const result = await resolveEnsForAddress(normalizedAddress);
+    setEnsCache(normalizedAddress, result);
 
     if (!result) {
       return sendError(res, 404, "not_found", "No ENS name found for this address");
