@@ -15,17 +15,37 @@ import { addAuditLog } from "../database/audit.js";
 
 export const paymentHoldsRouter = Router();
 
+/**
+ * Derive the actor from authenticated request context instead of trusting
+ * caller-supplied body fields. Falls back to "unknown", never "admin".
+ */
+function resolveAuthenticatedActor(req) {
+  for (const candidate of [req.user?.walletAddress, req.user?.address, req.user?.id]) {
+    if (candidate !== undefined && candidate !== null) {
+      const normalized = String(candidate).trim();
+      if (normalized) return normalized;
+    }
+  }
+  return "unknown";
+}
+
 paymentHoldsRouter.post("/place", requireRole("admin"), (req, res) => {
   try {
-    const { transactionId, holdReason, holdUntil, placedBy } = req.body;
+    const { transactionId, holdReason, holdUntil } = req.body;
     if (!transactionId || !holdReason) {
       return sendError(res, 400, "validation_error", "transactionId and holdReason are required");
     }
-    const result = placeHold(transactionId, holdReason, holdUntil ?? null, placedBy ?? "admin");
+    const actor = resolveAuthenticatedActor(req);
+    const result = placeHold(transactionId, holdReason, holdUntil ?? null, actor);
     if (!result) {
       return sendError(res, 404, "not_found", "Transaction not found");
     }
-    addAuditLog(result.contractId, "payment_hold_placed", placedBy ?? "admin", JSON.stringify({ transactionId, holdReason, holdUntil }));
+    addAuditLog(
+      result.contractId,
+      "payment_hold_placed",
+      actor,
+      JSON.stringify({ transactionId, holdReason, holdUntil })
+    );
     res.json({ success: true, data: result });
   } catch (err) {
     sendError(res, 500, "hold_place_error", err.message);
@@ -34,15 +54,21 @@ paymentHoldsRouter.post("/place", requireRole("admin"), (req, res) => {
 
 paymentHoldsRouter.post("/release", requireRole("admin"), (req, res) => {
   try {
-    const { transactionId, releasedBy, approvalNote } = req.body;
+    const { transactionId, approvalNote } = req.body;
     if (!transactionId) {
       return sendError(res, 400, "validation_error", "transactionId is required");
     }
-    const result = releaseHold(transactionId, releasedBy ?? "admin", approvalNote ?? null);
+    const actor = resolveAuthenticatedActor(req);
+    const result = releaseHold(transactionId, actor, approvalNote ?? null);
     if (!result) {
       return sendError(res, 404, "not_found", "Transaction not found or not on hold");
     }
-    addAuditLog(result.contractId, "payment_hold_released", releasedBy ?? "admin", JSON.stringify({ transactionId, approvalNote }));
+    addAuditLog(
+      result.contractId,
+      "payment_hold_released",
+      actor,
+      JSON.stringify({ transactionId, approvalNote })
+    );
     res.json({ success: true, data: result });
   } catch (err) {
     sendError(res, 500, "hold_release_error", err.message);
@@ -51,15 +77,21 @@ paymentHoldsRouter.post("/release", requireRole("admin"), (req, res) => {
 
 paymentHoldsRouter.post("/approve-release", requireRole("admin"), (req, res) => {
   try {
-    const { transactionId, approvedBy, approvalNote } = req.body;
+    const { transactionId, approvalNote } = req.body;
     if (!transactionId) {
       return sendError(res, 400, "validation_error", "transactionId is required");
     }
-    const result = approveHoldRelease(transactionId, approvedBy ?? "admin", approvalNote ?? null);
+    const actor = resolveAuthenticatedActor(req);
+    const result = approveHoldRelease(transactionId, actor, approvalNote ?? null);
     if (!result) {
       return sendError(res, 404, "not_found", "Transaction not found or not on hold");
     }
-    addAuditLog(result.contractId, "hold_release_approved", approvedBy ?? "admin", JSON.stringify({ transactionId, approvalNote }));
+    addAuditLog(
+      result.contractId,
+      "hold_release_approved",
+      actor,
+      JSON.stringify({ transactionId, approvalNote })
+    );
     res.json({ success: true, data: result });
   } catch (err) {
     sendError(res, 500, "approve_error", err.message);

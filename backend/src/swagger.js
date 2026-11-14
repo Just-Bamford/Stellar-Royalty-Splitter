@@ -1371,7 +1371,6 @@ export const openApiSpec = {
                   transactionId: { type: "integer" },
                   holdReason: { type: "string" },
                   holdUntil: { type: "string", format: "date-time" },
-                  placedBy: { type: "string" },
                 },
               },
             },
@@ -1393,7 +1392,7 @@ export const openApiSpec = {
           required: true,
           content: {
             "application/json": {
-              schema: { type: "object", required: ["transactionId"], properties: { transactionId: { type: "integer" }, releasedBy: { type: "string" }, approvalNote: { type: "string" } } },
+              schema: { type: "object", required: ["transactionId"], properties: { transactionId: { type: "integer" }, approvalNote: { type: "string" } } },
             },
           },
         },
@@ -1412,7 +1411,7 @@ export const openApiSpec = {
           required: true,
           content: {
             "application/json": {
-              schema: { type: "object", required: ["transactionId"], properties: { transactionId: { type: "integer" }, approvedBy: { type: "string" }, approvalNote: { type: "string" } } },
+              schema: { type: "object", required: ["transactionId"], properties: { transactionId: { type: "integer" }, approvalNote: { type: "string" } } },
             },
           },
         },
