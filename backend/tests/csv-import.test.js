@@ -1,10 +1,11 @@
-import { jest, describe, test, expect, beforeEach } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import request from "supertest";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.join(__dirname, "..", "uploads", "csv-imports");
 
 const mockCreateCsvImport = jest.fn();
 const mockAddImportResult = jest.fn();
@@ -48,6 +49,10 @@ app.use((err, _req, res, _next) => {
 });
 
 const CONTRACT_ID = "CAFQE4X7R7X7R7X7R7X7R7X7R7X7R7X7R7X7R7X7R7X7R7X7R7X7R7";
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe("CSV Import - Template", () => {
   test("GET /template returns CSV content", async () => {
@@ -108,6 +113,33 @@ describe("CSV Import - Validation", () => {
 
     expect(res.status).toBe(400);
   });
+
+  test("POST /validate cleans up uploaded file when malformed CSV throws parse error (#1324)", async () => {
+    const malformedCsv = "wrong_header,another_column\nGABCDEF1234567890XYZ,100";
+    const tmpFile = path.join(__dirname, "_test_malformed_validate.csv");
+    fs.writeFileSync(tmpFile, malformedCsv, "utf-8");
+
+    const beforeFiles = new Set(fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir) : []);
+    const unlinkSpy = jest.spyOn(fs, "unlinkSync");
+
+    try {
+      const res = await request(app).post("/api/v1/csv-import/validate").attach("file", tmpFile);
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("validation_error");
+
+      const uploadedCall = unlinkSpy.mock.calls.find(([p]) =>
+        String(p).includes("_test_malformed_validate.csv")
+      );
+      expect(uploadedCall).toBeDefined();
+      expect(fs.existsSync(uploadedCall[0])).toBe(false);
+
+      const leakedFiles = fs.readdirSync(uploadsDir).filter((f) => !beforeFiles.has(f));
+      expect(leakedFiles).toEqual([]);
+    } finally {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    }
+  });
 });
 
 describe("CSV Import - Preview", () => {
@@ -127,6 +159,36 @@ describe("CSV Import - Preview", () => {
     expect(res.body.data.validRows.length).toBe(2);
 
     fs.unlinkSync(tmpFile);
+  });
+
+  test("POST /preview cleans up uploaded file when malformed CSV throws parse error (#1324)", async () => {
+    const malformedCsv = "missing_address,missing_share\nrow1,50";
+    const tmpFile = path.join(__dirname, "_test_malformed_preview.csv");
+    fs.writeFileSync(tmpFile, malformedCsv, "utf-8");
+
+    const beforeFiles = new Set(fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir) : []);
+    const unlinkSpy = jest.spyOn(fs, "unlinkSync");
+
+    try {
+      const res = await request(app)
+        .post("/api/v1/csv-import/preview")
+        .field("contractId", CONTRACT_ID)
+        .attach("file", tmpFile);
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("preview_error");
+
+      const uploadedCall = unlinkSpy.mock.calls.find(([p]) =>
+        String(p).includes("_test_malformed_preview.csv")
+      );
+      expect(uploadedCall).toBeDefined();
+      expect(fs.existsSync(uploadedCall[0])).toBe(false);
+
+      const leakedFiles = fs.readdirSync(uploadsDir).filter((f) => !beforeFiles.has(f));
+      expect(leakedFiles).toEqual([]);
+    } finally {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    }
   });
 });
 
@@ -168,16 +230,22 @@ describe("CSV Import - Import Flow", () => {
     fs.unlinkSync(tmpFile);
   });
 
-  test("POST /import without contractId returns error", async () => {
+  test("POST /import without contractId returns error and cleans up uploaded file", async () => {
     const csvContent = "address,share_percentage\nGABCDEF1234567890XYZ,100";
     const tmpFile = path.join(__dirname, "_test_no_contract.csv");
     fs.writeFileSync(tmpFile, csvContent, "utf-8");
 
-    const res = await request(app).post("/api/v1/csv-import/import").attach("file", tmpFile);
+    const beforeFiles = new Set(fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir) : []);
 
-    expect(res.status).toBe(400);
+    try {
+      const res = await request(app).post("/api/v1/csv-import/import").attach("file", tmpFile);
 
-    fs.unlinkSync(tmpFile);
+      expect(res.status).toBe(400);
+      const leakedFiles = fs.readdirSync(uploadsDir).filter((f) => !beforeFiles.has(f));
+      expect(leakedFiles).toEqual([]);
+    } finally {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    }
   });
 
   test("GET /history/:contractId returns import history", async () => {
