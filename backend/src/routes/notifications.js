@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { sendError } from "../error-response.js";
+import { validateStellarAddress } from "../validation.js";
 import {
   getNotifications,
   getArchivedNotifications,
@@ -23,6 +24,16 @@ import { sendNotification } from "../websocket.js";
 import { sendEventSms } from "../services/sms-notifications.js";
 
 export const notificationsRouter = Router();
+
+// Reject malformed :walletAddress path parameters before any handler logic or
+// database calls across every parameterized route on this router (#1309):
+// GET /:walletAddress, GET /:walletAddress/unread-count, GET /:walletAddress/by-type/:type,
+// GET /:walletAddress/search, GET /:walletAddress/unread-by-type,
+// POST /read-all/:walletAddress, GET /:walletAddress/archived, GET /preferences/:walletAddress.
+notificationsRouter.param("walletAddress", (_req, res, next, walletAddress) => {
+  if (!validateStellarAddress(walletAddress, res)) return;
+  next();
+});
 
 // Event types this generic /send endpoint also fans out to SMS for (#927),
 // mapped to the params each SMS template builder expects.

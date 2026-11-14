@@ -253,3 +253,42 @@ describe("Notifications - Connection Handling", () => {
     expect(res.body.unreadCount).toBe(0);
   });
 });
+
+describe("Notifications - Wallet Address Validation (#1309)", () => {
+  const INVALID_ADDRESSES = [
+    ["non-Stellar string", "not-a-stellar-address"],
+    ["bad StrKey checksum", `G${"A".repeat(55)}`],
+  ];
+
+  const WALLET_ROUTES = [
+    ["GET", (addr) => `/api/v1/notifications/${addr}`, mockGetNotifications],
+    ["GET", (addr) => `/api/v1/notifications/${addr}/unread-count`, mockGetUnreadNotificationCount],
+    [
+      "GET",
+      (addr) => `/api/v1/notifications/${addr}/by-type/distribution_confirmed`,
+      mockGetNotificationsByType,
+    ],
+    ["GET", (addr) => `/api/v1/notifications/${addr}/search?q=payment`, mockSearchNotifications],
+    ["GET", (addr) => `/api/v1/notifications/${addr}/unread-by-type`, mockGetUnreadCountByType],
+    ["POST", (addr) => `/api/v1/notifications/read-all/${addr}`, mockMarkAllNotificationsRead],
+    ["GET", (addr) => `/api/v1/notifications/${addr}/archived`, mockGetArchivedNotifications],
+    ["GET", (addr) => `/api/v1/notifications/preferences/${addr}`, mockGetNotificationPreference],
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test.each(
+    WALLET_ROUTES.flatMap(([method, buildPath, dbMock]) =>
+      INVALID_ADDRESSES.map(([label, addr]) => [method, buildPath(addr), label, dbMock])
+    )
+  )("%s %s returns 400 and skips DB for %s", async (method, path, _label, dbMock) => {
+    const res =
+      method === "POST" ? await request(app).post(path) : await request(app).get(path);
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_stellar_address");
+    expect(dbMock).not.toHaveBeenCalled();
+  });
+});
