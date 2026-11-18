@@ -1002,8 +1002,28 @@ impl RoyaltySplitter {
         storage::instance_set(env, &StorageKey::Admin, &admin);
         storage::persistent_set(env, &StorageKey::Collaborators, &collaborators);
         storage::persistent_set(env, &StorageKey::ShareMap, &share_map);
-        // #982 — Initialize total governance token supply to 0
-        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &0_i128);
+
+        // #955/#982 — Issue governance tokens 1:1 with each collaborator's share
+        // at initialisation. No delegates exist yet so there is no delegation
+        // propagation to handle; we write balances and total supply directly.
+        let mut gov_supply: i128 = 0;
+        for i in 0..collaborators.len() {
+            let addr = collaborators.get(i).unwrap_optimized();
+            let share = shares.get(i).unwrap() as i128;
+            storage::persistent_set(
+                env,
+                &StorageKey::Ext(ExtKey::GovBalance(addr.clone())),
+                &share,
+            );
+            gov_supply = gov_supply
+                .checked_add(share)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+            env.events().publish(
+                (symbol_short!("gov"), symbol_short!("mint")),
+                (addr, share, gov_supply),
+            );
+        }
+        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &gov_supply);
 
         let version = String::from_str(env, VERSION);
         storage::instance_set(env, &StorageKey::ContractVersion, &version);
@@ -7831,31 +7851,33 @@ mod advanced_governance_tests {
         env.mock_all_auths();
         let (_, _, alice, bob, client) = setup_gov(&env);
 
-        assert_eq!(client.gov_total_supply(), 0);
-        assert_eq!(client.gov_balance(&alice), 0);
-        assert_eq!(client.gov_balance(&bob), 0);
+        // initialize issues governance tokens 1:1 with each collaborator's share
+        assert_eq!(client.gov_total_supply(), 10_000);
+        assert_eq!(client.gov_balance(&alice), 6_000);
+        assert_eq!(client.gov_balance(&bob), 4_000);
 
-        // Mint tokens to Alice and Bob
+        // Mint additional tokens to Alice and Bob
         client.gov_mint(&alice, &1_000);
         client.gov_mint(&bob, &500);
 
-        assert_eq!(client.gov_balance(&alice), 1_000);
-        assert_eq!(client.gov_balance(&bob), 500);
-        assert_eq!(client.gov_total_supply(), 1_500);
+        assert_eq!(client.gov_balance(&alice), 7_000);
+        assert_eq!(client.gov_balance(&bob), 4_500);
+        assert_eq!(client.gov_total_supply(), 11_500);
 
-        // Transfer from Alice to Bob
+        // Transfer 300 from Alice to Bob
         client.gov_transfer(&alice, &bob, &300);
-        assert_eq!(client.gov_balance(&alice), 700);
-        assert_eq!(client.gov_balance(&bob), 800);
-        assert_eq!(client.gov_total_supply(), 1_500);
+        assert_eq!(client.gov_balance(&alice), 6_700);
+        assert_eq!(client.gov_balance(&bob), 4_800);
+        assert_eq!(client.gov_total_supply(), 11_500);
 
         // Failure cases
         assert_eq!(
             client.try_gov_mint(&alice, &0),
             Err(Ok(ContractError::AmountNotPositive))
         );
+        // Alice has 6_700 — attempt to transfer more than balance
         assert_eq!(
-            client.try_gov_transfer(&alice, &bob, &1_000),
+            client.try_gov_transfer(&alice, &bob, &10_000),
             Err(Ok(ContractError::InsufficientBalance))
         );
         assert_eq!(
@@ -7872,21 +7894,22 @@ mod advanced_governance_tests {
 
         client.gov_mint(&alice, &1_000);
         client.gov_mint(&bob, &500);
+        // alice=7_000, bob=4_500
 
-        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
-        assert_eq!(client.get_effective_gov_votes(&bob), 500);
+        assert_eq!(client.get_effective_gov_votes(&alice), 7_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 4_500);
 
         // Alice delegates to Bob
         client.delegate_gov_votes(&alice, &bob);
         assert_eq!(client.get_gov_delegate(&alice), Some(bob.clone()));
         assert_eq!(client.get_effective_gov_votes(&alice), 0);
-        assert_eq!(client.get_effective_gov_votes(&bob), 1_500);
+        assert_eq!(client.get_effective_gov_votes(&bob), 11_500);
 
         // Alice revokes delegation
         client.revoke_gov_delegation(&alice);
         assert_eq!(client.get_gov_delegate(&alice), None);
-        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
-        assert_eq!(client.get_effective_gov_votes(&bob), 500);
+        assert_eq!(client.get_effective_gov_votes(&alice), 7_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 4_500);
     }
 
     #[test]
@@ -7945,7 +7968,7 @@ mod advanced_governance_tests {
         let prop = client.get_gov_proposal(&prop_id);
         assert_eq!(prop.id, 1);
         assert_eq!(prop.proposer, alice);
-        assert_eq!(prop.quorum_votes, 300); // 20% of 1500 = 300
+        assert_eq!(prop.quorum_votes, 2_300); // 20% of 11_500 (alice=7_000+bob=4_500)
         assert_eq!(prop.voting_ends_at, 10_000 + duration);
         assert!(!prop.executed);
         assert!(!prop.rejected);
@@ -8102,11 +8125,20 @@ mod advanced_governance_tests {
         let env = Env::default();
         env.mock_all_auths();
         env.ledger().with_mut(|l| l.timestamp = 10_000);
-        let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // Total supply = 1,000. Quorum is exactly 200 (20%).
-        client.gov_mint(&alice, &200);
-        client.gov_mint(&bob, &800);
+        // Build a fresh contract for this quorum test so we control the full
+        // supply precisely. admin holds 10_000 from initialize; mint alice=5_000
+        // → total=15_000, quorum=3_000 (20%). Alice votes 5_000 >= 3_000. ✓
+        let contract_id = env.register_contract(None, RoyaltySplitter);
+        let client = RoyaltySplitterClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let alice = Address::generate(&env);
+        client.initialize(
+            &Vec::from_array(&env, [admin.clone()]),
+            &Vec::from_array(&env, [10_000u32]),
+        );
+        client.gov_mint(&alice, &5_000);
+        // total = 15_000, quorum = 20% = 3_000
 
         let prop_id = client.create_gov_proposal(
             &alice,
@@ -8116,7 +8148,7 @@ mod advanced_governance_tests {
             &DEFAULT_GOV_VOTING_PERIOD,
         );
 
-        // Alice votes with exactly 200 votes (meets quorum)
+        // Alice votes with 5_000 >= quorum of 3_000 — meets quorum
         client.vote_gov_proposal(&alice, &prop_id, &true);
 
         env.ledger()
@@ -8274,10 +8306,13 @@ mod advanced_governance_tests {
         env.mock_all_auths();
         let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // Bob has 0 tokens
+        // alice=6_000, bob=4_000 from initialize — both have enough to propose.
+        // Use a fresh address (charlie) with 0 tokens to test the rejection.
+        let charlie = Address::generate(&env);
+
         assert_eq!(
             client.try_create_gov_proposal(
-                &bob,
+                &charlie,
                 &GovProposalAction::ChangeRoyaltyRate(500),
                 &String::from_str(&env, "Title"),
                 &String::from_str(&env, "Desc"),
@@ -8286,7 +8321,7 @@ mod advanced_governance_tests {
             Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
         );
 
-        // Alice mints tokens and creates proposal
+        // Alice creates proposal (has 6_000 votes)
         client.gov_mint(&alice, &1_000);
         let prop_id = client.create_gov_proposal(
             &alice,
@@ -8296,11 +8331,12 @@ mod advanced_governance_tests {
             &DEFAULT_GOV_VOTING_PERIOD,
         );
 
-        // Bob has 0 voting power
+        // Charlie has 0 voting power
         assert_eq!(
-            client.try_vote_gov_proposal(&bob, &prop_id, &true),
+            client.try_vote_gov_proposal(&charlie, &prop_id, &true),
             Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
         );
+        let _ = bob;
     }
 
     #[test]
