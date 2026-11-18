@@ -66,7 +66,7 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
           <div className="connect-actions">
             <button
               className="btn-primary"
-              onClick={handleConnect}
+              onClick={() => handleConnect()}
               disabled={isLoading}
             >
               {isLoading ? "Connecting..." : "Connect Wallet"}
