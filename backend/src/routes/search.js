@@ -17,6 +17,7 @@
 import { Router } from "express";
 import logger from "../logger.js";
 import { sendError } from "../error-response.js";
+import { requireAdminBearerToken } from "../middleware/admin-auth.js";
 import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   searchAll,
@@ -43,26 +44,6 @@ function recordSearchAsync(query, type, count) {
       logger.warn("Asynchronous search recording failed", { error: err.message });
     }
   });
-}
-
-// ─── Admin auth middleware ────────────────────────────────────────────────────
-
-function extractBearerToken(req) {
-  const header = req.get("Authorization");
-  if (!header?.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
-}
-
-function requireAdminToken(req, res, next) {
-  const envToken = process.env.ADMIN_ROTATE_TOKEN;
-  if (!envToken) {
-    return sendError(res, 503, "service_unavailable", "Admin operations are not configured on this server");
-  }
-  const token = extractBearerToken(req);
-  if (!token || token !== envToken) {
-    return sendError(res, 401, "unauthorized", "Unauthorized");
-  }
-  next();
 }
 
 // ─── Universal search ─────────────────────────────────────────────────────────
@@ -336,7 +317,7 @@ searchRouter.get("/statistics", (req, res, next) => {
 
 // ─── Admin: Rebuild search indexes ────────────────────────────────────────────
 
-searchRouter.post("/admin/rebuild", requireAdminToken, async (req, res, next) => {
+searchRouter.post("/admin/rebuild", requireAdminBearerToken, async (req, res, next) => {
   try {
     logger.info("Starting search index rebuild", { admin: true });
 

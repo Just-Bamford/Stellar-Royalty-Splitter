@@ -16,6 +16,7 @@ import { Router } from "express";
 import logger from "../logger.js";
 import { sendError } from "../error-response.js";
 import { parsePagination } from "../validation.js";
+import { requireAdminBearerToken } from "../middleware/admin-auth.js";
 import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   getReputationDetails,
@@ -29,26 +30,6 @@ import {
 } from "../database/reputation.js";
 
 export const reputationRouter = Router();
-
-// ─── Admin auth middleware ────────────────────────────────────────────────────
-
-function extractBearerToken(req) {
-  const header = req.get("Authorization");
-  if (!header?.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
-}
-
-function requireAdminToken(req, res, next) {
-  const envToken = process.env.ADMIN_ROTATE_TOKEN;
-  if (!envToken) {
-    return sendError(res, 503, "service_unavailable", "Admin operations are not configured on this server");
-  }
-  const token = extractBearerToken(req);
-  if (!token || token !== envToken) {
-    return sendError(res, 401, "unauthorized", "Unauthorized");
-  }
-  next();
-}
 
 // ─── Validation helpers ───────────────────────────────────────────────────────
 
@@ -187,7 +168,7 @@ reputationRouter.get("/statistics", (req, res, next) => {
 
 // ─── Admin: Recalculate all trust scores ──────────────────────────────────────
 
-reputationRouter.post("/admin/recalculate", requireAdminToken, async (req, res, next) => {
+reputationRouter.post("/admin/recalculate", requireAdminBearerToken, async (req, res, next) => {
   try {
     logger.info("Starting bulk trust score recalculation", { admin: true });
 
@@ -207,7 +188,7 @@ reputationRouter.post("/admin/recalculate", requireAdminToken, async (req, res, 
 
 // ─── Admin: Record reputation activity ────────────────────────────────────────
 
-reputationRouter.post("/admin/activity", requireAdminToken, async (req, res, next) => {
+reputationRouter.post("/admin/activity", requireAdminBearerToken, async (req, res, next) => {
   try {
     const { walletAddress, activityType, impactScore, details } = req.body;
 

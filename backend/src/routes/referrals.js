@@ -19,6 +19,7 @@ import { Router } from "express";
 import logger from "../logger.js";
 import { validate, parsePagination } from "../validation.js";
 import { sendError } from "../error-response.js";
+import { requireAdminBearerToken } from "../middleware/admin-auth.js";
 import {
   referralGenerateLinkSchema,
   referralRegisterSchema,
@@ -41,26 +42,6 @@ import {
 } from "../database/referrals.js";
 
 export const referralsRouter = Router();
-
-// ─── Admin auth middleware ────────────────────────────────────────────────────
-
-function requireAdminToken(req, res, next) {
-  const envToken = process.env.ADMIN_ROTATE_TOKEN;
-  if (!envToken) {
-    return sendError(
-      res,
-      503,
-      "service_unavailable",
-      "Admin operations are not configured on this server"
-    );
-  }
-  const header = req.get("Authorization");
-  const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : null;
-  if (!token || token !== envToken) {
-    return sendError(res, 401, "unauthorized", "Unauthorized");
-  }
-  next();
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -278,7 +259,7 @@ referralsRouter.get("/status/:walletAddress", (req, res, next) => {
  */
 referralsRouter.post(
   "/admin/activate",
-  requireAdminToken,
+  requireAdminBearerToken,
   validate(referralActivateSchema),
   (req, res, next) => {
     try {
@@ -307,7 +288,7 @@ referralsRouter.post(
  */
 referralsRouter.post(
   "/admin/bonus",
-  requireAdminToken,
+  requireAdminBearerToken,
   validate(referralAwardBonusSchema),
   (req, res, next) => {
     try {
@@ -334,7 +315,7 @@ referralsRouter.post(
  * GET /api/v1/referrals/admin/all
  * Query: status?, limit?, offset?
  */
-referralsRouter.get("/admin/all", requireAdminToken, (req, res, next) => {
+referralsRouter.get("/admin/all", requireAdminBearerToken, (req, res, next) => {
   try {
     const { status } = req.query;
 
