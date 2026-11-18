@@ -199,11 +199,23 @@ describe("TransactionHistory filtering and search (#754)", () => {
   };
 
   beforeEach(() => {
-    mockGetTransactionHistory.mockResolvedValue({
-      success: true,
-      data: [txA, txB],
-      pagination: { limit: 10, offset: 0, total: 2 },
-    });
+    // Search is applied server-side, so emulate the backend honoring `filters.search`.
+    mockGetTransactionHistory.mockImplementation(
+      async (_contractId: string, _limit: number, _offset: number, filters?: { search?: string }) => {
+        const q = filters?.search?.trim().toLowerCase();
+        const data = [txA, txB].filter(
+          (tx) =>
+            !q ||
+            tx.txHash.toLowerCase().includes(q) ||
+            tx.initiatorAddress.toLowerCase().includes(q),
+        );
+        return {
+          success: true,
+          data,
+          pagination: { limit: 10, offset: 0, total: data.length },
+        };
+      },
+    );
   });
 
   it("filters displayed rows by searching a transaction ID", async () => {
@@ -219,8 +231,8 @@ describe("TransactionHistory filtering and search (#754)", () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText(/View transaction txhashaaa/i)).toBeTruthy();
+      expect(screen.queryByLabelText(/View transaction txhashbbb/i)).toBeNull();
     });
-    expect(screen.queryByLabelText(/View transaction txhashbbb/i)).toBeNull();
   });
 
   it("filters displayed rows by collaborator address search", async () => {
@@ -236,8 +248,8 @@ describe("TransactionHistory filtering and search (#754)", () => {
 
     await waitFor(() => {
       expect(screen.getByTitle(txB.initiatorAddress)).toBeTruthy();
+      expect(screen.queryByTitle(txA.initiatorAddress)).toBeNull();
     });
-    expect(screen.queryByTitle(txA.initiatorAddress)).toBeNull();
   });
 
   it("resets search, token, category and sort state on 'Reset all filters'", async () => {

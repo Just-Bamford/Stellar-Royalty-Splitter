@@ -35,11 +35,10 @@ describe("calculatePayoutPreview", () => {
     ]);
   });
 
-  it("truncates (floors) each collaborator's share independently, matching the contract's integer division", () => {
+  it("assigns remainder dust to the last collaborator so sum(payoutStroops) equals amountStroops for an uneven 3-way split", () => {
     // 10.00001 XLM = 100,000,100 stroops split three ways at 33.33/33.33/33.34%.
-    // Each collaborator's payout is floored independently, so the sum can land
-    // slightly under the sale amount — the remainder isn't distributed to anyone,
-    // exactly like the contract's checked_bps_amount.
+    // The contract assigns rounding dust to the last collaborator (amount - sum_of_first_n_minus_1),
+    // ensuring the sum of all payouts conserved exactly matches the input amount.
     const rows = calculatePayoutPreview(
       [
         { address: COLLAB_1, basisPoints: "33.33" },
@@ -51,11 +50,27 @@ describe("calculatePayoutPreview", () => {
 
     expect(rows[0].payoutStroops).toBe("33330033");
     expect(rows[1].payoutStroops).toBe("33330033");
-    expect(rows[2].payoutStroops).toBe("33340033");
+    expect(rows[2].payoutStroops).toBe("33340034");
 
     const amountStroops = BigInt(Math.round(10.00001 * STROOPS_PER_XLM));
     const totalDistributed = rows.reduce((sum, r) => sum + BigInt(r.payoutStroops), 0n);
-    expect(totalDistributed).toBeLessThan(amountStroops);
+    expect(totalDistributed).toBe(amountStroops);
+  });
+
+  it("conserves total stroops across uneven 3-way splits (conservation check)", () => {
+    const saleAmount = "123.4567891";
+    const amountStroops = BigInt(Math.round(parseFloat(saleAmount) * STROOPS_PER_XLM));
+    const rows = calculatePayoutPreview(
+      [
+        { address: COLLAB_1, basisPoints: "33.33" },
+        { address: COLLAB_2, basisPoints: "33.33" },
+        { address: COLLAB_3, basisPoints: "33.34" },
+      ],
+      saleAmount,
+    );
+
+    const sumStroops = rows.reduce((sum, r) => sum + BigInt(r.payoutStroops), 0n);
+    expect(sumStroops).toBe(amountStroops);
   });
 
   it("treats a collaborator with a blank/invalid percentage as 0 basis points", () => {

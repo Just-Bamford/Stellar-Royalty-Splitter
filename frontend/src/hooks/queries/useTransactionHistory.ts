@@ -6,6 +6,8 @@ type TxFilters = {
   recipient?: string;
   startDate?: string;
   endDate?: string;
+  search?: string;
+  token?: string;
 };
 
 /**
@@ -26,5 +28,6 @@ export function useTransactionHistory(
     queryFn: () => api.getTransactionHistory(contractId!, limit, offset, filters),
     enabled: !!contractId,
     placeholderData: (prev) => prev, // keep previous page visible while loading next
+    staleTime: 30_000, // prevent unnecessary refetches when navigating away and back within 30 seconds
   });
 }

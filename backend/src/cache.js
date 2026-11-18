@@ -289,6 +289,46 @@ export function cacheGet(key) {
 }
 
 /**
+ * Retrieve a value from the cache with status information.
+ * Returns an object indicating whether the entry was a hit, expired, or missed.
+ * - If the entry is missing (cold miss), returns { hit: false, expired: false }.
+ * - If the entry is expired, returns { hit: false, expired: true, value } before deleting it.
+ * - If the entry is within the lead time before expiry, returns { hit: true, value } and
+ *   triggers an asynchronous refresh if not already in flight.
+ * - Otherwise, returns { hit: true, value } for a live cache hit.
+ */
+export function cacheGetWithStatus(key) {
+  const entry = cacheStore.get(key);
+  const now = Date.now();
+
+  if (!entry) {
+    metrics.misses++;
+    return { hit: false, expired: false };
+  }
+
+  const isExpired = now >= entry.expiresAt;
+  const isWarmingWindow = WARMING_ENABLED && now >= entry.expiresAt - WARM_LEAD_TIME_MS;
+
+  if (isExpired) {
+    metrics.misses++;
+    const value = entry.value;
+    invalidateContract(key);
+    return { hit: false, expired: true, value };
+  }
+
+  if (isWarmingWindow) {
+    if (!refreshInFlight.has(key)) {
+      refreshContract(key);
+    }
+    metrics.staleServes++;
+    return { hit: true, value: entry.value };
+  }
+
+  metrics.hits++;
+  return { hit: true, value: entry.value };
+}
+
+/**
  * Force a background refresh for a given key. Returns a promise that resolves
  * when the refresh completes (or rejects, but the rejection is caught).
  * If a refresh is already in flight, returns the existing promise.

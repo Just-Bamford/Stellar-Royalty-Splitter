@@ -4,6 +4,7 @@ import request from "supertest";
 const mockGetNotifications = jest.fn();
 const mockGetArchivedNotifications = jest.fn();
 const mockGetUnreadNotificationCount = jest.fn();
+const mockGetUnreadCountByType = jest.fn();
 const mockMarkNotificationRead = jest.fn();
 const mockMarkNotificationUnread = jest.fn();
 const mockMarkAllNotificationsRead = jest.fn();
@@ -21,6 +22,7 @@ await jest.unstable_mockModule("../src/database/notifications.js", () => ({
   getNotifications: mockGetNotifications,
   getArchivedNotifications: mockGetArchivedNotifications,
   getUnreadNotificationCount: mockGetUnreadNotificationCount,
+  getUnreadCountByType: mockGetUnreadCountByType,
   markNotificationRead: mockMarkNotificationRead,
   markNotificationUnread: mockMarkNotificationUnread,
   markAllNotificationsRead: mockMarkAllNotificationsRead,
@@ -97,6 +99,22 @@ describe("Notifications - CRUD", () => {
     const res = await request(app).get(`/api/v1/notifications/${WALLET}/unread-count`);
     expect(res.status).toBe(200);
     expect(res.body.count).toBe(3);
+  });
+
+  // #1180: the old implementation ran getNotificationsByType(..., limit: 1,
+  // offset: 0) per NOTIFICATION_TYPES entry and could only ever report 0 or
+  // 1 for any type. A single GROUP BY query (getUnreadCountByType) returns
+  // the real per-type count in one database call.
+  test("GET /:walletAddress/unread-by-type returns the accurate count for a type with multiple unread notifications", async () => {
+    mockGetUnreadCountByType.mockReturnValue({ dispute_created: 12 });
+
+    const res = await request(app).get(`/api/v1/notifications/${WALLET}/unread-by-type`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, data: { dispute_created: 12 } });
+    expect(mockGetUnreadCountByType).toHaveBeenCalledWith(WALLET);
+    expect(mockGetUnreadCountByType).toHaveBeenCalledTimes(1);
+    expect(mockGetNotificationsByType).not.toHaveBeenCalled();
   });
 
   test("POST /:id/read marks notification as read", async () => {

@@ -10,5 +10,6 @@ export function useRoyaltyStats(contractId: string | undefined) {
     queryKey: ["royaltyStats", contractId],
     queryFn: () => api.getRoyaltyStats(contractId!),
     enabled: !!contractId,
+    staleTime: 2 * 60_000,
   });
 }

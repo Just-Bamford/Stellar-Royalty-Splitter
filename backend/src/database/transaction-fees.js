@@ -73,3 +73,17 @@ export function getFeesByContract(contractId, limit = 50, offset = 0) {
     )
     .all(contractId, limit, offset);
 }
+
+/**
+ * Count fee records for a contract.
+ *
+ * @param {string} contractId
+ * @returns {number}
+ */
+export function getFeeCountByContract(contractId) {
+  return (
+    db
+      .prepare(`SELECT COUNT(*) AS total FROM transaction_fees WHERE contractId = ?`)
+      .get(contractId)?.total ?? 0
+  );
+}

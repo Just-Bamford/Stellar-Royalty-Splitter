@@ -43,10 +43,18 @@ import { sendEventSms } from "../services/sms-notifications.js";
 import { runHook } from "../plugins/plugin-framework.js";
 import { requirePermission } from "../middleware/rbac-check.js";
 import { PERMISSIONS } from "../models/rbac.js";
+import { distributedRateLimiter } from "../rate-limiter/distributed.js";
 
 export const disputesRouter = Router();
 
 // ─── Admin auth middleware ────────────────────────────────────────────────────
+
+// #1183: admin-token endpoints are a juicy brute-force target (a fixed,
+// long-lived bearer token with no rotation in this flow), so every route
+// guarded by requireAdminToken gets a strict per-IP rate limit plus a usage
+// log entry for every attempt, success or failure. Token comparison itself
+// is unchanged; rotation is explicitly out of scope for this issue.
+const ADMIN_TOKEN_RATE_LIMIT = Object.freeze({ limit: 10, windowMs: 60_000 });
 
 function extractBearerToken(req) {
   const header = req.get("Authorization");
@@ -54,15 +62,32 @@ function extractBearerToken(req) {
   return header.slice("Bearer ".length).trim();
 }
 
-function requireAdminToken(req, res, next) {
+async function requireAdminToken(req, res, next) {
+  const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+  const endpoint = `${req.method} ${req.baseUrl}${req.route?.path ?? req.path}`;
+
+  const rateLimit = await distributedRateLimiter.consumeSlidingWindow(ip, `admin-token:${endpoint}`, {
+    limit: ADMIN_TOKEN_RATE_LIMIT.limit,
+    windowMs: ADMIN_TOKEN_RATE_LIMIT.windowMs,
+  });
+  if (!rateLimit.allowed) {
+    logger.warn("Admin token endpoint rate limit exceeded", { ip, endpoint });
+    res.set("Retry-After", String(rateLimit.retryAfterSeconds));
+    return sendError(res, 429, "rate_limited", "Too many admin requests, please try again later");
+  }
+
   const envToken = process.env.ADMIN_ROTATE_TOKEN;
   if (!envToken) {
+    logger.warn("Admin token endpoint rejected: admin operations not configured", { ip, endpoint });
     return sendError(res, 503, "service_unavailable", "Admin operations are not configured on this server");
   }
   const token = extractBearerToken(req);
   if (!token || token !== envToken) {
+    logger.warn("Admin token endpoint rejected: invalid or missing token", { ip, endpoint });
     return sendError(res, 401, "unauthorized", "Unauthorized");
   }
+
+  logger.info("Admin token endpoint accessed", { ip, endpoint });
   next();
 }
 

@@ -60,6 +60,7 @@ await jest.unstable_mockModule("../src/websocket.js", () => ({
 }));
 
 const { default: historyRouter } = await import("../src/routes/history.js");
+const { resetMetrics } = await import("../src/metrics.js");
 
 import express from "express";
 
@@ -70,7 +71,10 @@ app.use("/api/v1", historyRouter);
 const TX_HASH = "a".repeat(64);
 
 describe("POST /api/v1/transaction/confirm/:txHash", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetMetrics();
+  });
 
   test("confirms an existing pending transaction after Horizon polling", async () => {
     getTransactionDetails

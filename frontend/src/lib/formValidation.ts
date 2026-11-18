@@ -55,6 +55,19 @@ export function getAccountAddressError(value: string): string | null {
 }
 
 /**
+ * Strict version of getAccountAddressError that treats empty strings as errors.
+ * Use this in form submit handlers to ensure required fields are filled.
+ *
+ * @param value - The address to validate
+ * @returns An error message for invalid or empty values, or null for valid addresses
+ */
+export function getAccountAddressErrorStrict(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "Collaborator address is required.";
+  return ACCOUNT_ADDRESS_REGEX.test(trimmed) ? null : INVALID_ACCOUNT_ADDRESS_MESSAGE;
+}
+
+/**
  * Returns true if the value structurally matches a Stellar account address.
  */
 export function isValidAccountAddress(value: string): boolean {

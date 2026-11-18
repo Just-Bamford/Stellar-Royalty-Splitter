@@ -15,6 +15,7 @@ export function useSecondarySales(
     queryKey: ["secondarySales", contractId, limit, offset, nftId],
     queryFn: () => api.getSecondarySales(contractId!, limit, offset, nftId),
     enabled: !!contractId,
+    staleTime: 2 * 60_000,
     placeholderData: (prev) => prev,
   });
 }
@@ -32,6 +33,7 @@ export function useSecondaryDistributions(
     queryKey: ["secondaryDistributions", contractId, limit, offset],
     queryFn: () => api.getSecondaryRoyaltyDistributions(contractId!, limit, offset),
     enabled: !!contractId,
+    staleTime: 2 * 60_000,
     placeholderData: (prev) => prev,
   });
 }

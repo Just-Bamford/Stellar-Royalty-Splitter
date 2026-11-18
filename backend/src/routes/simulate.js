@@ -87,15 +87,7 @@ function calculatePerRecipientEffectiveFee(totalFee, recipientCount) {
   return totalFee / recipientCount;
 }
 
-function calculateFeeScalingComparison(baseFee, recipientCount) {
-  const collaboratorCounts = [2, 5, 10, 20];
-  return collaboratorCounts
-    .filter(count => count >= recipientCount)
-    .map(count => ({
-      collaborators: count,
-      estimated_total_fee: baseFee * (1 + (count - 1) * 0.1), // Simplified scaling model
-    }));
-}
+
 
 function readContractError(sim) {
   const error = sim.error ?? sim.message;
@@ -144,7 +136,7 @@ function readRecipientAmounts(events = []) {
 /**
  * POST /api/simulate
  * Body: { contractId, walletAddress, tokenId }
- * Returns: { fee, recipientAmounts, contractError, feeBreakdown, perRecipientEffectiveFee, feeScalingComparison }
+ * Returns: { fee, recipientAmounts, contractError, feeBreakdown, perRecipientEffectiveFee }
  *
  * Simulates the distribute call and returns expected fee, recipient amounts, and any contract errors.
  */
@@ -173,7 +165,6 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
         contractError: readContractError(sim),
         feeBreakdown,
         perRecipientEffectiveFee: 0,
-        feeScalingComparison: calculateFeeScalingComparison(feeBreakdown.total, 0),
       });
     }
 
@@ -182,7 +173,6 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
     const recipientAmounts = readRecipientAmounts(sim.events);
     const feeBreakdown = calculateFeeBreakdown(sim);
     const perRecipientEffectiveFee = calculatePerRecipientEffectiveFee(feeBreakdown.total, recipientAmounts.length);
-    const feeScalingComparison = calculateFeeScalingComparison(feeBreakdown.total, recipientAmounts.length);
 
     res.json({
       fee: readSimulationFee(sim),
@@ -191,7 +181,6 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
       contractError: null,
       feeBreakdown,
       perRecipientEffectiveFee,
-      feeScalingComparison,
     });
   } catch (err) {
     next(err);

@@ -120,6 +120,7 @@ const {
 } = await import("../src/routes/simulate.js");
 
 const { default: app } = await import("./app.js");
+const { resetMetrics } = await import("../src/metrics.js");
 
 const validBody = buildDistributePayload({
   contractId: CONTRACT,
@@ -130,6 +131,7 @@ const validBody = buildDistributePayload({
 describe("POST /api/v1/simulate", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMetrics();
   });
 
   test("returns simulation fee and recipient amounts from dist events", async () => {
@@ -165,7 +167,6 @@ describe("POST /api/v1/simulate", () => {
     });
     expect(res.body.feeBreakdown).toBeDefined();
     expect(res.body.perRecipientEffectiveFee).toBeDefined();
-    expect(res.body.feeScalingComparison).toBeDefined();
     expect(simulateTransaction).toHaveBeenCalledTimes(1);
     expect(contractCall).toHaveBeenCalledWith("distribute", TOKEN);
   });
@@ -186,7 +187,6 @@ describe("POST /api/v1/simulate", () => {
     });
     expect(res.body.feeBreakdown).toBeDefined();
     expect(res.body.perRecipientEffectiveFee).toBe(0);
-    expect(res.body.feeScalingComparison).toBeDefined();
     expect(simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
