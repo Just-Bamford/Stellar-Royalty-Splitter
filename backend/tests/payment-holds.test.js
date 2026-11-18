@@ -32,8 +32,8 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 }));
 
 await jest.unstable_mockModule("../src/middleware/rbac.js", () => ({
-  attachRole: (req, _res, next) => { req.role = "admin"; next(); },
-  requireRole: () => (req, _res, next) => { req.role = "admin"; next(); },
+  attachRole: (req, _res, next) => { req.role = "admin"; req.user = { walletAddress: "GADMIN1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDE", id: 1 }; next(); },
+  requireRole: () => (req, _res, next) => { req.role = "admin"; req.user = { walletAddress: "GADMIN1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDE", id: 1 }; next(); },
 }));
 
 import express from "express";
@@ -73,10 +73,10 @@ describe("Payment Holds - Place Hold", () => {
     mockPlaceHold.mockReturnValue(mockTransaction());
     const res = await request(app)
       .post("/api/v1/payment-holds/place")
-      .send({ transactionId: TX_ID, holdReason: "Dispute pending", placedBy: "admin" });
+      .send({ transactionId: TX_ID, holdReason: "Dispute pending" });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(mockPlaceHold).toHaveBeenCalledWith(TX_ID, "Dispute pending", null, "admin");
+    expect(mockPlaceHold).toHaveBeenCalledWith(TX_ID, "Dispute pending", null, "GADMIN1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDE");
   });
 
   test("POST /place rejects missing transactionId", async () => {
@@ -117,7 +117,7 @@ describe("Payment Holds - Release Hold", () => {
     mockReleaseHold.mockReturnValue(mockTransaction({ hold_status: "released", hold_released_by: "admin" }));
     const res = await request(app)
       .post("/api/v1/payment-holds/release")
-      .send({ transactionId: TX_ID, releasedBy: "admin", approvalNote: "Dispute resolved" });
+      .send({ transactionId: TX_ID, approvalNote: "Dispute resolved" });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
@@ -143,7 +143,7 @@ describe("Payment Holds - Approval Workflow", () => {
     mockApproveHoldRelease.mockReturnValue(mockTransaction({ hold_approved_by: "admin2" }));
     const res = await request(app)
       .post("/api/v1/payment-holds/approve-release")
-      .send({ transactionId: TX_ID, approvedBy: "admin2", approvalNote: "Approved" });
+      .send({ transactionId: TX_ID, approvalNote: "Approved" });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
@@ -151,7 +151,7 @@ describe("Payment Holds - Approval Workflow", () => {
   test("POST /approve-release rejects missing transactionId", async () => {
     const res = await request(app)
       .post("/api/v1/payment-holds/approve-release")
-      .send({ approvedBy: "admin2" });
+      .send({ approvalNote: "Approved missing tx" });
     expect(res.status).toBe(400);
   });
 });
@@ -216,12 +216,12 @@ describe("Payment Holds - Hold Lifecycle", () => {
 
     const approve = await request(app)
       .post("/api/v1/payment-holds/approve-release")
-      .send({ transactionId: TX_ID, approvedBy: "admin2" });
+      .send({ transactionId: TX_ID });
     expect(approve.body.data.hold_approved_by).toBe("admin2");
 
     const release = await request(app)
       .post("/api/v1/payment-holds/release")
-      .send({ transactionId: TX_ID, releasedBy: "admin" });
+      .send({ transactionId: TX_ID });
     expect(release.body.data.hold_status).toBe("released");
   });
 
