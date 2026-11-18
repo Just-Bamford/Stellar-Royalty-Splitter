@@ -531,6 +531,14 @@ pub const DEFAULT_UPGRADE_TIMELOCK: u64 = 86_400;
 /// Maximum number of tokens accepted per `batch_distribute` call.
 pub const MAX_BATCH_TOKENS: u32 = 50;
 
+/// Maximum number of combined transfer operations (tokens × recipients) permitted
+/// per `batch_distribute` call. Each operation is a Soroban cross-contract `transfer`
+/// invocation; at the current Soroban instruction budget (~100 M instructions per
+/// transaction) empirical measurement puts a safe ceiling at roughly 100 transfers.
+/// MAX_BATCH_TOKENS (50) × MAX_RECIPIENTS (10) = 500 would far exceed that budget,
+/// so this constant provides a tighter, combined guard.
+pub const MAX_BATCH_OPERATIONS: u32 = 100;
+
 /// Maximum number of tokens in the approved-token whitelist (#840).
 pub const MAX_APPROVED_TOKENS: u32 = 25;
 
@@ -2418,6 +2426,18 @@ impl RoyaltySplitter {
             return Err(ContractError::InvalidShareTotal);
         }
 
+        // Guard against exceeding the Soroban instruction budget. Each token
+        // distribution performs one `transfer` per recipient; 50 tokens × 10
+        // recipients = 500 operations, which comfortably blows past the ~100 M
+        // instruction ceiling. Reject any combination whose product exceeds the
+        // safe constant.
+        let token_count = tokens.len() as u32;
+        let recipient_count = recipients_to_use.len() as u32;
+        let effective_operations = token_count.saturating_mul(recipient_count);
+        if effective_operations > MAX_BATCH_OPERATIONS {
+            return Err(ContractError::TooManyBatchTokens);
+        }
+
         // Validate every selected token before changing any distribution
         // bookkeeping or transferring funds. In particular, the anomaly
         // safeguard used to return `Ok(())` from inside the processing loop;
@@ -3285,11 +3305,9 @@ impl RoyaltySplitter {
             start_time: env.ledger().timestamp(),
             claimed_shares: 0,
         };
-        storage::persistent_set(
-            &env,
-            &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone())),
-            &schedule,
-        );
+        let vesting_key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
+        storage::persistent_set(&env, &vesting_key, &schedule);
+        storage::extend_persistent_ttl_for(&env, &vesting_key);
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_set")),
             (beneficiary, total_shares, cliff_days, vesting_days),
@@ -3299,7 +3317,12 @@ impl RoyaltySplitter {
 
     pub fn get_vesting_schedule(env: Env, beneficiary: Address) -> Option<VestingSchedule> {
         storage::extend_instance_ttl(&env);
-        storage::persistent_get(&env, &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary)))
+        let vesting_key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary));
+        let result = storage::persistent_get(&env, &vesting_key);
+        if result.is_some() {
+            storage::extend_persistent_ttl_for(&env, &vesting_key);
+        }
+        result
     }
 
     /// Shares vested out of `schedule.total_shares` as of `current_time`:
@@ -3418,6 +3441,7 @@ impl RoyaltySplitter {
 
         schedule.claimed_shares = schedule.claimed_shares.saturating_add(newly_claimable);
         storage::persistent_set(&env, &key, &schedule);
+        storage::extend_persistent_ttl_for(&env, &key);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_clm")),
@@ -7437,6 +7461,81 @@ mod recipient_earnings_tests {
 
         assert_eq!(client.get_recipient_earnings(&collab_a, &token), 6_000);
         assert_eq!(client.get_recipient_earnings(&collab_b, &token), 4_000);
+    }
+
+    // ── MAX_BATCH_OPERATIONS boundary tests (#1315) ───────────────────────────
+
+    /// Helper: build a contract with `n` equal-share recipients and return the
+    /// contract address alongside the client.
+    fn setup_n_recipients(env: &Env, n: u32) -> (Address, RoyaltySplitterClient<'_>) {
+        assert!(n > 0 && 10_000 % n == 0, "share total must be 10 000");
+        let contract_id = env.register_contract(None, RoyaltySplitter);
+        let client = RoyaltySplitterClient::new(env, &contract_id);
+        let share_each = 10_000u32 / n;
+        let mut addrs: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
+        let mut shares: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
+        for _ in 0..n {
+            addrs.push_back(Address::generate(env));
+            shares.push_back(share_each);
+        }
+        client.initialize(&addrs, &shares);
+        (contract_id, client)
+    }
+
+    #[test]
+    fn batch_distribute_rejects_50_tokens_with_10_recipients() {
+        // 50 × 10 = 500 > MAX_BATCH_OPERATIONS (100) → must return TooManyBatchTokens.
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup_n_recipients(&env, 10);
+        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+        for _ in 0..50u32 {
+            let (token_addr, asset_client, _) = create_token(&env);
+            asset_client.mint(&contract_id, &10_000);
+            tokens.push_back(token_addr);
+        }
+        let result = client.try_batch_distribute(&tokens);
+        assert_eq!(
+            result,
+            Err(Ok(ContractError::TooManyBatchTokens)),
+            "50 tokens × 10 recipients should exceed MAX_BATCH_OPERATIONS"
+        );
+    }
+
+    #[test]
+    fn batch_distribute_accepts_10_tokens_with_10_recipients() {
+        // 10 × 10 = 100 == MAX_BATCH_OPERATIONS → must succeed (at the limit, not over).
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup_n_recipients(&env, 10);
+        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+        for _ in 0..10u32 {
+            let (token_addr, asset_client, _) = create_token(&env);
+            asset_client.mint(&contract_id, &10_000);
+            tokens.push_back(token_addr);
+        }
+        // Should succeed — exactly at the limit.
+        client.batch_distribute(&tokens);
+    }
+
+    #[test]
+    fn batch_distribute_rejects_one_over_limit() {
+        // 11 tokens × 10 recipients = 110 > 100 → must be rejected.
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup_n_recipients(&env, 10);
+        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+        for _ in 0..11u32 {
+            let (token_addr, asset_client, _) = create_token(&env);
+            asset_client.mint(&contract_id, &10_000);
+            tokens.push_back(token_addr);
+        }
+        let result = client.try_batch_distribute(&tokens);
+        assert_eq!(
+            result,
+            Err(Ok(ContractError::TooManyBatchTokens)),
+            "11 tokens × 10 recipients (110 ops) should exceed MAX_BATCH_OPERATIONS"
+        );
     }
 }
 
