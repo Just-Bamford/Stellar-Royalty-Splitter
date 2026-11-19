@@ -27,7 +27,15 @@ describe("BulkContributorUpload", () => {
     const file = new File(["test"], "test.txt", { type: "text/plain" });
     const input = screen.getByLabelText(/upload csv file/i) as HTMLInputElement;
     fireEvent.change(input, { target: { files: [file] } });
-    expect(screen.getByText(/Please select a CSV file/i)).toBeDefined();
+    expect(screen.getByText(/Please select a valid CSV file/i)).toBeDefined();
+  });
+
+  test("shows error for CSV file with invalid MIME type", () => {
+    render(<BulkContributorUpload contractId={CONTRACT_ID} />);
+    const file = new File(["test"], "test.csv", { type: "application/x-msdownload" });
+    const input = screen.getByLabelText(/upload csv file/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(screen.getByText(/Please select a valid CSV file/i)).toBeDefined();
   });
 
   test("displays valid preview data", async () => {
