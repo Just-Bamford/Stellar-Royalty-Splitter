@@ -28,9 +28,10 @@ interface HeldTransaction {
 interface PaymentHoldManagerProps {
   contractId: string;
   isAdmin?: boolean;
+  walletAddress?: string | null;
 }
 
-export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldManagerProps) {
+export function PaymentHoldManager({ contractId, isAdmin = false, walletAddress = null }: PaymentHoldManagerProps) {
   const [heldTxns, setHeldTxns] = useState<HeldTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
@@ -65,8 +66,9 @@ export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldM
     if (!selectedTxn) return;
     setActionLoading(selectedTxn.id);
     try {
-      await api.approveHoldRelease(selectedTxn.id, "admin", releaseNote);
-      await api.releasePaymentHold(selectedTxn.id, "admin", releaseNote);
+      const actor = walletAddress ?? "unknown";
+      await api.approveHoldRelease(selectedTxn.id, actor, releaseNote);
+      await api.releasePaymentHold(selectedTxn.id, actor, releaseNote);
       setShowReleaseModal(false);
       setReleaseNote("");
       loadHeldTransactions();
