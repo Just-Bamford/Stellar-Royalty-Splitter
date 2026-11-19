@@ -18,6 +18,8 @@ export const identityRouter = Router();
 
 // ── ENS constants ─────────────────────────────────────────────────────────────
 
+export const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+
 const ENS_SUBGRAPH_URL =
   process.env.ENS_SUBGRAPH_URL ??
   "https://api.thegraph.com/subgraphs/name/ensdomains/ens";
@@ -45,8 +47,12 @@ function setEnsCache(address, result) {
 // ── ENS resolution ────────────────────────────────────────────────────────────
 
 async function resolveEnsForAddress(address) {
-  const query = `{
-    domains(where: { resolvedAddress: "${address.toLowerCase()}" }, first: 1, orderBy: createdAt, orderDirection: desc) {
+  if (!ETH_ADDRESS_REGEX.test(address)) {
+    return null;
+  }
+
+  const query = `query ResolveEns($resolvedAddress: String!) {
+    domains(where: { resolvedAddress: $resolvedAddress }, first: 1, orderBy: createdAt, orderDirection: desc) {
       name
       resolver {
         texts(first: 5)
@@ -61,7 +67,10 @@ async function resolveEnsForAddress(address) {
     const res = await fetch(ENS_SUBGRAPH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({
+        query,
+        variables: { resolvedAddress: address.toLowerCase() },
+      }),
       signal: controller.signal,
     });
 
@@ -77,8 +86,8 @@ async function resolveEnsForAddress(address) {
 
     // Attempt to fetch the avatar text record via a second subgraph call
     let avatar = null;
-    const avatarQuery = `{
-      resolver(id: "${address.toLowerCase()}") {
+    const avatarQuery = `query ResolveAvatar($resolverId: ID!) {
+      resolver(id: $resolverId) {
         texts
       }
     }`;
@@ -88,7 +97,10 @@ async function resolveEnsForAddress(address) {
       const avatarRes = await fetch(ENS_SUBGRAPH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: avatarQuery }),
+        body: JSON.stringify({
+          query: avatarQuery,
+          variables: { resolverId: address.toLowerCase() },
+        }),
         signal: controller.signal,
       });
       if (avatarRes.ok) {
@@ -129,8 +141,8 @@ async function resolveEnsForAddress(address) {
 identityRouter.get("/ens/:address", async (req, res, next) => {
   const { address } = req.params;
 
-  if (!address || typeof address !== "string" || address.length < 10) {
-    return sendError(res, 400, "invalid_address", "A valid address is required");
+  if (!address || typeof address !== "string" || !ETH_ADDRESS_REGEX.test(address)) {
+    return sendError(res, 400, "invalid_address", "A valid Ethereum address is required");
   }
 
   try {
