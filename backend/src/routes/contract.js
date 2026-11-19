@@ -12,6 +12,7 @@ import {
 import { validateContractIdMiddleware, validateContractId } from "../validation.js";
 import { sendError } from "../error-response.js";
 import { cacheGet, cacheSet, cacheKey, TTL, clearCache, onCacheInvalidated } from "../cache.js";
+import logger from "../logger.js";
 
 const { Address, Contract, SorobanRpc, TransactionBuilder, BASE_FEE, Account, scValToNative } = StellarSdk;
 
@@ -38,14 +39,15 @@ let metricsInterval = null;
 const isTestEnvironment = typeof global.jest !== "undefined";
 if (!isTestEnvironment) {
   metricsInterval = setInterval(() => {
-    console.log(
-      `[cache-warm] hits ${metrics.hits}, misses ${metrics.misses}, stale-serves ${metrics.staleServes}`
-    );
-    if (metrics.refreshLatencyMs.length > 0) {
-      console.log(
-        `[cache-warm] avg refresh-latency: ${metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length} ms`
-      );
-    }
+    logger.info("cache-warm metrics", {
+      hits: metrics.hits,
+      misses: metrics.misses,
+      staleServes: metrics.staleServes,
+      avgRefreshLatencyMs:
+        metrics.refreshLatencyMs.length > 0
+          ? metrics.refreshLatencyMs.reduce((a, b) => a + b, 0) / metrics.refreshLatencyMs.length
+          : null,
+    });
   }, 60 * 1000);
 
   // Allow this interval to not block process exit
@@ -110,7 +112,7 @@ async function refreshContractState(key, contractId, tokenId) {
     metrics.refreshLatencyMs.push(Date.now() - start);
   } catch (err) {
     // Graceful degradation: keep stale data if refresh fails.
-    console.error(`Cache refresh failed for contract contractId: ${err.message}`);
+    logger.error("Cache refresh failed for contract", { contractId, error: err.message });
   } finally {
     meta.inFlight = false;
   }
