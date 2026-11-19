@@ -34,6 +34,8 @@ import {
 
 export const searchRouter = Router();
 
+const MAX_SEARCH_QUERY_LENGTH = 500;
+
 // Helper to record search analytics in the background without blocking the HTTP response
 function recordSearchAsync(query, type, count) {
   setImmediate(() => {
@@ -78,6 +80,10 @@ searchRouter.get("/", (req, res, next) => {
 
     if (searchQuery.length < 2) {
       return sendError(res, 400, "query_too_short", "Query must be at least 2 characters");
+    }
+
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
     }
 
     const searchLimit = Math.min(parseInt(limit) || 50, 100);
@@ -141,6 +147,10 @@ searchRouter.get("/collaborators", (req, res, next) => {
       return sendError(res, 400, "missing_query", "Query parameter 'q' or 'query' is required");
     }
 
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
+    }
+
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
@@ -180,6 +190,10 @@ searchRouter.get("/transactions", (req, res, next) => {
       return sendError(res, 400, "missing_query", "Query parameter 'q' or 'query' is required");
     }
 
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
+    }
+
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
@@ -217,6 +231,10 @@ searchRouter.get("/disputes", (req, res, next) => {
 
     if (!searchQuery || typeof searchQuery !== 'string') {
       return sendError(res, 400, "missing_query", "Query parameter 'q' or 'query' is required");
+    }
+
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
     }
 
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
