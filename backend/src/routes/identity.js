@@ -27,6 +27,7 @@ const ENS_TIMEOUT_MS = 400;
 /** Simple in-process ENS cache with 5-min TTL */
 const ensCache = new Map();
 const ENS_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_ENS_CACHE_ENTRIES = 500;
 
 function getEnsCached(address) {
   const entry = ensCache.get(address);
@@ -39,6 +40,12 @@ function getEnsCached(address) {
 }
 
 function setEnsCache(address, result) {
+  if (ensCache.has(address)) {
+    ensCache.delete(address);
+  } else if (ensCache.size >= MAX_ENS_CACHE_ENTRIES) {
+    const oldestKey = ensCache.keys().next().value;
+    ensCache.delete(oldestKey);
+  }
   ensCache.set(address, { result, expiresAt: Date.now() + ENS_CACHE_TTL_MS });
 }
 
