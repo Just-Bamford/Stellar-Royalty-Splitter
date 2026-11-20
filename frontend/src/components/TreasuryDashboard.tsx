@@ -156,6 +156,9 @@ export function TreasuryDashboard() {
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
         throw new Error("Amount must be a positive number");
       }
+      if (!CATEGORY_OPTIONS.includes(category)) {
+        throw new Error("Invalid expense category");
+      }
       await fetchJson<ExpenseRow>("/api/v1/treasury/expenses", {
         method: "POST",
         body: JSON.stringify({
