@@ -184,8 +184,10 @@ export function ContributorVerification({ walletAddress, isAdmin = false }: Prop
                 value={adminNote}
                 onChange={(e) => setAdminNote(e.target.value)}
                 placeholder="Add a note…"
+                maxLength={500}
                 disabled={actionLoading}
               />
+              <span className="char-counter">{adminNote.length}/500</span>
               <div className="form-actions">
                 {record.step === "email" && (
                   <button

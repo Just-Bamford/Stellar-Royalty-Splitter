@@ -31,11 +31,10 @@ export const ContributorOnboardingChecklist: React.FC<
   // Demo state switcher for quick testing (0%, 50%, 100%)
   const [demoState, setDemoState] = useState<"live" | "0" | "50" | "100">("live");
 
-  const effectiveAddress =
-    walletAddress || "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFXYCZTM6W2XYFORCWA4V";
+  const effectiveAddress = walletAddress;
 
   const fetchStatus = useCallback(async () => {
-    if (!walletAddress && demoState === "live") {
+    if (!effectiveAddress && demoState === "live") {
       // Build unauthenticated initial state (0% completion or wallet disconnected)
       setData({
         walletAddress: "",
@@ -99,6 +98,8 @@ export const ContributorOnboardingChecklist: React.FC<
       });
       return;
     }
+
+    if (!effectiveAddress) return;
 
     setLoading(true);
     setError(null);
@@ -222,14 +223,20 @@ export const ContributorOnboardingChecklist: React.FC<
       return;
     }
 
+    if (!walletAddress) {
+      setEmailToast({
+        type: "error",
+        message: "Connect a wallet to send an email reminder.",
+      });
+      return;
+    }
+
     setSendingEmail(true);
     setEmailToast(null);
 
-    const targetAddress = walletAddress || effectiveAddress;
-
     try {
       const res: OnboardingReminderResponse = await api.sendOnboardingReminder(
-        targetAddress,
+        walletAddress,
         emailInput,
       );
       setEmailToast({
