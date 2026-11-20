@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
+import { CopyButton } from "./CopyButton";
 import "./TaxComplianceReport.css";
 
 export function TaxComplianceReport() {
@@ -80,7 +81,12 @@ export function TaxComplianceReport() {
             <tbody>
               {report?.data.map((row) => (
                 <tr key={row.walletAddress as string}>
-                  <td><code>{(row.walletAddress as string)?.slice(0, 8)}...</code></td>
+                  <td title={row.walletAddress as string}>
+                    <code>
+                      {(row.walletAddress as string)?.slice(0, 6)}...{(row.walletAddress as string)?.slice(-4)}
+                    </code>
+                    <CopyButton value={row.walletAddress as string} size="sm" />
+                  </td>
                   <td>{row.tax_status as string || "Not Set"}</td>
                   <td>{row.tax_id as string || "-"}</td>
                   <td>{row.w9_file_name as string ? "✓" : "✗"}</td>
@@ -102,7 +108,10 @@ export function TaxComplianceReport() {
           <h4>Contributors Missing Tax Information ({missing.length})</h4>
           {missing.map((row) => (
             <div key={row.walletAddress as string} className="missing-item">
-              <code>{(row.walletAddress as string)?.slice(0, 12)}...</code>
+              <code title={row.walletAddress as string}>
+                {(row.walletAddress as string)?.slice(0, 6)}...{(row.walletAddress as string)?.slice(-4)}
+              </code>
+              <CopyButton value={row.walletAddress as string} size="sm" />
               <span className="missing-status">{row.tax_status as string || "Not collected"}</span>
             </div>
           ))}

@@ -20,10 +20,14 @@ import {
   validateWorkflowDefinition,
 } from "../services/workflow-engine.js";
 import { sendError } from "../error-response.js";
+import { requireAdminBearerOrRole, requireRole } from "../middleware/rbac.js";
 
 export const automationRouter = Router();
 
-automationRouter.get("/status", (req, res) => {
+const requireViewer = requireRole("viewer");
+const requireOperator = requireAdminBearerOrRole("operator");
+
+automationRouter.get("/status", requireViewer, (req, res) => {
   res.json({
     success: true,
     data: {
@@ -33,11 +37,11 @@ automationRouter.get("/status", (req, res) => {
   });
 });
 
-automationRouter.get("/schedules", (req, res) => {
+automationRouter.get("/schedules", requireViewer, (req, res) => {
   res.json({ success: true, data: listSchedules() });
 });
 
-automationRouter.post("/schedules", (req, res) => {
+automationRouter.post("/schedules", requireOperator, (req, res) => {
   try {
     const schedule = createSchedule(req.body);
     res.status(201).json({ success: true, data: schedule });
@@ -46,7 +50,7 @@ automationRouter.post("/schedules", (req, res) => {
   }
 });
 
-automationRouter.patch("/schedules/:id", (req, res) => {
+automationRouter.patch("/schedules/:id", requireOperator, (req, res) => {
   try {
     const id = String(req.params.id);
     const existing = getScheduleById(id);
@@ -62,7 +66,7 @@ automationRouter.patch("/schedules/:id", (req, res) => {
   }
 });
 
-automationRouter.patch("/schedules/:id/enable", (req, res) => {
+automationRouter.patch("/schedules/:id/enable", requireOperator, (req, res) => {
   try {
     const id = String(req.params.id);
     const schedule = setScheduleEnabled(id, true);
@@ -72,7 +76,7 @@ automationRouter.patch("/schedules/:id/enable", (req, res) => {
   }
 });
 
-automationRouter.patch("/schedules/:id/disable", (req, res) => {
+automationRouter.patch("/schedules/:id/disable", requireOperator, (req, res) => {
   try {
     const id = String(req.params.id);
     const schedule = setScheduleEnabled(id, false);
@@ -82,7 +86,7 @@ automationRouter.patch("/schedules/:id/disable", (req, res) => {
   }
 });
 
-automationRouter.delete("/schedules/:id", (req, res) => {
+automationRouter.delete("/schedules/:id", requireOperator, (req, res) => {
   try {
     const id = String(req.params.id);
     const removed = deleteSchedule(id);
@@ -92,7 +96,7 @@ automationRouter.delete("/schedules/:id", (req, res) => {
   }
 });
 
-automationRouter.get("/schedules/:id/history", (req, res) => {
+automationRouter.get("/schedules/:id/history", requireViewer, (req, res) => {
   try {
     const history = getExecutionHistory(String(req.params.id));
     res.json({ success: true, data: history });
@@ -101,7 +105,7 @@ automationRouter.get("/schedules/:id/history", (req, res) => {
   }
 });
 
-automationRouter.post("/schedules/:id/execute", async (req, res) => {
+automationRouter.post("/schedules/:id/execute", requireOperator, async (req, res) => {
   try {
     const now = req.body?.now ? new Date(req.body.now) : new Date();
     const result = await executeSchedule(String(req.params.id), now, { metadata: req.body?.metadata ?? {} });
@@ -111,11 +115,11 @@ automationRouter.post("/schedules/:id/execute", async (req, res) => {
   }
 });
 
-automationRouter.get("/workflows", (req, res) => {
+automationRouter.get("/workflows", requireViewer, (req, res) => {
   res.json({ success: true, data: listWorkflows() });
 });
 
-automationRouter.post("/workflows", async (req, res) => {
+automationRouter.post("/workflows", requireOperator, async (req, res) => {
   try {
     const workflow = createWorkflow(req.body);
     res.status(201).json({ success: true, data: workflow });
@@ -124,7 +128,7 @@ automationRouter.post("/workflows", async (req, res) => {
   }
 });
 
-automationRouter.patch("/workflows/:id", (req, res) => {
+automationRouter.patch("/workflows/:id", requireOperator, (req, res) => {
   try {
     const existing = getWorkflowById(String(req.params.id));
     if (!existing) {
@@ -138,7 +142,7 @@ automationRouter.patch("/workflows/:id", (req, res) => {
   }
 });
 
-automationRouter.delete("/workflows/:id", (req, res) => {
+automationRouter.delete("/workflows/:id", requireOperator, (req, res) => {
   try {
     const removed = deleteWorkflow(String(req.params.id));
     res.json({ success: true, removed });
@@ -147,7 +151,7 @@ automationRouter.delete("/workflows/:id", (req, res) => {
   }
 });
 
-automationRouter.get("/workflows/:id", (req, res) => {
+automationRouter.get("/workflows/:id", requireViewer, (req, res) => {
   const workflow = getWorkflowById(String(req.params.id));
   if (!workflow) {
     return sendError(res, 404, "workflow_not_found", `Workflow ${req.params.id} not found`);
@@ -155,7 +159,7 @@ automationRouter.get("/workflows/:id", (req, res) => {
   res.json({ success: true, data: workflow });
 });
 
-automationRouter.post("/workflows/:id/run", async (req, res) => {
+automationRouter.post("/workflows/:id/run", requireOperator, async (req, res) => {
   try {
     const workflow = getWorkflowById(String(req.params.id));
     if (!workflow) {
@@ -168,7 +172,7 @@ automationRouter.post("/workflows/:id/run", async (req, res) => {
   }
 });
 
-automationRouter.get("/workflows/:id/history", (req, res) => {
+automationRouter.get("/workflows/:id/history", requireViewer, (req, res) => {
   const workflow = getWorkflowById(String(req.params.id));
   if (!workflow) {
     return sendError(res, 404, "workflow_not_found", `Workflow ${req.params.id} not found`);

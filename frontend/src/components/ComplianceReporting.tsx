@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
 export function ComplianceReporting() {
   const [activeTab, setActiveTab] = useState<"generate" | "audit" | "verify">("generate");
   const [reportType, setReportType] = useState<
@@ -56,110 +65,93 @@ export function ComplianceReporting() {
 
       switch (reportType) {
         case "form-8949": {
-          const res = await fetch(
-            `/api/v1/compliance/form-8949?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}&shortTerm=${shortTerm}`,
-            { method: "GET", headers: { "Content-Type": "application/json" } }
-          );
-          data = await res.json();
+          data = await api.getForm8949(walletAddress, taxYear, {
+            costBasisUsdPerXlm: costBasis,
+            shortTerm,
+          });
           break;
         }
         case "turbotax": {
-          const res = await fetch(
-            `/api/v1/compliance/turbotax?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}`,
-            { method: "GET", headers: { "Content-Type": "application/json" } }
-          );
-          data = await res.json();
+          data = await api.getTurboTaxImport(walletAddress, taxYear, {
+            costBasisUsdPerXlm: costBasis,
+          });
           break;
         }
         case "csv": {
-          const url = new URL("/api/v1/compliance/csv-export", window.location.origin);
-          url.searchParams.set("taxYear", String(taxYear));
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
-          if (country) url.searchParams.set("country", country);
-          url.searchParams.set("download", String(download));
-          const res = await fetch(url.toString());
           if (download) {
-            const blob = await res.blob();
-            const url2 = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url2;
-            a.download = `tax-export-${taxYear}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url2);
+            const blob = await api.getCsvExport(taxYear, {
+              walletAddress: walletAddress || undefined,
+              country: country || undefined,
+              download: true,
+            });
+            triggerBlobDownload(blob, `tax-export-${taxYear}.csv`);
             setResult({ downloaded: true });
             setLoading(false);
             return;
           }
-          data = await res.json();
+          data = await api.getCsvExport(taxYear, {
+            walletAddress: walletAddress || undefined,
+            country: country || undefined,
+            download: false,
+          });
           break;
         }
         case "ledger": {
           if (!startDate || !endDate) {
             throw new Error("Start date and end date are required for generic ledger");
           }
-          const url = new URL("/api/v1/compliance/generic-ledger", window.location.origin);
-          url.searchParams.set("startDate", startDate);
-          url.searchParams.set("endDate", endDate);
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
-          url.searchParams.set("format", format);
-          url.searchParams.set("download", String(download && format === "csv"));
-          const res = await fetch(url.toString());
-          if (download && format === "csv") {
-            const blob = await res.blob();
-            const url2 = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url2;
-            a.download = `generic-ledger-${startDate}-to-${endDate}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url2);
+          const ledgerDownload = download && format === "csv";
+          if (ledgerDownload) {
+            const blob = await api.getGenericLedger(startDate, endDate, {
+              walletAddress: walletAddress || undefined,
+              format,
+              download: true,
+            });
+            triggerBlobDownload(blob, `generic-ledger-${startDate}-to-${endDate}.csv`);
             setResult({ downloaded: true });
             setLoading(false);
             return;
           }
-          data = await res.json();
+          data = await api.getGenericLedger(startDate, endDate, {
+            walletAddress: walletAddress || undefined,
+            format,
+            download: false,
+          });
           break;
         }
         case "sec-form-d": {
-          const res = await fetch(
-            `/api/v1/compliance/sec-form-d?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}`,
-            { method: "GET", headers: { "Content-Type": "application/json" } }
-          );
-          data = await res.json();
+          data = await api.getSecFormD(walletAddress, taxYear);
           break;
         }
         case "finra-trace": {
           if (!startDate || !endDate) {
             throw new Error("Start date and end date are required for FINRA TRACE");
           }
-          const url = new URL("/api/v1/compliance/finra-trace", window.location.origin);
-          url.searchParams.set("startDate", startDate);
-          url.searchParams.set("endDate", endDate);
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
-          const res = await fetch(url.toString());
-          data = await res.json();
+          data = await api.getFinraTrace(startDate, endDate, {
+            walletAddress: walletAddress || undefined,
+          });
           break;
         }
         case "export": {
-          const url = new URL("/api/v1/compliance/export", window.location.origin);
-          url.searchParams.set("taxYear", String(taxYear));
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
-          if (country) url.searchParams.set("country", country);
-          url.searchParams.set("format", format);
-          url.searchParams.set("download", String(download));
-          const res = await fetch(url.toString());
-          if (download && format === "csv") {
-            const blob = await res.blob();
-            const url2 = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url2;
-            a.download = `compliance-export-${taxYear}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url2);
+          const exportDownload = download && format === "csv";
+          if (exportDownload) {
+            const blob = await api.getComplianceExport(taxYear, {
+              walletAddress: walletAddress || undefined,
+              country: country || undefined,
+              format,
+              download: true,
+            });
+            triggerBlobDownload(blob, `compliance-export-${taxYear}.csv`);
             setResult({ downloaded: true });
             setLoading(false);
             return;
           }
-          data = await res.json();
+          data = await api.getComplianceExport(taxYear, {
+            walletAddress: walletAddress || undefined,
+            country: country || undefined,
+            format,
+            download: false,
+          });
           break;
         }
         default:
@@ -181,12 +173,11 @@ export function ComplianceReporting() {
   const loadAuditTrail = async () => {
     setAuditLoading(true);
     try {
-      const url = new URL("/api/v1/compliance/audit-trail", window.location.origin);
-      if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
-      if (startDate) url.searchParams.set("startDate", startDate);
-      if (endDate) url.searchParams.set("endDate", endDate);
-      const res = await fetch(url.toString());
-      const data = await res.json();
+      const data = await api.getComplianceAuditTrail({
+        walletAddress: walletAddress || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      });
       if (data.success) {
         setAuditTrail(data.data.reports);
       }
@@ -201,17 +192,12 @@ export function ComplianceReporting() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/v1/compliance/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reportId: Number(result?.reportId || 0),
-          walletAddress,
-          taxYear,
-          distributions,
-        }),
+      const data = await api.verifyComplianceReport({
+        reportId: Number(result?.reportId || 0),
+        walletAddress,
+        taxYear,
+        distributions,
       });
-      const data = await res.json();
       if (!data.success) throw new Error(data.error || "Verification failed");
       setResult(data.data);
     } catch (err: unknown) {

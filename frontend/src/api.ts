@@ -137,6 +137,28 @@ async function get<T>(path: string): Promise<T> {
   return request<T>(path);
 }
 
+// Blob-capable request helper for file downloads (e.g. CSV exports).
+// Mirrors `request`'s 401 session-expiry detection and error parsing, but
+// returns the raw response body as a Blob instead of parsed JSON. The caller
+// is responsible for triggering the browser download (e.g. via an object URL).
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`, init);
+
+  if (res.status === 401) {
+    notifySessionExpired();
+    throw new Error(SESSION_EXPIRED_MESSAGE);
+  }
+
+  if (res.ok) {
+    sessionExpiryNotified = false;
+    return res.blob();
+  }
+
+  const data = await readJson(res);
+  const correlationId = res.headers.get("x-correlation-id");
+  throw new Error(getErrorMessage(data, res.status, correlationId));
+}
+
 async function put<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method: "PUT",
@@ -1037,6 +1059,102 @@ export const api = {
 
   getPartnerAnalytics: (partnerId: string) =>
     get<{ success: boolean; data: PartnerAnalytics }>(`/partners/${partnerId}/analytics`),
+
+  // Compliance reporting APIs (#1356). All report types route through the
+  // shared `request`/`requestBlob` helpers so 401 session-expiry detection
+  // and error parsing stay consistent. When `download` is true the endpoint
+  // is fetched as a Blob and returned to the caller to trigger the download.
+  getForm8949: (
+    walletAddress: string,
+    taxYear: number | string,
+    options?: { costBasisUsdPerXlm?: number | string; shortTerm?: boolean }
+  ) => {
+    const params = new URLSearchParams({
+      walletAddress,
+      taxYear: String(taxYear),
+    });
+    if (options?.costBasisUsdPerXlm != null) {
+      params.set("costBasisUsdPerXlm", String(options.costBasisUsdPerXlm));
+    }
+    if (options?.shortTerm != null) params.set("shortTerm", String(options.shortTerm));
+    return get<unknown>(`/compliance/form-8949?${params.toString()}`);
+  },
+
+  getTurboTaxImport: (
+    walletAddress: string,
+    taxYear: number | string,
+    options?: { costBasisUsdPerXlm?: number | string }
+  ) => {
+    const params = new URLSearchParams({
+      walletAddress,
+      taxYear: String(taxYear),
+    });
+    if (options?.costBasisUsdPerXlm != null) {
+      params.set("costBasisUsdPerXlm", String(options.costBasisUsdPerXlm));
+    }
+    return get<unknown>(`/compliance/turbotax?${params.toString()}`);
+  },
+
+  getCsvExport: (
+    taxYear: number | string,
+    options?: { walletAddress?: string; country?: string; download?: boolean }
+  ) => {
+    const params = new URLSearchParams({ taxYear: String(taxYear) });
+    if (options?.walletAddress) params.set("walletAddress", options.walletAddress);
+    if (options?.country) params.set("country", options.country);
+    if (options?.download != null) params.set("download", String(options.download));
+    const path = `/compliance/csv?${params.toString()}`;
+    return options?.download ? requestBlob(path) : get<unknown>(path);
+  },
+
+  getGenericLedger: (
+    startDate: string,
+    endDate: string,
+    options?: { walletAddress?: string; format?: string; download?: boolean }
+  ) => {
+    const params = new URLSearchParams({ startDate, endDate });
+    if (options?.walletAddress) params.set("walletAddress", options.walletAddress);
+    if (options?.format) params.set("format", options.format);
+    if (options?.download != null) params.set("download", String(options.download));
+    const path = `/compliance/ledger?${params.toString()}`;
+    return options?.download ? requestBlob(path) : get<unknown>(path);
+  },
+
+  getSecFormD: (walletAddress: string, taxYear: number | string) => {
+    const params = new URLSearchParams({
+      walletAddress,
+      taxYear: String(taxYear),
+    });
+    return get<unknown>(`/compliance/sec-form-d?${params.toString()}`);
+  },
+
+  getFinraTrace: (
+    startDate: string,
+    endDate: string,
+    options?: { walletAddress?: string }
+  ) => {
+    const params = new URLSearchParams({ startDate, endDate });
+    if (options?.walletAddress) params.set("walletAddress", options.walletAddress);
+    return get<unknown>(`/compliance/finra-trace?${params.toString()}`);
+  },
+
+  getComplianceExport: (
+    taxYear: number | string,
+    options?: {
+      walletAddress?: string;
+      country?: string;
+      format?: string;
+      download?: boolean;
+    }
+  ) => {
+    const params = new URLSearchParams({ taxYear: String(taxYear) });
+    if (options?.walletAddress) params.set("walletAddress", options.walletAddress);
+    if (options?.country) params.set("country", options.country);
+    if (options?.format) params.set("format", options.format);
+    if (options?.download != null) params.set("download", String(options.download));
+    const path = `/compliance/export?${params.toString()}`;
+    return options?.download ? requestBlob(path) : get<unknown>(path);
+  },
 };
 
 // Partner Analytics types (stub for now - backend endpoints TBD)

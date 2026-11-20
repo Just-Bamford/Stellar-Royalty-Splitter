@@ -15,6 +15,7 @@ import {
   getImportSummary,
 } from "../database/csv-import.js";
 import { addAuditLog } from "../database/audit.js";
+import { validateContractId } from "../validation.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.join(__dirname, "..", "..", "uploads", "csv-imports");
@@ -116,6 +117,7 @@ csvImportRouter.post("/import", upload.single("file"), (req, res) => {
     if (!contractId) {
       return sendError(res, 400, "validation_error", "contractId is required");
     }
+    if (!validateContractId(contractId, res)) return;
 
     const csvContent = fs.readFileSync(req.file.path, "utf-8");
     const rows = parseCsv(csvContent);

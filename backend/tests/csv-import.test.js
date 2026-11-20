@@ -180,6 +180,45 @@ describe("CSV Import - Import Flow", () => {
     fs.unlinkSync(tmpFile);
   });
 
+  test("POST /import with malformed contractId returns 400 and does not create import", async () => {
+    mockCreateCsvImport.mockClear();
+    const csvContent =
+      "address,share_percentage\nGAPTAQKSMN2ILFVHXDE5V274BUPC6QCRMJZYJFNGW7ENT2X3BQOS4M3C,50\nGA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P,50";
+    const tmpFile = path.join(__dirname, "_test_bad_contract.csv");
+    fs.writeFileSync(tmpFile, csvContent, "utf-8");
+
+    const res = await request(app)
+      .post("/api/v1/csv-import/import")
+      .field("contractId", "not-a-contract")
+      .field("importedBy", "admin")
+      .attach("file", tmpFile);
+
+    expect(res.status).toBe(400);
+    expect(mockCreateCsvImport).not.toHaveBeenCalled();
+
+    fs.unlinkSync(tmpFile);
+  });
+
+  test("POST /import with valid contractId creates import record", async () => {
+    mockCreateCsvImport.mockClear();
+    const csvContent =
+      "address,share_percentage\nGAPTAQKSMN2ILFVHXDE5V274BUPC6QCRMJZYJFNGW7ENT2X3BQOS4M3C,50\nGA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P,50";
+    const tmpFile = path.join(__dirname, "_test_good_contract.csv");
+    fs.writeFileSync(tmpFile, csvContent, "utf-8");
+
+    const res = await request(app)
+      .post("/api/v1/csv-import/import")
+      .field("contractId", CONTRACT_ID)
+      .field("importedBy", "admin")
+      .attach("file", tmpFile);
+
+    expect(res.status).toBe(200);
+    expect(mockCreateCsvImport).toHaveBeenCalledTimes(1);
+    expect(mockCreateCsvImport.mock.calls[0][0]).toBe(CONTRACT_ID);
+
+    fs.unlinkSync(tmpFile);
+  });
+
   test("GET /history/:contractId returns import history", async () => {
     mockGetCsvImportsByContract.mockReturnValue([
       { id: 1, contractId: CONTRACT_ID, fileName: "test.csv", status: "completed" },
