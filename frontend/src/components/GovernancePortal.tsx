@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import "./GovernancePortal.css";
 
 export type GovProposalActionType =
@@ -57,6 +57,8 @@ export interface GovernancePortalProps {
   onRevokeDelegation?: () => Promise<void>;
 }
 
+const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+
 export const GovernancePortal: React.FC<GovernancePortalProps> = ({
   walletAddress = null,
   totalSupply = "0",
@@ -89,7 +91,12 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
   const [budgetAmount, setBudgetAmount] = useState("");
   const [votingDurationDays, setVotingDurationDays] = useState(3);
 
-  const now = Math.floor(Date.now() / 1000);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const formatAddress = (addr: string) => {
     if (!addr || addr.length < 10) return addr;
@@ -170,11 +177,16 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
 
   const handleDelegateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onDelegate || !delegateInput) return;
+    if (!onDelegate) return;
+    const trimmed = delegateInput.trim();
+    if (!ADDRESS_RE.test(trimmed)) {
+      setActionError("Please enter a valid Stellar address (starts with G, 56 characters)");
+      return;
+    }
     try {
       setIsSubmitting(true);
       setActionError(null);
-      await onDelegate(delegateInput);
+      await onDelegate(trimmed);
       setShowDelegateModal(false);
       setDelegateInput("");
     } catch (err: unknown) {

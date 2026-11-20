@@ -84,18 +84,22 @@ export interface AuditEvent {
 }
 
 export interface DocumentManagerProps {
-  currentUserAddress?: string;
+  currentUserAddress: string;
   contractId?: string;
   apiBaseUrl?: string;
   onDocumentSelected?: (doc: DocumentItem) => void;
 }
 
 export const DocumentManager: React.FC<DocumentManagerProps> = ({
-  currentUserAddress = "GADMIN...CONTRACT",
+  currentUserAddress,
   contractId,
   apiBaseUrl = "/api/v1",
   onDocumentSelected,
 }) => {
+  if (!currentUserAddress) {
+    return <div className="document-manager-error">Wallet connection required.</div>;
+  }
+
   // Documents state
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);

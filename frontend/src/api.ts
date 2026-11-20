@@ -1037,7 +1037,33 @@ export const api = {
 
   getPartnerAnalytics: (partnerId: string) =>
     get<{ success: boolean; data: PartnerAnalytics }>(`/partners/${partnerId}/analytics`),
+
+  // Admin key rotation (#1360). Admin authentication is handled by the
+  // module's internal auth mechanism (HTTP-only cookie / session-based
+  // flow) — never by a caller-supplied token.
+  getAdminKeyStatus: () => get<AdminKeyStatus>("/admin/key-status"),
+
+  rotateAdminKey: (body: RotateAdminKeyRequest = {}) =>
+    post<RotateAdminKeyResponse>("/admin/rotate-key", body),
 };
+
+export interface AdminKeyStatus {
+  publicKey: string;
+  rotatedAt: string | null;
+  source: string;
+}
+
+export interface RotateAdminKeyRequest {
+  secretKey?: string;
+  reloadFromFile?: boolean;
+  reloadFromProvider?: boolean;
+}
+
+export interface RotateAdminKeyResponse {
+  publicKey: string;
+  rotatedAt: string;
+  source: string;
+}
 
 // Partner Analytics types (stub for now - backend endpoints TBD)
 export interface PartnerAnalytics {

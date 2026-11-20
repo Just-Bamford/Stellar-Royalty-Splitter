@@ -1,6 +1,7 @@
 // #588 Admin Key Rotation
 import { useState, useEffect } from "react";
 import { Skeleton } from "./Skeleton";
+import { api } from "../api";
 import "./KeyRotationPanel.css";
 
 interface KeyStatus {
@@ -14,36 +15,7 @@ interface KeyStatus {
 
 type RotateMethod = "secretKey" | "reloadFromFile" | "reloadFromProvider";
 
-async function fetchKeyStatus(token: string): Promise<KeyStatus> {
-  const res = await fetch("/api/admin/key-status", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Status ${res.status}`);
-  return res.json();
-}
-
-async function rotateKey(
-  token: string,
-  body: Record<string, unknown>,
-): Promise<{ publicKey: string; rotatedAt: string; source: string }> {
-  const res = await fetch("/api/admin/rotate-key", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error ?? `Error ${res.status}`);
-  return data;
-}
-
-interface KeyRotationPanelProps {
-  adminToken: string;
-}
-
-export const KeyRotationPanel: React.FC<KeyRotationPanelProps> = ({ adminToken }) => {
+export const KeyRotationPanel: React.FC = () => {
   const [status, setStatus] = useState<KeyStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -54,11 +26,10 @@ export const KeyRotationPanel: React.FC<KeyRotationPanelProps> = ({ adminToken }
   const [rotateResult, setRotateResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const loadStatus = async () => {
-    if (!adminToken) return;
     setStatusLoading(true);
     setStatusError(null);
     try {
-      setStatus(await fetchKeyStatus(adminToken));
+      setStatus(await api.getAdminKeyStatus());
     } catch (e) {
       setStatusError(e instanceof Error ? e.message : "Failed to load key status");
     } finally {
@@ -66,20 +37,19 @@ export const KeyRotationPanel: React.FC<KeyRotationPanelProps> = ({ adminToken }
     }
   };
 
-  useEffect(() => { loadStatus(); }, [adminToken]);
+  useEffect(() => { loadStatus(); }, []);
 
   const handleRotate = async () => {
     setRotating(true);
     setRotateResult(null);
     try {
-      const body: Record<string, unknown> =
+      const result = await api.rotateAdminKey(
         method === "secretKey"
           ? { secretKey: secretInput.trim() }
           : method === "reloadFromFile"
           ? { reloadFromFile: true }
-          : { reloadFromProvider: true };
-
-      const result = await rotateKey(adminToken, body);
+          : { reloadFromProvider: true },
+      );
       setRotateResult({
         ok: true,
         message: `Key rotated — new public key: ${result.publicKey.slice(0, 16)}… (${result.source})`,
