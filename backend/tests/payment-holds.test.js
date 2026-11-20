@@ -166,6 +166,12 @@ describe("Payment Holds - Query", () => {
     expect(res.body.data.auditTrail).toEqual([]);
   });
 
+  test.each(["abc", "-5"])("GET /transaction/:transactionId rejects %s", async (transactionId) => {
+    const res = await request(app).get(`/api/v1/payment-holds/transaction/${transactionId}`);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_parameter");
+  });
+
   test("GET /transaction/:transactionId returns 404 for non-existent", async () => {
     mockGetTransactionWithHold.mockReturnValue(null);
     const res = await request(app).get("/api/v1/payment-holds/transaction/999");
@@ -200,6 +206,12 @@ describe("Payment Holds - Query", () => {
     const res = await request(app).get(`/api/v1/payment-holds/audit/${TX_ID}`);
     expect(res.status).toBe(200);
     expect(res.body.data.length).toBe(1);
+  });
+
+  test("GET /audit/:transactionId rejects non-positive IDs", async () => {
+    const res = await request(app).get("/api/v1/payment-holds/audit/0");
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_parameter");
   });
 });
 

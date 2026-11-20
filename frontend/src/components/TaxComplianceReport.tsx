@@ -12,7 +12,11 @@ export function TaxComplianceReport() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadReports();
+    void loadReports();
+    const interval = setInterval(() => {
+      void loadReports();
+    }, 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadReports = async () => {

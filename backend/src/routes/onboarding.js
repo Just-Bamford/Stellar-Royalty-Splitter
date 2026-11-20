@@ -5,6 +5,7 @@ import { renderOnboardingReminderEmail } from "../email-template.js";
 import logger from "../logger.js";
 import { isValidStellarAddress } from "../validation.js";
 import { sendError, sendValidationError } from "../error-response.js";
+import { onboardingReminderLimiter } from "../rate-limiter/onboarding-reminder.js";
 
 const router = express.Router();
 
@@ -174,7 +175,7 @@ router.patch("/:walletAddress", (req, res) => {
 });
 
 // POST /api/onboarding/:walletAddress/remind
-router.post("/:walletAddress/remind", (req, res) => {
+router.post("/:walletAddress/remind", onboardingReminderLimiter, (req, res) => {
   const { walletAddress } = req.params;
 
   if (!isValidStellarAddress(walletAddress)) {

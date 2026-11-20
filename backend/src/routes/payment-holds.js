@@ -15,6 +15,15 @@ import { addAuditLog } from "../database/audit.js";
 
 export const paymentHoldsRouter = Router();
 
+function parsePositiveTransactionId(req, res) {
+  const id = parseInt(req.params.transactionId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    sendError(res, 400, "invalid_parameter", "Transaction ID must be a positive integer");
+    return null;
+  }
+  return id;
+}
+
 paymentHoldsRouter.post("/place", requireRole("admin"), (req, res) => {
   try {
     const { transactionId, holdReason, holdUntil, placedBy } = req.body;
@@ -67,12 +76,14 @@ paymentHoldsRouter.post("/approve-release", requireRole("admin"), (req, res) => 
 });
 
 paymentHoldsRouter.get("/transaction/:transactionId", (req, res) => {
+  const id = parsePositiveTransactionId(req, res);
+  if (id === null) return;
   try {
-    const result = getTransactionWithHold(parseInt(req.params.transactionId));
+    const result = getTransactionWithHold(id);
     if (!result) {
       return sendError(res, 404, "not_found", "Transaction not found");
     }
-    const auditTrail = getHoldAuditTrail(parseInt(req.params.transactionId));
+    const auditTrail = getHoldAuditTrail(id);
     res.json({ success: true, data: { ...result, auditTrail } });
   } catch (err) {
     sendError(res, 500, "fetch_error", err.message);
@@ -109,8 +120,10 @@ paymentHoldsRouter.get("/pending-release", requireRole("admin"), (_req, res) => 
 });
 
 paymentHoldsRouter.get("/audit/:transactionId", (req, res) => {
+  const id = parsePositiveTransactionId(req, res);
+  if (id === null) return;
   try {
-    const auditTrail = getHoldAuditTrail(parseInt(req.params.transactionId));
+    const auditTrail = getHoldAuditTrail(id);
     res.json({ success: true, data: auditTrail });
   } catch (err) {
     sendError(res, 500, "audit_error", err.message);

@@ -191,4 +191,20 @@ describe("Contributor Onboarding Router (#567)", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Valid email is required for reminder");
   });
+
+  test("POST /api/v1/onboarding/:walletAddress/remind returns 429 after the first reminder", async () => {
+    const rateLimitedWallet = `${TEST_WALLET.slice(0, -1)}B`;
+    const payload = { email: "rate-limited@example.com" };
+    const first = await request(app)
+      .post(`/api/v1/onboarding/${rateLimitedWallet}/remind`)
+      .send(payload);
+    const second = await request(app)
+      .post(`/api/v1/onboarding/${rateLimitedWallet}/remind`)
+      .send(payload);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(429);
+    expect(second.body.code).toBe("too_many_requests");
+    expect(second.headers["retry-after"]).toBe("300");
+  });
 });

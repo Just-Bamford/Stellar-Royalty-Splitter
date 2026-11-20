@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../api";
 import "./PaymentHoldManager.css";
 
@@ -30,6 +30,8 @@ interface PaymentHoldManagerProps {
   isAdmin?: boolean;
 }
 
+type ReleaseStep = "approval" | "release" | null;
+
 export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldManagerProps) {
   const [heldTxns, setHeldTxns] = useState<HeldTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,8 @@ export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldM
   const [selectedTxn, setSelectedTxn] = useState<HeldTransaction | null>(null);
   const [showReleaseModal, setShowReleaseModal] = useState(false);
   const [releaseNote, setReleaseNote] = useState("");
+  const [releaseStep, setReleaseStep] = useState<ReleaseStep>(null);
+  const releaseStepRef = useRef<ReleaseStep>(null);
 
   useEffect(() => {
     loadHeldTransactions();
@@ -64,15 +68,27 @@ export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldM
   const handleConfirmRelease = async () => {
     if (!selectedTxn) return;
     setActionLoading(selectedTxn.id);
+    setError(null);
     try {
+      releaseStepRef.current = "approval";
+      setReleaseStep("approval");
       await api.approveHoldRelease(selectedTxn.id, "admin", releaseNote);
+      releaseStepRef.current = "release";
+      setReleaseStep("release");
       await api.releasePaymentHold(selectedTxn.id, "admin", releaseNote);
       setShowReleaseModal(false);
       setReleaseNote("");
-      loadHeldTransactions();
+      await loadHeldTransactions();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to release hold");
+      const detail = err instanceof Error ? err.message : "Unknown error";
+      if (releaseStepRef.current === "release") {
+        setError("Hold was approved but release failed. Please try releasing manually.");
+      } else {
+        setError(`Hold approval failed: ${detail}`);
+      }
     } finally {
+      releaseStepRef.current = null;
+      setReleaseStep(null);
       setActionLoading(null);
     }
   };
@@ -207,7 +223,11 @@ export function PaymentHoldManager({ contractId, isAdmin = false }: PaymentHoldM
                 onClick={handleConfirmRelease}
                 disabled={actionLoading === selectedTxn.id}
               >
-                {actionLoading === selectedTxn.id ? "Releasing..." : "Confirm Release"}
+                {actionLoading === selectedTxn.id
+                  ? releaseStep === "approval"
+                    ? "Approving..."
+                    : "Releasing..."
+                  : "Confirm Release"}
               </button>
             </div>
           </div>
