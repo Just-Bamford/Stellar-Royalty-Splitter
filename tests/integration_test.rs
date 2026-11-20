@@ -1498,14 +1498,40 @@ fn test_admin_transfer_requires_admin_auth() {
     let b = Address::generate(&env);
     let new_admin = Address::generate(&env);
 
+    // Initialize with only mock_all_auths (no allowing_non_root_auth)
+    // This means admin_transfer will try to require_auth but it won't be mocked
     env.mock_all_auths_allowing_non_root_auth();
     client.initialize(
         &vec![&env, admin.clone(), b.clone()],
         &vec![&env, 5000_u32, 5000_u32],
     );
 
+    // Reset to strict auth checking for admin_transfer call
+    env.mock_auths(&[]);
     // No mock auths for admin_transfer — must panic on require_auth
-    client.admin_transfer(&new_admin);
+    let _ = client.admin_transfer(&new_admin);
+}
+
+#[test]
+fn test_admin_transfer_returns_not_initialized_error_before_init() {
+    let env = Env::default();
+    let (contract_id, client) = setup(&env);
+
+    let new_admin = Address::generate(&env);
+
+    // Call try_admin_transfer before initialize—must return NotInitialized error
+    let result = client.try_admin_transfer(&new_admin);
+    assert!(
+        result.is_err(),
+        "admin_transfer should error before initialize"
+    );
+
+    let err = result.unwrap_err().unwrap();
+    assert_eq!(
+        err,
+        ContractError::NotInitialized,
+        "admin_transfer should return NotInitialized, not panic"
+    );
 }
 
 // ── Issue #236: empty recipients guard on distribute ─────────────────────────

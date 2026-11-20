@@ -1422,18 +1422,14 @@ impl RoyaltySplitter {
         Ok(())
     }
 
-    pub fn admin_transfer(env: Env, new_admin: Address) {
+    pub fn admin_transfer(env: Env, new_admin: Address) -> Result<(), ContractError> {
         storage::extend_instance_ttl(&env);
 
         if env.storage().instance().has(&StorageKey::AdminList) {
             panic!("use propose_admin_xfr multisig");
         }
 
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&StorageKey::Admin)
-            .expect("not initialized");
+        let admin = Self::require_admin_address(&env)?;
 
         auth::require_admin(&env, &admin, auth::msg::ADMIN_TRANSFER_ADMIN);
 
@@ -1444,6 +1440,8 @@ impl RoyaltySplitter {
             (symbol_short!("royalty"), symbol_short!("admin_xfr")),
             (previous_admin, new_admin),
         );
+
+        Ok(())
     }
 
     pub fn propose_admin_transfer(env: Env, new_admin: Address) {
