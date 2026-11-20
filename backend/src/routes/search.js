@@ -81,7 +81,8 @@ searchRouter.get("/", (req, res, next) => {
     }
 
     const searchLimit = Math.min(parseInt(limit) || 50, 100);
-    const cKey = cacheKey("search:universal", searchQuery, searchLimit, semantic, advanced, req.query.searchType, req.query.contractId);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const cKey = cacheKey("search:universal", normalizedQuery, searchLimit, semantic, advanced, req.query.searchType, req.query.contractId);
     const cached = cacheGet(cKey);
     if (cached) {
       return res.json(cached);
@@ -144,7 +145,8 @@ searchRouter.get("/collaborators", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
-    const cKey = cacheKey("search:collaborators", searchQuery, searchLimit, searchOffset, contractId);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const cKey = cacheKey("search:collaborators", normalizedQuery, searchLimit, searchOffset, contractId);
     const cached = cacheGet(cKey);
     if (cached) {
       return res.json(cached);
@@ -183,7 +185,8 @@ searchRouter.get("/transactions", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
-    const cKey = cacheKey("search:transactions", searchQuery, searchLimit, searchOffset, contractId);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const cKey = cacheKey("search:transactions", normalizedQuery, searchLimit, searchOffset, contractId);
     const cached = cacheGet(cKey);
     if (cached) {
       return res.json(cached);
@@ -222,7 +225,8 @@ searchRouter.get("/disputes", (req, res, next) => {
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
-    const cKey = cacheKey("search:disputes", searchQuery, searchLimit, searchOffset, status);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const cKey = cacheKey("search:disputes", normalizedQuery, searchLimit, searchOffset, status);
     const cached = cacheGet(cKey);
     if (cached) {
       return res.json(cached);

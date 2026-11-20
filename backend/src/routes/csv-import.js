@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import crypto from "crypto";
 import { sendError } from "../error-response.js";
 import {
   createCsvImport,
@@ -26,7 +27,7 @@ if (!fs.existsSync(uploadsDir)) {
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const uniqueSuffix = crypto.randomUUID();
     cb(null, uniqueSuffix + "-" + file.originalname);
   },
 });

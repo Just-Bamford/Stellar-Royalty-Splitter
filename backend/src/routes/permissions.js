@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "../database/core.js";
 import { validate } from "../validation.js";
 import { sendError } from "../error-response.js";
+import logger from "../logger.js";
 import { PERMISSIONS, ROLES, ROLE_PERMISSIONS, getActiveRoles, getEffectivePermissions, getRbacUsers, isValidExpiration, auditPermissionChange } from "../models/rbac.js";
 import { requirePermission } from "../middleware/rbac-check.js";
 
@@ -47,9 +48,65 @@ permissionsRouter.delete("/users/:userId/temporary-permissions/:permissionId", r
 });
 permissionsRouter.get("/audit", requirePermission(PERMISSIONS.AUDIT_READ), (_req, res) => res.json({ events: db.prepare("SELECT * FROM rbac_audit_events ORDER BY id DESC LIMIT 200").all() }));
 permissionsRouter.post("/audit/:auditId/rollback", requirePermission(PERMISSIONS.PERMISSIONS_MANAGE), (req, res) => {
-  const event = db.prepare("SELECT * FROM rbac_audit_events WHERE id = ?").get(req.params.auditId); if (!event) return sendError(res, 404, "not_found", "Audit event not found"); if (!req.user || event.affectedUserId === req.user.id) return sendError(res, 403, "forbidden", "Rollback is not permitted");
-  const state = JSON.parse(event.previousState ?? "null"); if (event.action === "role_assigned") db.prepare("DELETE FROM user_roles WHERE userId = ? AND role = ?").run(event.affectedUserId, JSON.parse(event.newState).roles.find((role) => !(state?.roles ?? []).includes(role)));
-  else if (event.action === "role_removed") for (const role of state?.roles ?? []) db.prepare("INSERT OR IGNORE INTO user_roles (userId, role, assignedByUserId) VALUES (?, ?, ?)").run(event.affectedUserId, role, req.user.id);
-  else return sendError(res, 400, "not_rollbackable", "This audit event cannot be rolled back automatically");
-  auditPermissionChange({ actorUserId: req.user.id, affectedUserId: event.affectedUserId, action: "permission_rollback", previousState: JSON.parse(event.newState ?? "null"), newState: state, revertedAuditId: event.id, requestId: requestId(req) }); res.json({ rolledBack: event.id });
+  const event = db.prepare("SELECT * FROM rbac_audit_events WHERE id = ?").get(req.params.auditId);
+  if (!event) return sendError(res, 404, "not_found", "Audit event not found");
+  if (!req.user || event.affectedUserId === req.user.id) return sendError(res, 403, "forbidden", "Rollback is not permitted");
+
+  let previousState;
+  let newState;
+  try {
+    previousState = JSON.parse(event.previousState ?? "null");
+    newState = JSON.parse(event.newState ?? "null");
+  } catch {
+    return sendError(res, 400, "invalid_audit_state", "Audit event state is not valid JSON");
+  }
+
+  const previousRoles = Array.isArray(previousState?.roles) ? previousState.roles : [];
+  const newRoles = Array.isArray(newState?.roles) ? newState.roles : [];
+  const statesHaveValidRoleShape =
+    (previousState == null || Array.isArray(previousState.roles)) &&
+    (newState == null || Array.isArray(newState.roles));
+  const knownRoleSet = new Set(ROLES);
+  if (
+    !statesHaveValidRoleShape ||
+    previousRoles.some((role) => typeof role !== "string" || !knownRoleSet.has(role)) ||
+    newRoles.some((role) => typeof role !== "string" || !knownRoleSet.has(role))
+  ) {
+    return sendError(res, 400, "invalid_audit_state", "Audit event contains unknown roles");
+  }
+
+  logger.info("RBAC rollback attempt", {
+    auditId: event.id,
+    actorUserId: req.user.id,
+    affectedUserId: event.affectedUserId,
+    action: event.action,
+    previousState,
+    newState,
+    requestId: requestId(req),
+  });
+
+  if (event.action === "role_assigned") {
+    const roleToRemove = newRoles.find((role) => !previousRoles.includes(role));
+    if (roleToRemove) {
+      db.prepare("DELETE FROM user_roles WHERE userId = ? AND role = ?").run(event.affectedUserId, roleToRemove);
+    }
+  } else if (event.action === "role_removed") {
+    for (const role of previousRoles) {
+      db.prepare("INSERT OR IGNORE INTO user_roles (userId, role, assignedByUserId) VALUES (?, ?, ?)")
+        .run(event.affectedUserId, role, req.user.id);
+    }
+  } else {
+    return sendError(res, 400, "not_rollbackable", "This audit event cannot be rolled back automatically");
+  }
+
+  auditPermissionChange({
+    actorUserId: req.user.id,
+    affectedUserId: event.affectedUserId,
+    action: "permission_rollback",
+    previousState: newState,
+    newState: previousState,
+    revertedAuditId: event.id,
+    requestId: requestId(req),
+  });
+  res.json({ rolledBack: event.id });
 });

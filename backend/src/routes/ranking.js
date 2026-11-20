@@ -40,15 +40,16 @@ function validateDateParams(start, end, startDate, endDate, res) {
   return null;
 }
 
+const ORDER_BY_MAP = {
+  totalEarned: { column: "totalEarned", direction: "DESC" },
+  payoutCount: { column: "payoutCount", direction: "DESC" },
+  avgPayout: { column: "avgPayout", direction: "DESC" },
+};
+
 function buildOrderClause(metric) {
-  switch (metric) {
-    case "payoutCount":
-      return "payoutCount DESC";
-    case "avgPayout":
-      return "avgPayout DESC";
-    default:
-      return "totalEarned DESC";
-  }
+  const orderBy = ORDER_BY_MAP[metric] ?? ORDER_BY_MAP.totalEarned;
+  // Safe: column and direction are selected only from ORDER_BY_MAP whitelist entries.
+  return `${orderBy.column} ${orderBy.direction}`;
 }
 
 /**
