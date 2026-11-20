@@ -52,10 +52,14 @@ beforeEach(() => {
   mocks.getTransaction.mockReset();
   submissionRetryMetrics.reset();
   vi.useFakeTimers();
+  // Pin Math.random to 0 so the ±500ms polling jitter is deterministically
+  // zero in tests — advanceTimersByTimeAsync(3000) still fires every poll tick.
+  vi.spyOn(Math, "random").mockReturnValue(0);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("signAndSubmitTransaction", () => {

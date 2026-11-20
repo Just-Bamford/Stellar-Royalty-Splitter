@@ -14,14 +14,15 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
   const { connect, disconnect, error, isLoading, selectedWallet, setSelectedWallet } = useWallet();
   const [showSelector, setShowSelector] = useState(false);
 
-  const handleConnect = async () => {
-    if (!selectedWallet) {
+  const handleConnect = async (walletId?: string) => {
+    const wallet = walletId ?? selectedWallet;
+    if (!wallet) {
       setShowSelector(true);
       return;
     }
 
     try {
-      const address = await connect(selectedWallet);
+      const address = await connect(wallet);
       if (address) {
         onConnect(address);
         await refreshWalletNetwork();
@@ -40,8 +41,7 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
 
   const handleSelectWallet = (walletId: string) => {
     setSelectedWallet(walletId);
-    // Auto-connect if a wallet is selected
-    handleConnect();
+    handleConnect(walletId);
   };
 
   return (
@@ -66,7 +66,7 @@ export default function WalletConnect({ walletAddress, onConnect, onDisconnect }
           <div className="connect-actions">
             <button
               className="btn-primary"
-              onClick={handleConnect}
+              onClick={() => handleConnect()}
               disabled={isLoading}
             >
               {isLoading ? "Connecting..." : "Connect Wallet"}

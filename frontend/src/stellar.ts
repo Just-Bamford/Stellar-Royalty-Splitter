@@ -73,7 +73,7 @@ export async function signAndSubmitTransaction(
   // Poll for confirmation (max 30s)
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, 3000 + Math.random() * 500));
     let result;
     try {
       result = await server.getTransaction(hash);
