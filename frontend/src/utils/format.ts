@@ -5,6 +5,18 @@ function currentLanguage(): string {
 }
 
 /**
+ * Formats a Date as a local-timezone YYYY-MM-DD string.
+ * Uses local getters (getFullYear, getMonth, getDate) so the result matches
+ * the user's local calendar date, unlike toISOString() which returns UTC.
+ */
+export const localDate = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+/**
  * Formats a number with thousand separators and abbreviates large values.
  * Example: 1234567 -> 1.23M
  * Example: 1234 -> 1,234
