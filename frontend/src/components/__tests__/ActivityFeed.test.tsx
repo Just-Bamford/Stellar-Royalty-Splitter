@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import "@testing-library/jest-dom";
 import { ActivityFeed } from "../ActivityFeed";
 import { useSocialStore } from "../../store/socialStore";
@@ -66,5 +66,31 @@ describe("ActivityFeed", () => {
 
     fireEvent.click(likeBtn!);
     expect(useSocialStore.getState().feedItems[0].likes).toBe(16);
+  });
+
+  it("does not clear input or crash when store addFeedItem throws an error", () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const originalAdd = useSocialStore.getState().addFeedItem;
+    useSocialStore.setState({
+      addFeedItem: () => {
+        throw new Error("Store persistence failure");
+      },
+    });
+
+    render(<ActivityFeed walletAddress={WALLET_ADDR} />);
+
+    const textarea = screen.getByPlaceholderText(/Share a milestone/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Draft message that failed to post" } });
+
+    const postBtn = screen.getByRole("button", { name: /Post Update/i });
+    fireEvent.click(postBtn);
+
+    expect(consoleSpy).toHaveBeenCalledWith("Failed to create post", expect.any(Error));
+    // Input must remain intact so user does not lose their typed post
+    expect(textarea.value).toBe("Draft message that failed to post");
+
+    // Restore
+    useSocialStore.setState({ addFeedItem: originalAdd });
+    consoleSpy.mockRestore();
   });
 });
