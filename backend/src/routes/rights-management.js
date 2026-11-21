@@ -34,7 +34,7 @@ import {
 } from "../services/rights-management.js";
 
 import { sendError } from "../error-response.js";
-import logger from "../logger.js";
+import { requireRole } from "../middleware/rbac.js";
 
 export const rightsRouter = Router();
 
@@ -42,9 +42,9 @@ export const rightsRouter = Router();
  * POST /api/v1/rights
  * Create a new rights allocation record
  */
-rightsRouter.post("/", validate(createRightSchema), (req, res, next) => {
+rightsRouter.post("/", requireRole("operator"), validate(createRightSchema), (req, res, next) => {
   try {
-    const createdBy = req.headers["x-wallet-address"] || "system";
+    const createdBy = req.user?.walletAddress ?? "system";
     const right = createRight({
       ...req.body,
       createdBy,

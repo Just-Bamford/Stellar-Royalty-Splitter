@@ -38,6 +38,13 @@ const OWNER2 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
 
 const app = express();
 app.use(express.json());
+app.use((req, _res, next) => {
+  if (!req.role && !req.headers["x-api-key"] && !req.headers["authorization"]) {
+    req.user = { walletAddress: OWNER1, role: "operator" };
+    req.role = "operator";
+  }
+  next();
+});
 app.use("/api/v1/rights", rightsRouter);
 
 describe("Rights Management System", () => {
@@ -371,6 +378,53 @@ describe("Rights Management System", () => {
       const disputeRightsRes = await request(app).get("/api/v1/rights/dispute/DSP-12345678");
       expect(disputeRightsRes.status).toBe(200);
       expect(disputeRightsRes.body.rights.length).toBe(1);
+    });
+
+    test("POST /api/v1/rights rejects unauthenticated callers with 403", async () => {
+      const unauthApp = express();
+      unauthApp.use(express.json());
+      unauthApp.use("/api/v1/rights", rightsRouter);
+
+      const res = await request(unauthApp)
+        .post("/api/v1/rights")
+        .send({
+          contractId: CONTRACT,
+          rightType: "mechanical",
+          ownerAddress: OWNER1,
+          percentage: 40,
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Insufficient permissions");
+    });
+
+    test("POST /api/v1/rights uses auth context createdBy and ignores x-wallet-address header", async () => {
+      const spoofedAddress = "GSPOOFED1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ12345678";
+      const authApp = express();
+      authApp.use(express.json());
+      authApp.use((req, _res, next) => {
+        req.user = { walletAddress: OWNER1, role: "operator" };
+        req.role = "operator";
+        next();
+      });
+      authApp.use("/api/v1/rights", rightsRouter);
+
+      const res = await request(authApp)
+        .post("/api/v1/rights")
+        .set("x-wallet-address", spoofedAddress)
+        .send({
+          contractId: CONTRACT,
+          rightType: "performance",
+          ownerAddress: OWNER1,
+          percentage: 50,
+        });
+
+      expect(res.status).toBe(201);
+      const rightId = res.body.id;
+      const history = getRightsHistory(CONTRACT, rightId);
+      expect(history.length).toBeGreaterThanOrEqual(1);
+      expect(history[0].changedBy).toBe(OWNER1);
+      expect(history[0].changedBy).not.toBe(spoofedAddress);
     });
   });
 });
