@@ -3,11 +3,17 @@
  * Issue #963
  */
 
-const express = require('express');
+import express from 'express';
+import versioningService from '../services/contract-versioning.js';
+import logger from '../logger.js';
+
+function errorResponse(error, message) {
+  return { error, message };
+}
+
 const router = express.Router();
-const versioningService = require('../services/contract-versioning');
-const { errorResponse } = require('../error-response');
-const logger = require('../logger');
+
+const WASM_HASH_RE = /^[0-9a-fA-F]{64}$/;
 
 /**
  * POST /api/v1/versioning/deploy-shadow
@@ -23,10 +29,29 @@ router.post('/deploy-shadow', async (req, res) => {
       );
     }
 
+    if (typeof contractId !== 'string' || !contractId.trim()) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'contractId must be a valid non-empty string')
+      );
+    }
+
+    if (typeof deployedBy !== 'string' || !deployedBy.trim()) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'deployedBy must be a valid non-empty string')
+      );
+    }
+
+    const trimmedWasmHash = typeof wasmHash === 'string' ? wasmHash.trim() : '';
+    if (!WASM_HASH_RE.test(trimmedWasmHash)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'wasmHash must be a 64-character hex string')
+      );
+    }
+
     const result = versioningService.deployShadowVersion(
-      contractId,
-      wasmHash,
-      deployedBy,
+      contractId.trim(),
+      trimmedWasmHash,
+      deployedBy.trim(),
       metadata || {}
     );
 
@@ -313,4 +338,4 @@ router.get('/metrics/:versionId/:metricName', (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

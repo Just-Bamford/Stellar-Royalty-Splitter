@@ -4,6 +4,10 @@ const applicationLogs = [];
 let nextLogId = 1;
 const noop = () => {};
 
+const contractVersions = new Map();
+const migrationStages = new Map();
+const versionMetrics = [];
+
 function applicationLogRow(args) {
   const [level, message, correlationId = null, requestId = null, service = "api", metadata = "{}"] = args;
   return {
@@ -102,6 +106,148 @@ function prepare(sql) {
       },
     };
   }
+
+  // Contract versioning mock handlers
+  if (normalized.startsWith("insert into contract_versions")) {
+    return {
+      run: (...args) => {
+        const [versionId, contractId, wasmHash, state, deployedAt, deployedBy, metadata] = args;
+        contractVersions.set(versionId, {
+          version_id: versionId,
+          contract_id: contractId,
+          wasm_hash: wasmHash,
+          state,
+          deployed_at: deployedAt,
+          deployed_by: deployedBy,
+          metadata: metadata || "{}",
+        });
+        return { changes: 1, lastInsertRowid: contractVersions.size };
+      },
+      get: () => undefined,
+      all: () => [],
+    };
+  }
+  if (normalized.includes("from contract_versions") && normalized.includes("version_id = ?")) {
+    return {
+      run: noop,
+      get: (id) => contractVersions.get(id),
+      all: (id) => {
+        const row = contractVersions.get(id);
+        return row ? [row] : [];
+      },
+    };
+  }
+  if (normalized.includes("from contract_versions") && normalized.includes("contract_id = ?")) {
+    return {
+      run: noop,
+      get: (id) => Array.from(contractVersions.values()).find((v) => v.contract_id === id),
+      all: (id) => Array.from(contractVersions.values()).filter((v) => v.contract_id === id),
+    };
+  }
+  if (normalized.startsWith("update contract_versions set state = ?")) {
+    return {
+      run: (state, versionId) => {
+        const row = contractVersions.get(versionId);
+        if (row) row.state = state;
+        return { changes: 1 };
+      },
+      get: () => undefined,
+      all: () => [],
+    };
+  }
+  if (normalized.startsWith("insert into migration_stages")) {
+    return {
+      run: (...args) => {
+        const [migrationId, fromVersion, toVersion, currentStage, rolloutPercentage, startedAt, status, metrics] = args;
+        migrationStages.set(migrationId, {
+          migration_id: migrationId,
+          from_version: fromVersion,
+          to_version: toVersion,
+          current_stage: currentStage,
+          rollout_percentage: rolloutPercentage,
+          started_at: startedAt,
+          status,
+          metrics: metrics || "{}",
+        });
+        return { changes: 1, lastInsertRowid: migrationStages.size };
+      },
+      get: () => undefined,
+      all: () => [],
+    };
+  }
+  if (normalized.includes("from migration_stages") && normalized.includes("migration_id = ?")) {
+    return {
+      run: noop,
+      get: (id) => migrationStages.get(id),
+      all: (id) => {
+        const m = migrationStages.get(id);
+        return m ? [m] : [];
+      },
+    };
+  }
+  if (normalized.startsWith("update migration_stages set current_stage = ?, rollout_percentage = ?, status = ?")) {
+    return {
+      run: (stage, percentage, status, id) => {
+        const m = migrationStages.get(id);
+        if (m) {
+          m.current_stage = stage;
+          m.rollout_percentage = percentage;
+          m.status = status;
+        }
+        return { changes: 1 };
+      },
+      get: () => undefined,
+      all: () => [],
+    };
+  }
+  if (normalized.startsWith("update migration_stages set current_stage = ?, rollout_percentage = ?, completed_at = ?, status = ?")) {
+    return {
+      run: (stage, percentage, completedAt, status, id) => {
+        const m = migrationStages.get(id);
+        if (m) {
+          m.current_stage = stage;
+          m.rollout_percentage = percentage;
+          m.completed_at = completedAt;
+          m.status = status;
+        }
+        return { changes: 1 };
+      },
+      get: () => undefined,
+      all: () => [],
+    };
+  }
+  if (normalized.includes("from migration_stages") && normalized.includes("status = 'in_progress'")) {
+    return {
+      run: noop,
+      get: () => Array.from(migrationStages.values()).find((m) => m.status === "in_progress"),
+      all: () => Array.from(migrationStages.values()).filter((m) => m.status === "in_progress"),
+    };
+  }
+  if (normalized.startsWith("insert into version_metrics")) {
+    return {
+      run: (...args) => {
+        const [versionId, metricName, metricValue, recordedAt, metadata] = args;
+        versionMetrics.push({
+          version_id: versionId,
+          metric_name: metricName,
+          metric_value: metricValue,
+          recorded_at: recordedAt,
+          metadata: metadata || "{}",
+        });
+        return { changes: 1 };
+      },
+      get: () => undefined,
+      all: () => [],
+    };
+  }
+  if (normalized.includes("from version_metrics") && normalized.includes("version_id = ?")) {
+    return {
+      run: noop,
+      get: (vId) => versionMetrics.find((m) => m.version_id === vId),
+      all: (vId) => versionMetrics.filter((m) => m.version_id === vId),
+    };
+  }
+
   return { run: () => ({ changes: 1, lastInsertRowid: 1 }), get: () => undefined, all: () => [] };
 }
 

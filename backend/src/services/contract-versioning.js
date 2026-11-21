@@ -3,9 +3,8 @@
  * Issue #963 - Multi-stage contract versioning with canary testing
  */
 
-const logger = require('../logger');
-const db = require('../database');
-const { stellar } = require('../stellar');
+import logger from '../logger.js';
+import db from '../database.js';
 
 /**
  * Contract version states
@@ -465,4 +464,6 @@ class ContractVersioningService {
   }
 }
 
-module.exports = new ContractVersioningService();
+const versioningService = new ContractVersioningService();
+export default versioningService;
+export { ContractVersioningService, VersionState, MigrationStage };
