@@ -77,10 +77,21 @@ router.post("/oracle/predict", attachRole, requireRole("admin"), (req, res) => {
 
     if (!validateContractId(contractId, res)) return;
 
+    // confidence is a probability: a finite number in [0, 1]. Only real numbers
+    // and non-empty numeric strings qualify (Number("") and Number(null) are 0).
+    const confidenceNum =
+      typeof confidence === "number" ||
+      (typeof confidence === "string" && confidence.trim() !== "")
+        ? Number(confidence)
+        : Number.NaN;
+    if (!Number.isFinite(confidenceNum) || confidenceNum < 0 || confidenceNum > 1) {
+      return sendError(res, 400, "validation_failed", "confidence must be a number between 0 and 1");
+    }
+
     const predictionId = storePrediction({
       contractId,
       predictedAmount,
-      confidence,
+      confidence: confidenceNum,
       factors,
       modelVersion,
       predictionHorizon,
