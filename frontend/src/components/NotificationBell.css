@@ -185,6 +185,29 @@
   background: rgba(0, 0, 0, 0.01);
 }
 
+.view-all-link {
+  background: none;
+  border: none;
+  color: var(--accent-primary, #6366f1);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: opacity var(--transition-fast, 0.2s ease);
+}
+
+.view-all-link:hover {
+  opacity: 0.8;
+}
+
+.view-all-link:focus-visible {
+  outline: 2px solid var(--accent-primary, #6366f1);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 2px);
+}
+
 .view-all-notifications-btn {
   width: 100%;
   padding: 10px 12px;
