@@ -1,0 +1,1 @@
+# Royalty UI safety boundaries`n`nNFT identifiers need bounded input, timeline displays need refresh and merged-event counts, and distribution actions must use numeric rather than string balance validation.
