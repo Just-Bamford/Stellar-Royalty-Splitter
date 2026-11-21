@@ -101,6 +101,17 @@ export const EarningsHistoryChart: React.FC<EarningsHistoryChartProps> = ({ wall
     void loadHistory();
   }, [loadHistory]);
 
+  // While we are showing cached snapshots, refetch as soon as the browser
+  // reports the connection is back so the offline banner clears on its own.
+  useEffect(() => {
+    if (!offline) return;
+    const handleOnline = () => {
+      void loadHistory();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [offline, loadHistory]);
+
   const { start, end } = getRangeDates(range);
   const contractList = contracts.length > 0 ? contracts : Array.from(new Set(snapshots.map((row) => row.contractId)));
   const filledSnapshots = useMemo(
@@ -164,9 +175,16 @@ export const EarningsHistoryChart: React.FC<EarningsHistoryChartProps> = ({ wall
         </div>
       </header>
 
-      {offline && (
-        <div className="earnings-offline-banner" role="status">
-          Showing cached IndexedDB snapshots while offline.
+      {offline && !loading && (
+        <div className="earnings-offline-banner" role="status" aria-live="polite">
+          <span>You appear to be offline. Showing cached data.</span>
+          <button
+            type="button"
+            className="earnings-offline-retry"
+            onClick={() => void loadHistory()}
+          >
+            Retry
+          </button>
         </div>
       )}
 

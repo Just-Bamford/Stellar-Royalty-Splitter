@@ -14,6 +14,8 @@ import {
   getContractAddressValidationError,
   getPercentageValidationError,
   getAmountValidationError,
+  isValidEmail,
+  INVALID_EMAIL_MESSAGE,
   getFieldState,
   getFieldInputClass,
   getAriaInvalid,
@@ -295,5 +297,22 @@ describe("getAriaInvalid", () => {
 
   it("returns undefined for valid state", () => {
     expect(getAriaInvalid("valid")).toBeUndefined();
+  });
+});
+
+describe("isValidEmail (#1394)", () => {
+  it("accepts well-formed addresses, ignoring surrounding whitespace", () => {
+    expect(isValidEmail("contributor@example.com")).toBe(true);
+    expect(isValidEmail("  first.last+tag@sub.example.io ")).toBe(true);
+  });
+
+  it("rejects malformed addresses the backend would reject", () => {
+    for (const value of ["", "   ", "plainaddress", "a@b", "@example.com", "user@", "user @example.com", "a@@b.com"]) {
+      expect(isValidEmail(value)).toBe(false);
+    }
+  });
+
+  it("exposes a user-facing error message", () => {
+    expect(INVALID_EMAIL_MESSAGE).toBe("Please enter a valid email address.");
   });
 });

@@ -121,6 +121,16 @@ export function TreasuryDashboard() {
   const [receiptCid, setReceiptCid] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // `load` intentionally has an empty dependency array. The treasury is a single
+  // DAO-wide ledger: GET /api/v1/treasury/dashboard and /expenses are not scoped
+  // to a contract, and this component takes no props and passes no filters, so
+  // nothing it reads can change between renders. Keeping `load` stable means the
+  // mount effect below runs exactly once, and the refresh button and mutations
+  // (create/approve/reject) re-run it explicitly.
+  //
+  // If you add a prop or state that changes the request (e.g. `contractId`,
+  // `period`, or the backend's `from`/`to`/`granularity` query params), pass it
+  // in the URL and add it to this dependency array so the data is refetched.
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);

@@ -302,12 +302,22 @@ featureFlagsRouter.post(
   }
 );
 
-function sanitizeContext(context) {
+/**
+ * Build the evaluation context that is echoed back to the caller.
+ *
+ * Responses pass through API gateways, proxies and monitoring tools that log
+ * bodies, so this is an allow-list: only non-identifying targeting fields
+ * (`orgId`, `role`) are returned verbatim. Identifying values such as the
+ * wallet address, user ID or email are never echoed. The caller already knows
+ * them. Instead, boolean `has*` flags tell the client which identifiers took
+ * part in evaluation (e.g. why a user-targeted rule did or did not match).
+ */
+export function sanitizeContext(context) {
   return {
-    walletAddress: context?.walletAddress || null,
-    userId: context?.userId || null,
     orgId: context?.orgId || null,
     role: context?.role || null,
+    hasWalletAddress: Boolean(context?.walletAddress),
+    hasUserId: Boolean(context?.userId),
   };
 }
 
