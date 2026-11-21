@@ -133,6 +133,11 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
     e.preventDefault();
     if (!onCreateProposal) return;
 
+    if (!Number.isFinite(votingDurationDays) || votingDurationDays < 2 || votingDurationDays > 7) {
+      setActionError("Voting duration must be between 2 and 7 days");
+      return;
+    }
+
     let actionData: GovProposalActionData = { type: actionType };
     if (actionType === "ChangeRoyaltyRate") {
       actionData = { type: actionType, rate: Number(newRate) };
@@ -562,15 +567,14 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
 
               <div className="gov-form-group">
                 <label>Voting Period</label>
-                <select
+                <input
+                  type="number"
+                  min={2}
+                  max={7}
+                  step={1}
                   value={votingDurationDays}
                   onChange={(e) => setVotingDurationDays(Number(e.target.value))}
-                >
-                  <option value={2}>2 Days (Minimum)</option>
-                  <option value={3}>3 Days (Standard)</option>
-                  <option value={5}>5 Days</option>
-                  <option value={7}>7 Days (Maximum)</option>
-                </select>
+                />
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1rem" }}>
