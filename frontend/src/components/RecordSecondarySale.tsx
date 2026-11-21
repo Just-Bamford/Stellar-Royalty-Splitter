@@ -111,6 +111,8 @@ export default function RecordSecondarySale({
       onSuccess();
     } catch (err) {
       setStatus("error", `Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+      // Clear stale royalty calculation on error (#1430)
+      setCalculatedRoyalty(null);
     } finally {
       setLoading(false);
     }
