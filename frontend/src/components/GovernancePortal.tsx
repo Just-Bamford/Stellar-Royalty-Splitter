@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import "./GovernancePortal.css";
+import { validateGovernanceProposal } from "../lib/governanceProposalValidation";
 
 export type GovProposalActionType =
   | "ChangeRoyaltyRate"
@@ -138,19 +139,36 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
       return;
     }
 
+    // Validate the fields for the selected action before anything is submitted.
+    const validationError = validateGovernanceProposal({
+      title,
+      description,
+      actionType,
+      newRate,
+      tokenAddress,
+      feeBps,
+      collabAddress,
+      budgetRecipient,
+      budgetAmount,
+    });
+    if (validationError) {
+      setActionError(validationError);
+      return;
+    }
+
     let actionData: GovProposalActionData = { type: actionType };
     if (actionType === "ChangeRoyaltyRate") {
-      actionData = { type: actionType, rate: Number(newRate) };
+      actionData = { type: actionType, rate: Number(newRate.trim()) };
     } else if (actionType === "SetTokenFeeOverride") {
-      actionData = { type: actionType, token: tokenAddress, feeBps: Number(feeBps) };
+      actionData = { type: actionType, token: tokenAddress.trim(), feeBps: Number(feeBps.trim()) };
     } else if (actionType === "RemoveCollaborator") {
-      actionData = { type: actionType, collaborator: collabAddress };
+      actionData = { type: actionType, collaborator: collabAddress.trim() };
     } else if (actionType === "AllocateBudget") {
       actionData = {
         type: actionType,
-        token: tokenAddress,
-        recipient: budgetRecipient,
-        amount: budgetAmount,
+        token: tokenAddress.trim(),
+        recipient: budgetRecipient.trim(),
+        amount: budgetAmount.trim(),
       };
     }
 
@@ -158,8 +176,8 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
       setIsSubmitting(true);
       setActionError(null);
       await onCreateProposal({
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim(),
         action: actionData,
         votingPeriodSeconds: votingDurationDays * 86400,
       });

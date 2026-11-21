@@ -30,6 +30,18 @@ import { requireAdminBearerOrRole } from "../middleware/rbac.js";
 
 export const snapshotRouter = Router();
 
+/**
+ * Parse `limit` / `offset` query params into safe values: `limit` is clamped
+ * to [1, maxLimit] (falling back to `defaultLimit` when absent or not a
+ * number) and `offset` to a non-negative integer, so a negative or non-numeric
+ * value never reaches the database (#1373).
+ */
+export function parsePagination(query, { defaultLimit, maxLimit }) {
+  const limit = Math.min(Math.max(parseInt(query.limit, 10) || defaultLimit, 1), maxLimit);
+  const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
+  return { limit, offset };
+}
+
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 
 const createSnapshotSchema = z.object({
@@ -52,8 +64,7 @@ snapshotRouter.get(
   requireAdminBearerOrRole("admin"),
   (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit) || 100, 1000);
-      const offset = Number(req.query.offset) || 0;
+      const { limit, offset } = parsePagination(req.query, { defaultLimit: 100, maxLimit: 1000 });
 
       const snapshots = getAllSnapshots({ limit, offset });
 
@@ -76,8 +87,7 @@ snapshotRouter.get(
 snapshotRouter.get("/:contractId", (req, res) => {
   try {
     const { contractId } = req.params;
-    const limit = Math.min(Number(req.query.limit) || 50, 500);
-    const offset = Number(req.query.offset) || 0;
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
 
     const cKey = cacheKey("snapshots", contractId, limit, offset);
     const cached = cacheGet(cKey);
