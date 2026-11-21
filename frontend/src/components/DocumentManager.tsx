@@ -117,12 +117,15 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
 
-  const selectDoc = (doc: DocumentItem | null) => {
-    setSelectedDoc(doc);
-    if (doc && onDocumentSelected) {
-      onDocumentSelected(doc);
-    }
-  };
+  const selectDoc = useCallback(
+    (doc: DocumentItem | null) => {
+      setSelectedDoc(doc);
+      if (doc && onDocumentSelected) {
+        onDocumentSelected(doc);
+      }
+    },
+    [onDocumentSelected]
+  );
 
   // Upload Form State
   const [uploadTitle, setUploadTitle] = useState<string>("");
@@ -206,8 +209,18 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     });
   };
 
+  const resetUploadForm = useCallback(() => {
+    setUploadTitle("");
+    setUploadType("contract");
+    setUploadDesc("");
+    setUploadTags("");
+    setUploadSigners("");
+    setUploadFile(null);
+    setUploadPin(true);
+  }, []);
+
   // Handle Document Creation / Upload
-  const handleCreateDocument = async (e: React.FormEvent) => {
+  const handleCreateDocument = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadTitle.trim() || !uploadFile) {
       alert("Please provide a document title and file");
@@ -262,10 +275,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } finally {
       setUploading(false);
     }
-  };
+  }, [uploadTitle, uploadFile, uploadSigners, uploadTags, uploadType, contractId, uploadDesc, currentUserAddress, uploadPin, apiBaseUrl, resetUploadForm, fetchDocuments]);
 
   // Handle Uploading a New Version
-  const handleUploadNewVersion = async (e: React.FormEvent) => {
+  const handleUploadNewVersion = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc || !versionFile) {
       alert("Please select a file for the new version");
@@ -313,10 +326,29 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } finally {
       setUploading(false);
     }
-  };
+  }, [selectedDoc, versionFile, versionSigners, currentUserAddress, versionSummary, apiBaseUrl, fetchDocuments]);
+
+  // Load Single Document Detailed Data for Modals
+  const loadDocumentDetails = useCallback(async (docId: string) => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/documents/${docId}`, {
+        headers: { "x-user-id": currentUserAddress },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) {
+          setSelectedDoc(json.data);
+          setPermissionsList(json.data.permissions || []);
+          setSignatureList(json.data.signatures || []);
+        }
+      }
+    } catch (_err) {
+      // Ignore
+    }
+  }, [apiBaseUrl, currentUserAddress]);
 
   // Handle Document Download (with view-only vs download enforcement)
-  const handleDownload = async (doc: DocumentItem, version?: number) => {
+  const handleDownload = useCallback(async (doc: DocumentItem, version?: number) => {
     try {
       const url = `${apiBaseUrl}/documents/${doc.id}/download${version ? `?version=${version}` : ""}`;
       const res = await fetch(url, {
@@ -350,10 +382,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Download error: ${err.message}`);
     }
-  };
+  }, [apiBaseUrl, currentUserAddress]);
 
   // Handle Share / Grant Permission
-  const handleShare = async (e: React.FormEvent) => {
+  const handleShare = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc || !shareAddress.trim()) return;
 
@@ -381,10 +413,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Share error: ${err.message}`);
     }
-  };
+  }, [selectedDoc, shareAddress, apiBaseUrl, currentUserAddress, sharePermission, loadDocumentDetails]);
 
   // Revoke Permission
-  const handleRevoke = async (collaboratorAddress: string) => {
+  const handleRevoke = useCallback(async (collaboratorAddress: string) => {
     if (!selectedDoc) return;
     try {
       const res = await fetch(
@@ -401,10 +433,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Revoke error: ${err.message}`);
     }
-  };
+  }, [selectedDoc, apiBaseUrl, currentUserAddress, loadDocumentDetails]);
 
   // Digital Signature
-  const handleSign = async () => {
+  const handleSign = useCallback(async () => {
     if (!selectedDoc) return;
     try {
       const simulatedSignature = `sig_ed25519_${Date.now()}_${currentUserAddress.slice(0, 8)}`;
@@ -432,10 +464,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Signature error: ${err.message}`);
     }
-  };
+  }, [selectedDoc, currentUserAddress, apiBaseUrl, loadDocumentDetails, fetchDocuments]);
 
   // Reject Signature
-  const handleRejectSignature = async () => {
+  const handleRejectSignature = useCallback(async () => {
     if (!selectedDoc) return;
     try {
       const res = await fetch(`${apiBaseUrl}/documents/${selectedDoc.id}/reject`, {
@@ -461,29 +493,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Reject error: ${err.message}`);
     }
-  };
-
-  // Load Single Document Detailed Data for Modals
-  const loadDocumentDetails = async (docId: string) => {
-    try {
-      const res = await fetch(`${apiBaseUrl}/documents/${docId}`, {
-        headers: { "x-user-id": currentUserAddress },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) {
-          setSelectedDoc(json.data);
-          setPermissionsList(json.data.permissions || []);
-          setSignatureList(json.data.signatures || []);
-        }
-      }
-    } catch (_err) {
-      // Ignore
-    }
-  };
+  }, [selectedDoc, apiBaseUrl, currentUserAddress, rejectionReason, loadDocumentDetails, fetchDocuments]);
 
   // Open Audit Trail
-  const handleOpenAudit = async (doc: DocumentItem) => {
+  const handleOpenAudit = useCallback(async (doc: DocumentItem) => {
     selectDoc(doc);
     setShowAuditModal(true);
     try {
@@ -498,10 +511,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (_err) {
       setAuditEvents([]);
     }
-  };
+  }, [selectDoc, apiBaseUrl, currentUserAddress]);
 
   // Export Audit Trail
-  const handleExportAudit = async (format: "csv" | "json") => {
+  const handleExportAudit = useCallback(async (format: "csv" | "json") => {
     if (!selectedDoc) return;
     try {
       const url = `${apiBaseUrl}/documents/${selectedDoc.id}/audit-trail/export?format=${format}`;
@@ -523,17 +536,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Export error: ${err.message}`);
     }
-  };
-
-  const resetUploadForm = () => {
-    setUploadTitle("");
-    setUploadType("contract");
-    setUploadDesc("");
-    setUploadTags("");
-    setUploadSigners("");
-    setUploadFile(null);
-    setUploadPin(true);
-  };
+  }, [selectedDoc, apiBaseUrl, currentUserAddress]);
 
   // Stats calculation
   const stats = useMemo(() => {

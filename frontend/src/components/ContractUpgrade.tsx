@@ -73,7 +73,6 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
         "ok",
         `Contract upgraded successfully. TX: ${hash.slice(0, 12)}… Version will update once confirmed on-chain.`,
       );
-      setWasmHash("");
 
       // Poll for on-chain confirmation before refetching the version.
       if (contractId) {
@@ -109,6 +108,7 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
       setStatus("error", e instanceof Error ? e.message : "Upgrade failed");
     } finally {
       setLoading(false);
+      setWasmHash("");
     }
   }
 

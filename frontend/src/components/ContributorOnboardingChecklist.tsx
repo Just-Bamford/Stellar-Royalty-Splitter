@@ -290,7 +290,8 @@ export const ContributorOnboardingChecklist: React.FC<
         </div>
 
         {/* Demo State Selector for Acceptance Criteria (0%, 50%, 100%) */}
-        <div className="onboarding-state-controls">
+        {Boolean(import.meta.env?.DEV) && (
+          <div className="onboarding-state-controls">
           <label>Test State:</label>
           <button
             type="button"
@@ -321,6 +322,7 @@ export const ContributorOnboardingChecklist: React.FC<
             100%
           </button>
         </div>
+        )}
       </div>
 
       {error && <div className="onboarding-email-toast error">{error}</div>}
