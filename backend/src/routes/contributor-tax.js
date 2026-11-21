@@ -29,7 +29,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB limit for tax documents (Issue #1428)
   fileFilter: (_req, file, cb) => {
     const allowed = [".pdf", ".png", ".jpg", ".jpeg"];
     const ext = path.extname(file.originalname).toLowerCase();
@@ -122,21 +122,29 @@ contributorTaxRouter.post("/", (req, res) => {
   }
 });
 
-contributorTaxRouter.post("/upload/:walletAddress", upload.single("taxDocument"), (req, res) => {
-  try {
-    if (!req.file) {
-      return sendError(res, 400, "upload_error", "No file uploaded");
+contributorTaxRouter.post("/upload/:walletAddress", (req, res) => {
+  upload.single("taxDocument")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return sendError(res, 400, "upload_error", "File too large: maximum allowed size is 5 MB");
+      }
+      return sendError(res, 400, "upload_error", err.message);
     }
-    const taxInfo = upsertContributorTax({
-      walletAddress: req.params.walletAddress,
-      tax_status: "pending",
-      w9_file_path: req.file.path,
-      w9_file_name: req.file.originalname,
-    });
-    res.json({ success: true, data: taxInfo, file: { name: req.file.originalname, size: req.file.size } });
-  } catch (err) {
-    sendError(res, 500, "upload_error", err.message);
-  }
+    try {
+      if (!req.file) {
+        return sendError(res, 400, "upload_error", "No file uploaded");
+      }
+      const taxInfo = upsertContributorTax({
+        walletAddress: req.params.walletAddress,
+        tax_status: "pending",
+        w9_file_path: req.file.path,
+        w9_file_name: req.file.originalname,
+      });
+      res.json({ success: true, data: taxInfo, file: { name: req.file.originalname, size: req.file.size } });
+    } catch (routeErr) {
+      sendError(res, 500, "upload_error", routeErr.message);
+    }
+  });
 });
 
 contributorTaxRouter.get("/document/:walletAddress", (req, res) => {

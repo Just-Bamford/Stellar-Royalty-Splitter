@@ -200,3 +200,56 @@ describe("Contributor Tax - Data Validation", () => {
     expect(getRes.body.data.tax_id).toBe("12-3456789");
   });
 });
+
+describe("Contributor Tax - Document Upload (#1428)", () => {
+  test("POST /upload/:walletAddress returns 400 when no file is uploaded", async () => {
+    const res = await request(app).post(`/api/v1/contributor-tax/upload/${WALLET}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("No file uploaded");
+  });
+
+  test("POST /upload/:walletAddress rejects files larger than 5 MB", async () => {
+    const largeBuffer = Buffer.alloc(6 * 1024 * 1024); // 6 MB
+    const res = await request(app)
+      .post(`/api/v1/contributor-tax/upload/${WALLET}`)
+      .attach("taxDocument", largeBuffer, "large-w9.pdf");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/File too large|maximum allowed size is 5 MB/i);
+  });
+
+  test("POST /upload/:walletAddress accepts valid tax documents under 5 MB", async () => {
+    mockUpsertContributorTax.mockReturnValue({
+      id: 1,
+      walletAddress: WALLET,
+      tax_status: "pending",
+      w9_file_name: "valid-w9.pdf",
+    });
+
+    const validBuffer = Buffer.from("%PDF-1.4 test tax document content");
+    const res = await request(app)
+      .post(`/api/v1/contributor-tax/upload/${WALLET}`)
+      .attach("taxDocument", validBuffer, "valid-w9.pdf");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.file.name).toBe("valid-w9.pdf");
+    expect(mockUpsertContributorTax).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletAddress: WALLET,
+        tax_status: "pending",
+        w9_file_name: "valid-w9.pdf",
+      }),
+    );
+  });
+
+  test("POST /upload/:walletAddress rejects disallowed file extensions", async () => {
+    const textBuffer = Buffer.from("not a tax doc");
+    const res = await request(app)
+      .post(`/api/v1/contributor-tax/upload/${WALLET}`)
+      .attach("taxDocument", textBuffer, "script.exe");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Only PDF, PNG, and JPG files are allowed/i);
+  });
+});
