@@ -118,6 +118,26 @@
 .earnings-offline-banner {
   background: #fffbeb;
   color: #92400e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.earnings-offline-retry {
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  padding: 0.25rem 0.75rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.earnings-offline-retry:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .earnings-events ul {
