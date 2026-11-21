@@ -439,6 +439,8 @@ describe("backup routes — integration", () => {
   test("GET list — 400 for invalid contractId", async () => {
     const res = await request(app).get("/api/v1/backup/INVALID");
     expect(res.status).toBe(400);
+    expect(listBackupsMock).not.toHaveBeenCalled();
+    expect(countBackupsMock).not.toHaveBeenCalled();
   });
 
   // ── GET /api/v1/backup/:contractId/latest ─────────────────────────────────
@@ -448,6 +450,12 @@ describe("backup routes — integration", () => {
     const res = await request(app).get(`/api/v1/backup/${CONTRACT}/latest`);
     expect(res.status).toBe(200);
     expect(res.body.backup.id).toBe(5);
+  });
+
+  test("GET latest — 400 for invalid contractId", async () => {
+    const res = await request(app).get("/api/v1/backup/not-a-contract/latest");
+    expect(res.status).toBe(400);
+    expect(getLatestBackupMock).not.toHaveBeenCalled();
   });
 
   test("GET latest — 404 when no backup exists", async () => {
