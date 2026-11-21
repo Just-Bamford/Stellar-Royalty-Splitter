@@ -20,6 +20,8 @@ import { projectContractState } from "../projections/contract-state-projection.j
 import { handleDistributeCommand } from "../commands/distribute-command.js";
 import { handleInitializeCommand } from "../commands/initialize-command.js";
 import { distributeSchema, initializeSchema } from "../validation.js";
+import { deduplicationMiddleware, idempotencyMiddleware } from "../idempotency.js";
+import { tieredLimiters } from "../middleware/tieredRateLimit.js";
 
 export const eventsRouter = Router();
 export const commandsRouter = Router();
@@ -105,31 +107,48 @@ eventsRouter.get("/event/:eventId", (req, res) => {
 // ── CQRS Commands ──────────────────────────────────────────────────────────────
 
 // POST /api/v1/commands/distribute
-commandsRouter.post("/distribute", validate(distributeSchema), async (req, res, next) => {
-  try {
-    const { contractId, walletAddress, tokenId } = req.body;
-    const result = await handleDistributeCommand({
-      contractId, walletAddress, tokenId,
-      metadata: { correlationId: req.correlationId },
-    });
-    res.json(result);
-  } catch (err) {
-    if (err.status) return sendError(res, err.status, err.code, err.message);
-    next(err);
+commandsRouter.post(
+  "/distribute",
+  ...tieredLimiters,
+  deduplicationMiddleware("distribute"),
+  idempotencyMiddleware,
+  validate(distributeSchema),
+  async (req, res, next) => {
+    try {
+      const { contractId, walletAddress, tokenId } = req.body;
+      const result = await handleDistributeCommand({
+        contractId,
+        walletAddress,
+        tokenId,
+        metadata: { correlationId: req.correlationId },
+      });
+      res.json(result);
+    } catch (err) {
+      if (err.status) return sendError(res, err.status, err.code, err.message);
+      next(err);
+    }
   }
-});
+);
 
 // POST /api/v1/commands/initialize
-commandsRouter.post("/initialize", validate(initializeSchema), async (req, res, next) => {
-  try {
-    const { contractId, walletAddress, collaborators, shares } = req.body;
-    const result = await handleInitializeCommand({
-      contractId, walletAddress, collaborators, shares,
-      metadata: { correlationId: req.correlationId },
-    });
-    res.json(result);
-  } catch (err) {
-    if (err.status) return sendError(res, err.status, err.code, err.message);
-    next(err);
+commandsRouter.post(
+  "/initialize",
+  ...tieredLimiters,
+  validate(initializeSchema),
+  async (req, res, next) => {
+    try {
+      const { contractId, walletAddress, collaborators, shares } = req.body;
+      const result = await handleInitializeCommand({
+        contractId,
+        walletAddress,
+        collaborators,
+        shares,
+        metadata: { correlationId: req.correlationId },
+      });
+      res.json(result);
+    } catch (err) {
+      if (err.status) return sendError(res, err.status, err.code, err.message);
+      next(err);
+    }
   }
-});
+);
