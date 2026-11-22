@@ -104,6 +104,13 @@ export function FeatureFlagManager() {
       setError("Rule value is required");
       return;
     }
+    if (ruleType === "user") {
+      const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+      if (!ADDRESS_RE.test(ruleValue.trim())) {
+        setError("User rule value must be a valid Stellar address");
+        return;
+      }
+    }
     await run(
       () => api.addFeatureFlagRule(name, { ruleType, value: ruleValue.trim(), enabled: true }),
       "Targeting rule added"

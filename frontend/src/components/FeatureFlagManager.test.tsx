@@ -155,22 +155,39 @@ describe("FeatureFlagManager", () => {
     expect(screen.getByText(/history/i)).toBeInTheDocument();
   });
 
-  test("adds a targeting rule", async () => {
+  test("adds a targeting rule with valid Stellar address", async () => {
     render(<FeatureFlagManager />);
     fireEvent.click(await screen.findByRole("button", { name: /details for checkout-v2/i }));
     await screen.findByText(/targeting rules/i);
 
+    const validAddress = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     fireEvent.change(screen.getByLabelText(/rule value for checkout-v2/i), {
-      target: { value: "GORG" },
+      target: { value: validAddress },
     });
     fireEvent.click(screen.getByRole("button", { name: /add rule/i }));
 
     await waitFor(() => {
       expect(mockAddRule).toHaveBeenCalledWith("checkout-v2", {
         ruleType: "user",
-        value: "GORG",
+        value: validAddress,
         enabled: true,
       });
+    });
+  });
+
+  test("rejects adding a user rule with invalid Stellar address", async () => {
+    render(<FeatureFlagManager />);
+    fireEvent.click(await screen.findByRole("button", { name: /details for checkout-v2/i }));
+    await screen.findByText(/targeting rules/i);
+
+    fireEvent.change(screen.getByLabelText(/rule value for checkout-v2/i), {
+      target: { value: "invalid-address" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add rule/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("User rule value must be a valid Stellar address")).toBeInTheDocument();
+      expect(mockAddRule).not.toHaveBeenCalled();
     });
   });
 });
