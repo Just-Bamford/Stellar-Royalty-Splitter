@@ -23,6 +23,8 @@ import logger from "../logger.js";
 
 export const livenessRouter = Router();
 
+export const READINESS_TIMEOUT_MS = 3000;
+
 livenessRouter.get("/health", (_req, res) => {
   res.status(200).json({
     status: "ok",
@@ -44,8 +46,24 @@ livenessRouter.get("/ready", async (_req, res) => {
   }
 
   try {
-    const horizon = await checkHorizonConnectivity();
-    dependencies.horizon = horizon.connected;
+    const timeoutMs =
+      Number(process.env.READINESS_TIMEOUT_MS) || READINESS_TIMEOUT_MS;
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error("timeout")),
+        timeoutMs,
+      );
+    });
+    try {
+      const horizon = await Promise.race([
+        checkHorizonConnectivity(),
+        timeoutPromise,
+      ]);
+      dependencies.horizon = horizon.connected;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } catch (err) {
     logger.warn("Readiness check: Horizon unavailable", { error: err.message });
   }

@@ -92,6 +92,29 @@ describe("GET /ready", () => {
     expect(res.body.dependencies.horizon).toBe(false);
   });
 
+  test("returns 503 and not_ready when Horizon connectivity check hangs (#1426)", async () => {
+    const origTimeout = process.env.READINESS_TIMEOUT_MS;
+    process.env.READINESS_TIMEOUT_MS = "50";
+    try {
+      getMigrationVersion.mockReturnValue(14);
+      // Simulate Horizon hanging beyond the readiness timeout
+      checkHorizonConnectivity.mockReturnValue(
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      );
+
+      const res = await request(app).get("/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("not_ready");
+      expect(res.body.dependencies).toEqual({ database: true, horizon: false });
+    } finally {
+      if (origTimeout === undefined) {
+        delete process.env.READINESS_TIMEOUT_MS;
+      } else {
+        process.env.READINESS_TIMEOUT_MS = origTimeout;
+      }
+    }
+  });
+
   test("never includes secrets, API keys, or env vars in the payload", async () => {
     getMigrationVersion.mockReturnValue(14);
     checkHorizonConnectivity.mockResolvedValue({ connected: true, url: "https://horizon-testnet.stellar.org" });
