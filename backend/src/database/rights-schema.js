@@ -40,10 +40,17 @@ export function initializeRightsTables() {
         isVerified INTEGER NOT NULL DEFAULT 0,
         effectiveDate DATETIME,
         expirationDate DATETIME,
+        createdBy TEXT DEFAULT 'system',
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(contractId, rightType, ownerAddress)
       );
+
+      try {
+        db.exec("ALTER TABLE rights ADD COLUMN createdBy TEXT DEFAULT 'system'");
+      } catch (_e) {
+        // Column may already exist
+      }
 
       CREATE INDEX IF NOT EXISTS idx_rights_contractId ON rights(contractId);
       CREATE INDEX IF NOT EXISTS idx_rights_ownerAddress ON rights(ownerAddress);
@@ -160,6 +167,7 @@ export function createRightRecord({
   licenseTerms = "commercial",
   effectiveDate = null,
   expirationDate = null,
+  createdBy = "system",
 }) {
   const now = new Date().toISOString();
   let insertId;
@@ -169,8 +177,8 @@ export function createRightRecord({
       const stmt = db.prepare(`
         INSERT INTO rights (
           contractId, rightType, ownerAddress, percentage, licenseTerms,
-          status, isVerified, effectiveDate, expirationDate, createdAt, updatedAt
-        ) VALUES (?, ?, ?, ?, ?, 'unverified', 0, ?, ?, ?, ?)
+          status, isVerified, effectiveDate, expirationDate, createdBy, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, 'unverified', 0, ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         contractId,
@@ -180,6 +188,7 @@ export function createRightRecord({
         licenseTerms,
         effectiveDate,
         expirationDate,
+        createdBy,
         now,
         now
       );
@@ -205,6 +214,7 @@ export function createRightRecord({
     isVerified: false,
     effectiveDate,
     expirationDate,
+    createdBy,
     createdAt: now,
     updatedAt: now,
   };

@@ -38,6 +38,16 @@ const OWNER2 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
 
 const app = express();
 app.use(express.json());
+app.use((req, _res, next) => {
+  if (req.headers["x-test-role"]) {
+    req.role = req.headers["x-test-role"];
+    req.user = {
+      role: req.headers["x-test-role"],
+      walletAddress: req.headers["x-wallet-address"] || "system",
+    };
+  }
+  next();
+});
 app.use("/api/v1/rights", rightsRouter);
 
 describe("Rights Management System", () => {
@@ -371,6 +381,123 @@ describe("Rights Management System", () => {
       const disputeRightsRes = await request(app).get("/api/v1/rights/dispute/DSP-12345678");
       expect(disputeRightsRes.status).toBe(200);
       expect(disputeRightsRes.body.rights.length).toBe(1);
+    });
+
+    describe("DELETE /api/v1/rights/:id ownership & RBAC (#1419)", () => {
+      test("rejects unauthenticated requests with 401", async () => {
+        const createRes = await request(app)
+          .post("/api/v1/rights")
+          .set("x-wallet-address", OWNER1)
+          .send({
+            contractId: CONTRACT,
+            rightType: "composition",
+            ownerAddress: OWNER1,
+            percentage: 50,
+          });
+
+        const rightId = createRes.body.id;
+        const res = await request(app).delete(`/api/v1/rights/${rightId}`);
+        expect(res.status).toBe(401);
+        expect(res.body.code).toBe("unauthorized");
+      });
+
+      test("rejects roles below operator with 403", async () => {
+        const createRes = await request(app)
+          .post("/api/v1/rights")
+          .set("x-wallet-address", OWNER1)
+          .send({
+            contractId: CONTRACT,
+            rightType: "performance",
+            ownerAddress: OWNER1,
+            percentage: 50,
+          });
+
+        const rightId = createRes.body.id;
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-test-role", "collaborator")
+          .set("x-wallet-address", OWNER1);
+
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe("forbidden");
+      });
+
+      test("rejects non-owner operator with 403", async () => {
+        const createRes = await request(app)
+          .post("/api/v1/rights")
+          .set("x-wallet-address", OWNER1)
+          .send({
+            contractId: CONTRACT,
+            rightType: "mechanical",
+            ownerAddress: OWNER1,
+            percentage: 50,
+          });
+
+        const rightId = createRes.body.id;
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-test-role", "operator")
+          .set("x-wallet-address", OWNER2);
+
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe("forbidden");
+        expect(res.body.message).toMatch(/You can only delete rights you created/i);
+      });
+
+      test("allows creator operator to delete right with 200", async () => {
+        const createRes = await request(app)
+          .post("/api/v1/rights")
+          .set("x-wallet-address", OWNER1)
+          .send({
+            contractId: CONTRACT,
+            rightType: "sync",
+            ownerAddress: OWNER1,
+            percentage: 50,
+          });
+
+        const rightId = createRes.body.id;
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-test-role", "operator")
+          .set("x-wallet-address", OWNER1);
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+
+        const getRes = await request(app).get(`/api/v1/rights/${rightId}`);
+        expect(getRes.status).toBe(404);
+      });
+
+      test("allows admin to delete right even if not creator", async () => {
+        const createRes = await request(app)
+          .post("/api/v1/rights")
+          .set("x-wallet-address", OWNER1)
+          .send({
+            contractId: CONTRACT,
+            rightType: "composition",
+            ownerAddress: OWNER1,
+            percentage: 50,
+          });
+
+        const rightId = createRes.body.id;
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-test-role", "admin")
+          .set("x-wallet-address", OWNER2);
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+      });
+
+      test("returns 404 if right does not exist", async () => {
+        const res = await request(app)
+          .delete("/api/v1/rights/999999")
+          .set("x-test-role", "operator")
+          .set("x-wallet-address", OWNER1);
+
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe("not_found");
+      });
     });
   });
 });

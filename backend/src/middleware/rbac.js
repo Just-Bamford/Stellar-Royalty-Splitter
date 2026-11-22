@@ -47,8 +47,14 @@ function resolveUser(req) {
  * Attach req.role to every request (non-blocking — does not reject).
  */
 export function attachRole(req, _res, next) {
-  req.user = resolveUser(req);
-  req.role = req.user?.role ?? "viewer";
+  if (!req.user) {
+    try {
+      req.user = resolveUser(req);
+    } catch (_e) {
+      req.user = null;
+    }
+  }
+  req.role = req.user?.role ?? req.role ?? "viewer";
   next();
 }
 

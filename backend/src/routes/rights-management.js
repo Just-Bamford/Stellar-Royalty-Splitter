@@ -34,6 +34,7 @@ import {
 } from "../services/rights-management.js";
 
 import { sendError } from "../error-response.js";
+import { attachRole, requireRole } from "../middleware/rbac.js";
 import logger from "../logger.js";
 
 export const rightsRouter = Router();
@@ -168,22 +169,44 @@ rightsRouter.patch("/:id", validate(updateRightSchema), (req, res, next) => {
  * DELETE /api/v1/rights/:id
  * Delete a right allocation
  */
-rightsRouter.delete("/:id", (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return sendError(res, 400, "invalid_id", "ID must be an integer");
+rightsRouter.delete(
+  ["/:id", "/:rightId"],
+  attachRole,
+  (req, res, next) => {
+    if (!req.user && !req.headers["x-api-key"] && !req.headers["authorization"]) {
+      return sendError(res, 401, "unauthorized", "Authentication required");
     }
-    const changedBy = req.headers["x-wallet-address"] || "system";
-    deleteRight(id, changedBy);
-    res.json({ success: true, message: `Right ${id} deleted` });
-  } catch (err) {
-    if (err.message.includes("not found")) {
-      return sendError(res, 404, "right_not_found", err.message);
+    if (req.headers["x-api-key"] && !req.user) {
+      return sendError(res, 401, "unauthorized", "Invalid API key");
     }
-    next(err);
+    next();
+  },
+  requireRole("operator"),
+  (req, res, next) => {
+    try {
+      const rawId = req.params.rightId ?? req.params.id;
+      const id = parseInt(rawId, 10);
+      if (isNaN(id)) {
+        return sendError(res, 400, "invalid_id", "ID must be an integer");
+      }
+      const right = getRightDetails(id);
+      if (!right) {
+        return sendError(res, 404, "not_found", "Right not found");
+      }
+      const createdBy = req.headers["x-wallet-address"] || req.user?.walletAddress || "system";
+      if (right.createdBy !== createdBy && req.user?.role !== "admin") {
+        return sendError(res, 403, "forbidden", "You can only delete rights you created");
+      }
+      deleteRight(id, createdBy);
+      res.json({ success: true, message: `Right ${id} deleted` });
+    } catch (err) {
+      if (err.message.includes("not found")) {
+        return sendError(res, 404, "not_found", err.message);
+      }
+      next(err);
+    }
   }
-});
+);
 
 /**
  * POST /api/v1/rights/:id/metadata
