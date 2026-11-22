@@ -85,18 +85,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
   const chartData = useChartData(stats, chartRange);
 
-  const handleSelectContract = (contractId: string, event?: React.MouseEvent) => {
-    if (event?.shiftKey) {
-      setSelectedContracts(new Set(selectedContracts).add(contractId));
+  const handleSelectContract = (contractId: string, _event?: React.MouseEvent) => {
+    const newSet = new Set(selectedContracts);
+    if (newSet.has(contractId)) {
+      newSet.delete(contractId);
     } else {
-      const newSet = new Set(selectedContracts);
-      if (newSet.has(contractId)) {
-        newSet.delete(contractId);
-      } else {
-        newSet.add(contractId);
-      }
-      setSelectedContracts(newSet);
+      newSet.add(contractId);
     }
+    setSelectedContracts(newSet);
   };
 
   const handleSelectAll = () => {
@@ -337,7 +333,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             </span>
                           </td>
                           <td className="text-right" data-label="Revenue">
-                            {formatcurrency(contract.revenue, settings.displayCurrency)}
+                            {formatCurrency(contract.revenue, settings.displayCurrency)}
                           </td>
                           <td className="text-right" data-label="Transactions">
                             {formatNumber(contract.transactions)}
