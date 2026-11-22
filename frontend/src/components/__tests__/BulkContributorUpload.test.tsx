@@ -134,4 +134,34 @@ describe("BulkContributorUpload", () => {
       expect(screen.getByText(/1 valid rows/)).toBeDefined();
     });
   });
+
+  test("truncates full wallet address in preview table and provides title tooltip (#1338)", async () => {
+    const fullAddress = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const previewData = {
+      success: true,
+      data: {
+        importId: null,
+        fileName: "test.csv",
+        totalRows: 1,
+        validRows: [{ rowIndex: 1, address: fullAddress, share: 100 }],
+        errorRows: [],
+        summary: { total: 1, valid: 1, errors: 0 },
+      },
+    };
+    mockApi.previewCsv.mockResolvedValue(previewData);
+
+    render(<BulkContributorUpload contractId={CONTRACT_ID} />);
+    const input = screen.getByLabelText(/upload csv file/i) as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["address,share_percentage"], "test.csv", { type: "text/csv" })] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("GBBD47...FLA5")).toBeInTheDocument();
+    });
+
+    const cell = screen.getByTitle(fullAddress);
+    expect(cell).toBeInTheDocument();
+    expect(screen.queryByText(fullAddress)).toBeNull();
+  });
 });

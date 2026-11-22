@@ -16,6 +16,12 @@ interface PreviewRow {
 
 const ALLOWED_CSV_TYPES = ["text/csv", "application/vnd.ms-excel", "text/plain"];
 
+export const truncateAddress = (addr: string) => {
+  if (!addr) return "(empty)";
+  if (addr.length <= 10) return addr;
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+};
+
 export function BulkContributorUpload({ contractId, onSuccess }: BulkContributorUploadProps) {
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">("upload");
@@ -167,7 +173,7 @@ export function BulkContributorUpload({ contractId, onSuccess }: BulkContributor
                     {preview.validRows.map((row) => (
                       <tr key={row.rowIndex}>
                         <td>{row.rowIndex}</td>
-                        <td><code>{row.address}</code></td>
+                        <td title={row.address}><code>{truncateAddress(row.address)}</code></td>
                         <td>{row.share}%</td>
                       </tr>
                     ))}
@@ -183,7 +189,7 @@ export function BulkContributorUpload({ contractId, onSuccess }: BulkContributor
               {preview.errorRows.map((row) => (
                 <div key={row.rowIndex} className="error-row">
                   <span className="error-row-line">Row {row.rowIndex}:</span>
-                  <span className="error-row-address">{row.address || "(empty)"}</span>
+                  <span className="error-row-address" title={row.address}>{truncateAddress(row.address)}</span>
                   <span className="error-row-message">{row.error}</span>
                 </div>
               ))}
