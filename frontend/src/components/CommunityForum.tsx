@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useSocialStore, type ForumPost } from "../store/socialStore";
 import "./CommunityForum.css";
 
@@ -93,6 +93,15 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
       post.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
+
+  const PAGE_SIZE = 20;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedCategory, searchQuery]);
+
+  const visiblePosts = filteredPosts.slice(0, visibleCount);
 
   return (
     <div className="community-forum-container" data-testid="community-forum-component">
@@ -200,7 +209,7 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
                 <p>Be the first to start a conversation in this topic!</p>
               </div>
             ) : (
-              filteredPosts.map((post) => {
+              visiblePosts.map((post) => {
                 const hasUpvoted = walletAddress ? post.upvotedBy.includes(walletAddress) : false;
                 const isExpanded = expandedCommentsPostId === post.id;
 
@@ -298,6 +307,19 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
                   </div>
                 );
               })
+            )}
+
+            {filteredPosts.length > visibleCount && (
+              <div className="forum-pagination" style={{ textAlign: "center", margin: "20px 0" }}>
+                <button
+                  type="button"
+                  className="profile-btn profile-btn-secondary load-more-btn"
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                  aria-label={`Load more (${filteredPosts.length - visibleCount} remaining)`}
+                >
+                  Load more ({filteredPosts.length - visibleCount} remaining)
+                </button>
+              </div>
             )}
           </div>
         </>

@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
 import "@testing-library/jest-dom";
 import { CommunityForum } from "../CommunityForum";
+import { useSocialStore, type ForumPost } from "../../store/socialStore";
 
 describe("CommunityForum", () => {
   const WALLET_ADDR = "GALAXY1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZAAAA";
@@ -69,5 +70,43 @@ describe("CommunityForum", () => {
     fireEvent.click(submitBtn);
 
     expect(screen.getByText("How to split royalties for remix contests?")).toBeInTheDocument();
+  });
+
+  it("paginates forum posts with 20 items per page and loads more", () => {
+    const mockPosts: ForumPost[] = Array.from({ length: 25 }, (_, i) => ({
+      id: `mock-post-${i + 1}`,
+      authorAddress: "GAOWNER123",
+      authorName: `User ${i + 1}`,
+      category: "general",
+      title: `Topic Discussion ${i + 1}`,
+      content: `Content for topic ${i + 1}`,
+      tags: ["general"],
+      upvotes: 0,
+      upvotedBy: [],
+      commentsCount: 0,
+      comments: [],
+      createdAt: Date.now() - i * 1000,
+    }));
+
+    useSocialStore.setState({ forumPosts: mockPosts });
+
+    render(<CommunityForum walletAddress={WALLET_ADDR} />);
+
+    // Initially renders 20 posts
+    expect(screen.getByText("Topic Discussion 1")).toBeInTheDocument();
+    expect(screen.getByText("Topic Discussion 20")).toBeInTheDocument();
+    expect(screen.queryByText("Topic Discussion 21")).not.toBeInTheDocument();
+
+    // Shows load more button with remaining count
+    const loadMoreBtn = screen.getByRole("button", { name: /Load more \(5 remaining\)/i });
+    expect(loadMoreBtn).toBeInTheDocument();
+
+    // Click load more
+    fireEvent.click(loadMoreBtn);
+
+    // Now renders remaining posts
+    expect(screen.getByText("Topic Discussion 21")).toBeInTheDocument();
+    expect(screen.getByText("Topic Discussion 25")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Load more/i })).not.toBeInTheDocument();
   });
 });
