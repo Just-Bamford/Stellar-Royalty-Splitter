@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { api, RoyaltyStats } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
+import { Skeleton } from "./Skeleton";
 
 
 interface Props {
@@ -22,20 +23,26 @@ export default function DistributeSecondaryRoyalties({
     msg: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
   const [stats, setStats] = useState<RoyaltyStats | null>(null);
   const [poolBalance, setPoolBalance] = useState<string>("");
 
   // Load royalty stats and pool balance on mount/contract change
   useEffect(() => {
-    if (!contractId) return;
+    if (!contractId) {
+      setLoadingData(false);
+      return;
+    }
 
-    api.getRoyaltyStats(contractId)
-      .then(setStats)
-      .catch(() => setStats(null));
-
-    api.getSecondaryRoyaltyPool(contractId)
-      .then((res) => setPoolBalance(res.poolBalance))
-      .catch(() => setPoolBalance("0"));
+    setLoadingData(true);
+    Promise.all([
+      api.getRoyaltyStats(contractId).catch(() => null),
+      api.getSecondaryRoyaltyPool(contractId).catch(() => ({ poolBalance: "0" })),
+    ]).then(([s, p]) => {
+      setStats(s);
+      setPoolBalance(p?.poolBalance ?? "0");
+      setLoadingData(false);
+    });
   }, [contractId]);
 
   async function submit() {
@@ -90,6 +97,24 @@ export default function DistributeSecondaryRoyalties({
     } finally {
       setLoading(false);
     }
+  }
+
+  if (loadingData) {
+    return (
+      <div className="card" data-testid="distribute-royalties-loading">
+        <h3>Distribute Secondary Royalties</h3>
+        <p className="description">
+          Distribute accumulated royalties from resales to collaborators.
+        </p>
+        <div className="stats-summary" style={{ padding: "0.5rem 0" }}>
+          <Skeleton width="60%" height="1.25rem" className="mb-2" />
+          <Skeleton width="80%" height="1.25rem" className="mb-2" />
+          <Skeleton width="50%" height="1.25rem" className="mb-4" />
+        </div>
+        <Skeleton width="100%" height="2.5rem" className="mb-4" />
+        <Skeleton width="160px" height="2.5rem" />
+      </div>
+    );
   }
 
   return (
