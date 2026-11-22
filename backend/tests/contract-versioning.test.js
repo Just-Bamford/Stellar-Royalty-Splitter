@@ -158,6 +158,69 @@ describe('Contract Versioning System', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('validation_failed');
+
+      // Negative percentage
+      const resNeg = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: testVersion1,
+          toVersion: testVersion2,
+          initialPercentage: -10,
+        });
+      expect(resNeg.status).toBe(400);
+      expect(resNeg.body.error).toBe('validation_failed');
+
+      // Non-numeric string
+      const resNaN = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: testVersion1,
+          toVersion: testVersion2,
+          initialPercentage: 'not-a-number',
+        });
+      expect(resNaN.status).toBe(400);
+      expect(resNaN.body.error).toBe('validation_failed');
+    });
+
+    it('should reject invalid version identifiers (#1418)', async () => {
+      // Missing fromVersion
+      const resMissing = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          toVersion: testVersion2,
+        });
+      expect(resMissing.status).toBe(400);
+      expect(resMissing.body.error).toBe('validation_failed');
+
+      // Invalid characters in version
+      const resBadChars = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: 'bad version with spaces',
+          toVersion: testVersion2,
+        });
+      expect(resBadChars.status).toBe(400);
+      expect(resBadChars.body.error).toBe('validation_failed');
+
+      // Too short
+      const resTooShort = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: 'v',
+          toVersion: testVersion2,
+        });
+      expect(resTooShort.status).toBe(400);
+      expect(resTooShort.body.error).toBe('validation_failed');
+
+      // Identical from and to versions
+      const resSame = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: testVersion1,
+          toVersion: testVersion1,
+        });
+      expect(resSame.status).toBe(400);
+      expect(resSame.body.error).toBe('validation_failed');
     });
   });
 

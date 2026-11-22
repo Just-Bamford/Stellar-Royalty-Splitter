@@ -14,6 +14,13 @@ function errorResponse(error, message) {
 const router = express.Router();
 
 const WASM_HASH_RE = /^[0-9a-fA-F]{64}$/;
+const VERSION_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,63}$/;
+
+function isValidVersionId(version) {
+  if (typeof version !== 'string') return false;
+  const trimmed = version.trim();
+  return trimmed.length >= 2 && trimmed.length <= 64 && VERSION_ID_RE.test(trimmed);
+}
 
 /**
  * POST /api/v1/versioning/deploy-shadow
@@ -81,13 +88,26 @@ router.post('/start-migration', async (req, res) => {
       );
     }
 
-    if (initialPercentage < 0 || initialPercentage > 100) {
+    if (!isValidVersionId(fromVersion) || !isValidVersionId(toVersion)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'fromVersion and toVersion must be valid version identifiers')
+      );
+    }
+
+    if (fromVersion.trim() === toVersion.trim()) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'fromVersion and toVersion must be different')
+      );
+    }
+
+    const pct = Number(initialPercentage);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
       return res.status(400).json(
         errorResponse('validation_failed', 'initialPercentage must be between 0 and 100')
       );
     }
 
-    const result = versioningService.startMigration(fromVersion, toVersion, initialPercentage);
+    const result = versioningService.startMigration(fromVersion.trim(), toVersion.trim(), pct);
 
     logger.info(`Migration started: ${result.migrationId}`);
 
