@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { api } from "../api";
+import type {
+  TreasuryDashboardData,
+  ExpenseRow,
+} from "../api";
 import "./TreasuryDashboard.css";
 
 /**
@@ -12,76 +17,6 @@ import "./TreasuryDashboard.css";
  *   GET  /api/v1/treasury/reports?format=csv
  */
 
-interface BudgetCategoryRow {
-  categoryId: number;
-  category: string;
-  percentage: number;
-  budget: number;
-  actual: number;
-  pending: number;
-  remaining: number;
-  utilization: number;
-  overBudget: boolean;
-  budgetSource: string;
-}
-
-interface BudgetVsActual {
-  period: string;
-  totalBudget: number;
-  totalActual: number;
-  totalPending: number;
-  remaining: number;
-  utilization: number;
-  categories: BudgetCategoryRow[];
-}
-
-interface TrendPoint {
-  period: string;
-  amount: number;
-}
-
-interface Forecast {
-  category: string | null;
-  lookbackDays: number;
-  horizonDays: number;
-  dailyRate: number;
-  forecast: number;
-  budget: number;
-  actual: number;
-  projectedTotal: number;
-  projectedOverBudget: boolean;
-  confidence: string;
-  sampleSize: number;
-}
-
-interface TreasuryAlert {
-  severity: string;
-  type: string;
-  category: string;
-  message: string;
-}
-
-interface TreasuryDashboardData {
-  generatedAt: string;
-  budgetVsActual: BudgetVsActual;
-  trends: { points: TrendPoint[]; total: number; granularity: string };
-  forecast: Forecast;
-  alerts: TreasuryAlert[];
-  pendingApprovals: number;
-  pendingAmount: number;
-}
-
-interface ExpenseRow {
-  id: number;
-  date: string;
-  category: string | null;
-  amount: number;
-  status: string;
-  description: string;
-  requestedBy?: string | null;
-  receiptCid?: string | null;
-}
-
 type Tab = "overview" | "expenses" | "approvals" | "reports";
 
 const AMOUNT_ERROR = "Enter a positive amount with at most two decimal places.";
@@ -92,18 +27,6 @@ function formatAmount(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
-}
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
-    throw new Error(body?.message || body?.error || `Request failed (${res.status})`);
-  }
-  return (await res.json()) as T;
 }
 
 export function TreasuryDashboard() {
@@ -139,8 +62,8 @@ export function TreasuryDashboard() {
     setError(null);
     try {
       const [dashboard, expenseList] = await Promise.all([
-        fetchJson<TreasuryDashboardData>("/api/v1/treasury/dashboard"),
-        fetchJson<{ expenses: ExpenseRow[] }>("/api/v1/treasury/expenses"),
+        api.getTreasuryDashboard(),
+        api.getTreasuryExpenses(),
       ]);
       setData(dashboard);
       setExpenses(expenseList.expenses);
@@ -171,15 +94,12 @@ export function TreasuryDashboard() {
     setSubmitting(true);
     setError(null);
     try {
-      await fetchJson<ExpenseRow>("/api/v1/treasury/expenses", {
-        method: "POST",
-        body: JSON.stringify({
-          category,
-          amount: parsedAmount,
-          description,
-          date,
-          receiptCid: receiptCid || undefined,
-        }),
+      await api.recordTreasuryExpense({
+        category,
+        amount: parsedAmount,
+        description,
+        date,
+        receiptCid: receiptCid || undefined,
       });
       setAmount("");
       setDescription("");
@@ -196,10 +116,11 @@ export function TreasuryDashboard() {
     setBusyExpenseId(id);
     setError(null);
     try {
-      await fetchJson(`/api/v1/treasury/expenses/${id}/${decision}`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      if (decision === "approve") {
+        await api.approveTreasuryExpense(id);
+      } else {
+        await api.rejectTreasuryExpense(id);
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update expense");

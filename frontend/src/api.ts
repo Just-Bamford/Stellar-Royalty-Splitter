@@ -1037,6 +1037,26 @@ export const api = {
 
   getPartnerAnalytics: (partnerId: string) =>
     get<{ success: boolean; data: PartnerAnalytics }>(`/partners/${partnerId}/analytics`),
+
+  // Treasury Management APIs (#1076) — DAO budget tracking, expense recording,
+  // and approval workflows. Replaces direct fetch calls in TreasuryDashboard.
+  getTreasuryDashboard: () => get<TreasuryDashboardData>("/treasury/dashboard"),
+
+  getTreasuryExpenses: () => get<{ expenses: ExpenseRow[] }>("/treasury/expenses"),
+
+  recordTreasuryExpense: (body: {
+    category: string;
+    amount: number;
+    description: string;
+    date: string;
+    receiptCid?: string;
+  }) => post<ExpenseRow>("/treasury/expenses", body),
+
+  approveTreasuryExpense: (id: number) =>
+    post<{ success: boolean }>(`/treasury/expenses/${id}/approve`, {}),
+
+  rejectTreasuryExpense: (id: number) =>
+    post<{ success: boolean }>(`/treasury/expenses/${id}/reject`, {}),
 };
 
 // Partner Analytics types (stub for now - backend endpoints TBD)
@@ -1337,4 +1357,75 @@ export interface OnboardingReminderResponse {
     incompleteCount: number;
     previewText: string;
   };
+}
+
+// Treasury Management types (#1076) — used by TreasuryDashboard component
+export interface BudgetCategoryRow {
+  categoryId: number;
+  category: string;
+  percentage: number;
+  budget: number;
+  actual: number;
+  pending: number;
+  remaining: number;
+  utilization: number;
+  overBudget: boolean;
+  budgetSource: string;
+}
+
+export interface BudgetVsActual {
+  period: string;
+  totalBudget: number;
+  totalActual: number;
+  totalPending: number;
+  remaining: number;
+  utilization: number;
+  categories: BudgetCategoryRow[];
+}
+
+export interface TrendPoint {
+  period: string;
+  amount: number;
+}
+
+export interface Forecast {
+  category: string | null;
+  lookbackDays: number;
+  horizonDays: number;
+  dailyRate: number;
+  forecast: number;
+  budget: number;
+  actual: number;
+  projectedTotal: number;
+  projectedOverBudget: boolean;
+  confidence: string;
+  sampleSize: number;
+}
+
+export interface TreasuryAlert {
+  severity: string;
+  type: string;
+  category: string;
+  message: string;
+}
+
+export interface TreasuryDashboardData {
+  generatedAt: string;
+  budgetVsActual: BudgetVsActual;
+  trends: { points: TrendPoint[]; total: number; granularity: string };
+  forecast: Forecast;
+  alerts: TreasuryAlert[];
+  pendingApprovals: number;
+  pendingAmount: number;
+}
+
+export interface ExpenseRow {
+  id: number;
+  date: string;
+  category: string | null;
+  amount: number;
+  status: string;
+  description: string;
+  requestedBy?: string | null;
+  receiptCid?: string | null;
 }
