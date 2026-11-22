@@ -73,15 +73,24 @@ export const LiveEarningsCounter: React.FC<LiveEarningsCounterProps> = ({
         }, 5000);
 
         prevValueRef.current = value;
-        return () => clearTimeout(timeout);
+        return () => {
+          clearTimeout(timeout);
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+          }
+        };
       } else {
         // Value decreased (e.g., contract reset), just update without animation
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
         setDisplayValue(value);
         prevValueRef.current = value;
       }
     }
   }, [value, animateValue]);
 
+  // #1434: Cancel animation frame on unmount to prevent memory leaks and unmounted state updates
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) {
