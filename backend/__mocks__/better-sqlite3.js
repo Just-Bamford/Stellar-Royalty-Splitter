@@ -23,10 +23,12 @@ function prepare(sql) {
   if (normalized.startsWith("insert into application_logs")) {
     return {
       run: (...args) => {
-        if (args.length === 0 && normalized.includes("-10 days")) {
+        const daysMatch = normalized.match(/-(\d+)\s+days/);
+        if (args.length === 0 && daysMatch) {
+          const daysAgo = Number(daysMatch[1]);
           applicationLogs.push({
             id: nextLogId++,
-            timestamp: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+            timestamp: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
             level: "info",
             message: "old",
             correlation_id: null,

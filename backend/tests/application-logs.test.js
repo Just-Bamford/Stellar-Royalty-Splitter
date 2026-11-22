@@ -13,8 +13,17 @@ const {
   pruneApplicationLogs,
   queryApplicationLogs,
 } = await import("../src/database/application-logs.js");
+const { applicationLogsRouter } = await import("../src/routes/application-logs.js");
+const { default: express } = await import("express");
+const { default: request } = await import("supertest");
 const { db } = await import("../src/database/core.js");
 initializeDatabase();
+
+process.env.ADMIN_ROTATE_TOKEN = "test-admin-token";
+
+const app = express();
+app.use(express.json());
+app.use(applicationLogsRouter);
 
 describe("centralized application logs (#874)", () => {
   beforeEach(() => {
@@ -62,6 +71,61 @@ describe("centralized application logs (#874)", () => {
 
     expect(pruneApplicationLogs(7).deleted).toBe(1);
     expect(queryApplicationLogs().map((row) => row.message)).toEqual(["recent"]);
+  });
+
+  describe("POST /logs/retention/prune validation (#1415)", () => {
+    test("rejects retentionDays: 0 with 400", async () => {
+      const res = await request(app)
+        .post("/logs/retention/prune")
+        .set("Authorization", "Bearer test-admin-token")
+        .send({ retentionDays: 0 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/retentionDays must be between 1 and 365/);
+    });
+
+    test("rejects retentionDays: -5 with 400", async () => {
+      const res = await request(app)
+        .post("/logs/retention/prune")
+        .set("Authorization", "Bearer test-admin-token")
+        .send({ retentionDays: -5 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/retentionDays must be between 1 and 365/);
+    });
+
+    test("rejects retentionDays: 400 with 400", async () => {
+      const res = await request(app)
+        .post("/logs/retention/prune")
+        .set("Authorization", "Bearer test-admin-token")
+        .send({ retentionDays: 400 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/retentionDays must be between 1 and 365/);
+    });
+
+    test("rejects non-numeric retentionDays with 400", async () => {
+      const res = await request(app)
+        .post("/logs/retention/prune")
+        .set("Authorization", "Bearer test-admin-token")
+        .send({ retentionDays: "invalid" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/retentionDays must be between 1 and 365/);
+    });
+
+    test("prunes logs older than 30 days when retentionDays: 30", async () => {
+      db.prepare(
+        "INSERT INTO application_logs (timestamp, level, message, metadata) VALUES (datetime('now', '-35 days'), 'info', 'very-old', '{}')",
+      ).run();
+      appendApplicationLog({ level: "info", message: "recent-log" });
+
+      const res = await request(app)
+        .post("/logs/retention/prune")
+        .set("Authorization", "Bearer test-admin-token")
+        .send({ retentionDays: 30 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.deleted).toBe(1);
+      expect(queryApplicationLogs().map((row) => row.message)).toEqual(["recent-log"]);
+    });
   });
 });
 

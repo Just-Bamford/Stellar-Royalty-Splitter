@@ -5,6 +5,7 @@ import {
   pruneApplicationLogs,
   queryApplicationLogs,
 } from "../database/application-logs.js";
+import { sendError } from "../error-response.js";
 
 export const applicationLogsRouter = Router();
 const operator = requireAdminBearerOrRole("operator");
@@ -32,6 +33,11 @@ applicationLogsRouter.get("/logs/alerts", operator, (req, res) => {
 });
 
 applicationLogsRouter.post("/logs/retention/prune", operator, (req, res) => {
-  const result = pruneApplicationLogs(req.body?.retentionDays ?? process.env.LOG_RETENTION_DAYS);
+  const rawRetention = req.body?.retentionDays ?? process.env.LOG_RETENTION_DAYS ?? 30;
+  const retentionDays = Number(rawRetention);
+  if (!Number.isFinite(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+    return sendError(res, 400, "invalid_parameter", "retentionDays must be between 1 and 365");
+  }
+  const result = pruneApplicationLogs(retentionDays);
   res.json({ success: true, data: result });
 });
