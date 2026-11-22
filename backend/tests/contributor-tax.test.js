@@ -1,5 +1,6 @@
-import { jest, describe, test, expect, beforeEach } from "@jest/globals";
+import { jest, describe, test, expect, beforeEach, afterEach } from "@jest/globals";
 import request from "supertest";
+import fs from "fs";
 
 const mockGetContributorTax = jest.fn();
 const mockUpsertContributorTax = jest.fn();
@@ -198,5 +199,54 @@ describe("Contributor Tax - Data Validation", () => {
 
     const getRes = await request(app).get(`/api/v1/contributor-tax/${WALLET}`);
     expect(getRes.body.data.tax_id).toBe("12-3456789");
+  });
+});
+
+describe("Contributor Tax - Document Upload (#1417)", () => {
+  let createdFilePath = null;
+
+  afterEach(() => {
+    if (createdFilePath && fs.existsSync(createdFilePath)) {
+      try {
+        fs.unlinkSync(createdFilePath);
+      } catch {
+        // ignore
+      }
+    }
+    createdFilePath = null;
+  });
+
+  test("POST /upload/:walletAddress removes uploaded file on processing error", async () => {
+    let capturedFilePath = null;
+    mockUpsertContributorTax.mockImplementationOnce((data) => {
+      capturedFilePath = data.w9_file_path;
+      expect(fs.existsSync(capturedFilePath)).toBe(true);
+      throw new Error("Database write failed");
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/contributor-tax/upload/${WALLET}`)
+      .attach("taxDocument", Buffer.from("dummy pdf content"), "sample-w9.pdf");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Database write failed");
+    expect(capturedFilePath).toBeTruthy();
+    expect(fs.existsSync(capturedFilePath)).toBe(false);
+  });
+
+  test("POST /upload/:walletAddress retains uploaded file on success", async () => {
+    mockUpsertContributorTax.mockImplementationOnce((data) => {
+      createdFilePath = data.w9_file_path;
+      return { id: 1, walletAddress: WALLET, ...data };
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/contributor-tax/upload/${WALLET}`)
+      .attach("taxDocument", Buffer.from("dummy pdf content"), "sample-w9.pdf");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(createdFilePath).toBeTruthy();
+    expect(fs.existsSync(createdFilePath)).toBe(true);
   });
 });

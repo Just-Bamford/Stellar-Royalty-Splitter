@@ -135,6 +135,13 @@ contributorTaxRouter.post("/upload/:walletAddress", upload.single("taxDocument")
     });
     res.json({ success: true, data: taxInfo, file: { name: req.file.originalname, size: req.file.size } });
   } catch (err) {
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // ignore cleanup error
+      }
+    }
     sendError(res, 500, "upload_error", err.message);
   }
 });

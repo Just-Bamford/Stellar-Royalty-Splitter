@@ -64,10 +64,17 @@ csvImportRouter.post("/validate", upload.single("file"), (req, res) => {
     const csvContent = fs.readFileSync(req.file.path, "utf-8");
     const rows = parseCsv(csvContent);
     const validation = validateCsvRows(rows);
-    fs.unlinkSync(req.file.path);
     res.json({ success: true, data: validation });
   } catch (err) {
     sendError(res, 500, "validation_error", err.message);
+  } finally {
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // ignore cleanup error
+      }
+    }
   }
 });
 
@@ -95,9 +102,16 @@ csvImportRouter.post("/preview", upload.single("file"), (req, res) => {
         },
       },
     });
-    fs.unlinkSync(req.file.path);
   } catch (err) {
     sendError(res, 500, "preview_error", err.message);
+  } finally {
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // ignore cleanup error
+      }
+    }
   }
 });
 
@@ -161,8 +175,6 @@ csvImportRouter.post("/import", upload.single("file"), (req, res) => {
       })
     );
 
-    fs.unlinkSync(req.file.path);
-
     res.json({
       success: true,
       data: {
@@ -177,6 +189,14 @@ csvImportRouter.post("/import", upload.single("file"), (req, res) => {
     });
   } catch (err) {
     sendError(res, 500, "import_error", err.message);
+  } finally {
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // ignore cleanup error
+      }
+    }
   }
 });
 
