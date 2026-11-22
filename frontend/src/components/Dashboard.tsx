@@ -160,7 +160,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     return (
       <div className="dashboard-empty">
         <div className="empty-state">
-          <div className="empty-icon">💏</div>
+          <div className="empty-icon">📊</div>
           <h2>No Contract Selected</h2>
           <p>Please initialize or select a contract to view analytics.</p>
         </div>
