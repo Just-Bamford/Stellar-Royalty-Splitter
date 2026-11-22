@@ -10,6 +10,9 @@ export const applicationLogsRouter = Router();
 const operator = requireAdminBearerOrRole("operator");
 
 applicationLogsRouter.get("/logs", operator, (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
   const logs = queryApplicationLogs({
     level: req.query.level,
     correlationId: req.query.correlationId,
@@ -18,8 +21,8 @@ applicationLogsRouter.get("/logs", operator, (req, res) => {
     search: req.query.search,
     from: req.query.from,
     to: req.query.to,
-    limit: req.query.limit,
-    offset: req.query.offset,
+    limit,
+    offset,
   });
   res.json({ success: true, data: logs, count: logs.length });
 });

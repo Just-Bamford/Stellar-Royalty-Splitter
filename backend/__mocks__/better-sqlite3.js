@@ -89,7 +89,9 @@ function prepare(sql) {
         if (normalized.includes("correlation_id = ?")) rows = rows.filter((row) => row.correlation_id === values[0]);
         if (normalized.includes("request_id = ?")) rows = rows.filter((row) => row.request_id === values[0]);
         if (normalized.includes("level = ?")) rows = rows.filter((row) => row.level === values[0]);
-        return rows.reverse().map((row) => ({
+        const limitParam = typeof values.at(-2) === "number" ? values.at(-2) : undefined;
+        const offsetParam = typeof values.at(-1) === "number" ? values.at(-1) : 0;
+        let mapped = rows.reverse().map((row) => ({
           id: row.id,
           timestamp: row.timestamp,
           level: row.level,
@@ -99,6 +101,10 @@ function prepare(sql) {
           service: row.service,
           metadata: row.metadata,
         }));
+        if (limitParam !== undefined) {
+          mapped = mapped.slice(offsetParam, offsetParam + limitParam);
+        }
+        return mapped;
       },
     };
   }

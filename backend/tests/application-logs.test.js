@@ -13,8 +13,17 @@ const {
   pruneApplicationLogs,
   queryApplicationLogs,
 } = await import("../src/database/application-logs.js");
+const { applicationLogsRouter } = await import("../src/routes/application-logs.js");
+const { default: express } = await import("express");
+const { default: request } = await import("supertest");
 const { db } = await import("../src/database/core.js");
 initializeDatabase();
+
+process.env.ADMIN_ROTATE_TOKEN = "test-admin-token";
+
+const app = express();
+app.use(express.json());
+app.use(applicationLogsRouter);
 
 describe("centralized application logs (#874)", () => {
   beforeEach(() => {
@@ -62,6 +71,59 @@ describe("centralized application logs (#874)", () => {
 
     expect(pruneApplicationLogs(7).deleted).toBe(1);
     expect(queryApplicationLogs().map((row) => row.message)).toEqual(["recent"]);
+  });
+
+  describe("GET /logs pagination parsing (#1414)", () => {
+    beforeEach(() => {
+      for (let i = 1; i <= 10; i += 1) {
+        appendApplicationLog({ level: "info", message: `log-${i}` });
+      }
+    });
+
+    test("falls back to default 50 when limit is invalid non-numeric string", async () => {
+      const res = await request(app)
+        .get("/logs?limit=abc")
+        .set("Authorization", "Bearer test-admin-token");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(10);
+    });
+
+    test("falls back to 0 when offset is invalid non-numeric string", async () => {
+      const res = await request(app)
+        .get("/logs?offset=xyz")
+        .set("Authorization", "Bearer test-admin-token");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(10);
+    });
+
+    test("parses string limit and offset and slices records accordingly", async () => {
+      const res = await request(app)
+        .get("/logs?limit=3&offset=2")
+        .set("Authorization", "Bearer test-admin-token");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(3);
+    });
+
+    test("caps limit at 200 when requesting large limit", async () => {
+      const res = await request(app)
+        .get("/logs?limit=1000000")
+        .set("Authorization", "Bearer test-admin-token");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(10);
+    });
+
+    test("clamps negative offset to 0", async () => {
+      const res = await request(app)
+        .get("/logs?offset=-10")
+        .set("Authorization", "Bearer test-admin-token");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(10);
+    });
   });
 });
 
