@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "../api";
 import "./TaxComplianceReport.css";
 
@@ -11,11 +11,7 @@ export function TaxComplianceReport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadReports();
-  }, []);
-
-  const loadReports = async () => {
+  const loadReports = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -30,7 +26,13 @@ export function TaxComplianceReport() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadReports();
+    const interval = setInterval(loadReports, 60_000);
+    return () => clearInterval(interval);
+  }, [loadReports]);
 
   if (loading) return <div className="tax-report-loading">Loading compliance report...</div>;
   if (error) return <div className="tax-report-error">{error}</div>;
@@ -78,8 +80,8 @@ export function TaxComplianceReport() {
               </tr>
             </thead>
             <tbody>
-              {report?.data.map((row) => (
-                <tr key={row.walletAddress as string}>
+              {report?.data.map((row, idx) => (
+                <tr key={(row.walletAddress as string) || (row.id as string) || idx}>
                   <td><code>{(row.walletAddress as string)?.slice(0, 8)}...</code></td>
                   <td>{row.tax_status as string || "Not Set"}</td>
                   <td>{row.tax_id as string || "-"}</td>
@@ -100,8 +102,8 @@ export function TaxComplianceReport() {
       {missing.length > 0 && (
         <div className="report-section missing-section">
           <h4>Contributors Missing Tax Information ({missing.length})</h4>
-          {missing.map((row) => (
-            <div key={row.walletAddress as string} className="missing-item">
+          {missing.map((row, idx) => (
+            <div key={(row.walletAddress as string) || (row.id as string) || idx} className="missing-item">
               <code>{(row.walletAddress as string)?.slice(0, 12)}...</code>
               <span className="missing-status">{row.tax_status as string || "Not collected"}</span>
             </div>
