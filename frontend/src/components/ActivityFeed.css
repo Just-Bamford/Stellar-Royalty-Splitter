@@ -71,6 +71,12 @@
   align-items: center;
 }
 
+.char-counter {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #9ca3af);
+  font-variant-numeric: tabular-nums;
+}
+
 .feed-post-btn {
   padding: 0.5rem 1.25rem;
   border-radius: 10px;

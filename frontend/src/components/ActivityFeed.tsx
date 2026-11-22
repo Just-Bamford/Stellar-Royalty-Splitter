@@ -7,6 +7,8 @@ interface ActivityFeedProps {
   onSelectUserAddress?: (address: string) => void;
 }
 
+export const MAX_POST_LENGTH = 500;
+
 export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   walletAddress,
   onSelectUserAddress,
@@ -32,6 +34,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const handleCreatePost = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPostContent.trim() || !walletAddress || !currentUser) return;
+    if (newPostContent.length > MAX_POST_LENGTH) return;
 
     addFeedItem({
       authorAddress: walletAddress,
@@ -39,7 +42,7 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
       authorAvatar: currentUser.avatar,
       type: "update",
       title: `${currentUser.username} shared an update`,
-      content: newPostContent.trim(),
+      content: newPostContent.trim().slice(0, MAX_POST_LENGTH),
     });
 
     setNewPostContent("");
@@ -94,15 +97,21 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   value={newPostContent}
                   onChange={(e) => setNewPostContent(e.target.value)}
                   rows={2}
+                  maxLength={MAX_POST_LENGTH}
                 />
                 <div className="feed-create-actions">
-                  <span style={{ fontSize: "0.8rem", color: "var(--text-secondary, #9ca3af)" }}>
-                    Posting as <strong>{currentUser?.username}</strong>
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-secondary, #9ca3af)" }}>
+                      Posting as <strong>{currentUser?.username}</strong>
+                    </span>
+                    <span className="char-counter" style={{ fontSize: "0.8rem", color: "var(--text-secondary, #9ca3af)" }}>
+                      {newPostContent.length}/{MAX_POST_LENGTH}
+                    </span>
+                  </div>
                   <button
                     type="submit"
                     className="feed-post-btn"
-                    disabled={!newPostContent.trim()}
+                    disabled={!newPostContent.trim() || newPostContent.length > MAX_POST_LENGTH}
                   >
                     Post Update 🚀
                   </button>

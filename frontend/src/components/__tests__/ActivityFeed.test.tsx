@@ -55,6 +55,19 @@ describe("ActivityFeed", () => {
     expect(screen.getByText("Excited to launch our new royalty pool!")).toBeInTheDocument();
   });
 
+  it("enforces MAX_POST_LENGTH on composer textarea and displays character counter", () => {
+    render(<ActivityFeed walletAddress={WALLET_ADDR} />);
+
+    const textarea = screen.getByPlaceholderText(/Share a milestone/i);
+    expect(textarea).toHaveAttribute("maxLength", "500");
+
+    const counter = screen.getByText("0/500");
+    expect(counter).toBeInTheDocument();
+
+    fireEvent.change(textarea, { target: { value: "Hello Stellar community!" } });
+    expect(screen.getByText("24/500")).toBeInTheDocument();
+  });
+
   it("allows liking and unliking a feed item", () => {
     render(<ActivityFeed walletAddress={WALLET_ADDR} />);
 
