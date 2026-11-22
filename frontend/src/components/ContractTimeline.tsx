@@ -61,6 +61,7 @@ function timeAgo(ts: string): string {
 }
 
 const LIMIT = 20;
+const FETCH_LIMIT = 1000;
 
 export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }) => {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -68,7 +69,6 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<EventType>("all");
   const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     if (!contractId) return;
@@ -76,8 +76,8 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
     setError(null);
     try {
       const [txRes, auditRes] = await Promise.all([
-        api.getTransactionHistory(contractId, LIMIT, offset),
-        api.getAuditLog(contractId, LIMIT, offset),
+        api.getTransactionHistory(contractId, FETCH_LIMIT, 0),
+        api.getAuditLog(contractId, FETCH_LIMIT, 0),
       ]);
 
       const txEvents: TimelineEvent[] = (txRes.data ?? []).map((t: TransactionRecord) => ({
@@ -108,13 +108,13 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
       );
 
       setEvents(merged);
-      setTotal(txRes.pagination?.total ?? 0);
+      setOffset(0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load timeline");
     } finally {
       setLoading(false);
     }
-  }, [contractId, offset]);
+  }, [contractId]);
 
   useEffect(() => {
     load();
@@ -126,6 +126,13 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
     if (filter === "secondary") return e.type.startsWith("secondary");
     return e.type === filter;
   });
+
+  const paginated = filtered.slice(offset, offset + LIMIT);
+
+  const handleFilterChange = (newFilter: EventType) => {
+    setFilter(newFilter);
+    setOffset(0);
+  };
 
   const FILTERS: { id: EventType; label: string }[] = [
     { id: "all", label: "All" },
@@ -144,7 +151,7 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
             <button
               key={f.id}
               className={`filter-btn ${filter === f.id ? "active" : ""}`}
-              onClick={() => setFilter(f.id)}
+              onClick={() => handleFilterChange(f.id)}
             >
               {f.label}
             </button>
@@ -174,7 +181,7 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
       ) : (
         <>
           <div className="timeline">
-            {filtered.map((event) => {
+            {paginated.map((event) => {
               const dc = dotClass(event.type);
               const icon = TYPE_ICONS[event.type] ?? TYPE_ICONS.default;
               const label = TYPE_LABELS[event.type] ?? event.action ?? event.type;
@@ -243,11 +250,11 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
               ← Newer
             </button>
             <span>
-              {offset + 1}–{Math.min(offset + LIMIT, total)} of {total}
+              {filtered.length === 0 ? "0 of 0" : `${offset + 1}–${Math.min(offset + LIMIT, filtered.length)} of ${filtered.length}`}
             </span>
             <button
               onClick={() => setOffset(offset + LIMIT)}
-              disabled={offset + LIMIT >= total}
+              disabled={offset + LIMIT >= filtered.length}
             >
               Older →
             </button>
