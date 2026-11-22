@@ -39,14 +39,17 @@ export function PaymentHoldManager({ contractId, isAdmin = false, walletAddress 
   const [selectedTxn, setSelectedTxn] = useState<HeldTransaction | null>(null);
   const [showReleaseModal, setShowReleaseModal] = useState(false);
   const [releaseNote, setReleaseNote] = useState("");
+  const [releaseStep, setReleaseStep] = useState<"idle" | "approving" | "releasing">("idle");
 
   useEffect(() => {
     loadHeldTransactions();
   }, [contractId]);
 
-  const loadHeldTransactions = async () => {
+  const loadHeldTransactions = async (clearError = true) => {
     setLoading(true);
-    setError(null);
+    if (clearError) {
+      setError(null);
+    }
     try {
       const result = await api.getHeldTransactions(contractId, "active");
       setHeldTxns(result.data as HeldTransaction[]);
@@ -65,17 +68,33 @@ export function PaymentHoldManager({ contractId, isAdmin = false, walletAddress 
   const handleConfirmRelease = async () => {
     if (!selectedTxn) return;
     setActionLoading(selectedTxn.id);
+    setError(null);
+    const actor = walletAddress ?? "unknown";
+
+    // Step 1: Approve hold release
+    setReleaseStep("approving");
     try {
-      const actor = walletAddress ?? "unknown";
       await api.approveHoldRelease(selectedTxn.id, actor, releaseNote);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? `Approval failed: ${err.message}` : "Failed to approve hold release");
+      setActionLoading(null);
+      setReleaseStep("idle");
+      return;
+    }
+
+    // Step 2: Release payment hold
+    setReleaseStep("releasing");
+    try {
       await api.releasePaymentHold(selectedTxn.id, actor, releaseNote);
       setShowReleaseModal(false);
       setReleaseNote("");
-      loadHeldTransactions();
+      await loadHeldTransactions(true);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to release hold");
+      setError("Hold was approved but release failed. Please try releasing manually.");
+      await loadHeldTransactions(false);
     } finally {
       setActionLoading(null);
+      setReleaseStep("idle");
     }
   };
 
@@ -184,6 +203,7 @@ export function PaymentHoldManager({ contractId, isAdmin = false, walletAddress 
               <button className="hold-modal-close" onClick={() => setShowReleaseModal(false)}>✕</button>
             </div>
             <div className="hold-modal-body">
+              {error && <div className="hold-modal-error" style={{ color: "#e74c3c", marginBottom: "1rem" }}>{error}</div>}
               <p>Are you sure you want to release the hold on transaction <strong>#{selectedTxn.id}</strong>?</p>
               <div className="hold-modal-detail">
                 <span>Reason for hold:</span>
@@ -209,7 +229,11 @@ export function PaymentHoldManager({ contractId, isAdmin = false, walletAddress 
                 onClick={handleConfirmRelease}
                 disabled={actionLoading === selectedTxn.id}
               >
-                {actionLoading === selectedTxn.id ? "Releasing..." : "Confirm Release"}
+                {actionLoading === selectedTxn.id
+                  ? releaseStep === "approving"
+                    ? "Approving..."
+                    : "Releasing..."
+                  : "Confirm Release"}
               </button>
             </div>
           </div>
