@@ -614,7 +614,7 @@ export const useSocialStore = create<SocialState>()(
           };
 
           set((state) => ({
-            feedItems: [newItem, ...state.feedItems],
+            feedItems: [newItem, ...state.feedItems].slice(0, 100),
           }));
         },
 
@@ -738,7 +738,14 @@ export const useSocialStore = create<SocialState>()(
         },
       }),
       {
-        name: "stellar-royalty-splitter-social-v1",
+        name: "srs-social-store",
+        partialize: (state) => ({
+          profiles: state.profiles,
+          following: state.following,
+          feedItems: state.feedItems.slice(0, 100),
+          forumPosts: state.forumPosts.slice(0, 50),
+          events: state.events,
+        }),
       }
     ),
     { name: "SocialStore" }

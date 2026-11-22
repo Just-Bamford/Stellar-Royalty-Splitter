@@ -1,3 +1,6 @@
+// #1420: Social feed and interactions are persisted across sessions via
+// useSocialStore with zustand persist middleware ("srs-social-store")
+// capped at 100 items to avoid localStorage quota issues.
 import React, { useState } from "react";
 import { useSocialStore, ALL_BADGES, type ActivityFeedItem } from "../store/socialStore";
 import "./ActivityFeed.css";

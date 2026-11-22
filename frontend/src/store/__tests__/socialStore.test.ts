@@ -121,4 +121,21 @@ describe("socialStore", () => {
     const mostActive = store.getMostActive();
     expect(mostActive[0].distributionCount).toBeGreaterThanOrEqual(mostActive[1]?.distributionCount || 0);
   });
+
+  it("caps feed items to at most 100 entries (#1420)", () => {
+    const store = useSocialStore.getState();
+    for (let i = 0; i < 110; i++) {
+      store.addFeedItem({
+        authorAddress: TEST_ADDR,
+        authorName: "Test",
+        type: "update",
+        title: `Update ${i}`,
+        content: `Content ${i}`,
+      });
+    }
+
+    const feed = useSocialStore.getState().feedItems;
+    expect(feed.length).toBe(100);
+    expect(feed[0].title).toBe("Update 109");
+  });
 });
