@@ -3,6 +3,7 @@ import { api, RoyaltyStats } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
 
+const C_ADDR = /^C[A-Z2-7]{55}$/;
 
 interface Props {
   contractId: string;
@@ -17,6 +18,7 @@ export default function DistributeSecondaryRoyalties({
 }: Props) {
   const { network, networkMismatch } = useNetwork();
   const [tokenId, setTokenId] = useState<string>("");
+  const [tokenError, setTokenError] = useState<string>("");
   const [status, setStatus] = useState<{
     type: "ok" | "error" | "info";
     msg: string;
@@ -24,6 +26,21 @@ export default function DistributeSecondaryRoyalties({
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<RoyaltyStats | null>(null);
   const [poolBalance, setPoolBalance] = useState<string>("");
+
+  const handleTokenChange = (value: string) => {
+    setTokenId(value);
+    if (tokenError) {
+      setTokenError("");
+    }
+  };
+
+  const handleTokenBlur = () => {
+    if (tokenId && !C_ADDR.test(tokenId)) {
+      setTokenError("Please enter a valid token contract address (C..., 56 chars).");
+    } else {
+      setTokenError("");
+    }
+  };
 
   // Load royalty stats and pool balance on mount/contract change
   useEffect(() => {
@@ -47,6 +64,14 @@ export default function DistributeSecondaryRoyalties({
     }
     if (!contractId || !tokenId) {
       return setStatus({ type: "error", msg: "Please fill in all fields." });
+    }
+
+    if (!C_ADDR.test(tokenId)) {
+      setTokenError("Please enter a valid token contract address (C..., 56 chars).");
+      return setStatus({
+        type: "error",
+        msg: "Please enter a valid token contract address (C..., 56 chars).",
+      });
     }
 
     if (poolBalance === "0") {
@@ -131,9 +156,12 @@ export default function DistributeSecondaryRoyalties({
           type="text"
           placeholder="C... (USDC or payment token)"
           value={tokenId}
-          onChange={(e) => setTokenId(e.target.value)}
+          onChange={(e) => handleTokenChange(e.target.value)}
+          onBlur={handleTokenBlur}
           disabled={loading}
+          aria-invalid={!!tokenError}
         />
+        {tokenError && <span className="field-error">{tokenError}</span>}
       </div>
 
       {networkMismatch && (
