@@ -3,7 +3,7 @@ import "./BulkOperationsPanel.css";
 
 interface BulkOperationsPanelProps {
   selectedCount: number;
-  onBulkDistribute: () => Promise<void>;
+  onBulkDistribute?: () => Promise<void>;
   onBulkExport: () => void;
   onAggregatedView: () => void;
   loading?: boolean;
@@ -24,6 +24,7 @@ export const BulkOperationsPanel: React.FC<BulkOperationsPanelProps> = ({
   const [bulkDistributeLoading, setBulkDistributeLoading] = useState(false);
 
   const handleBulkDistribute = async () => {
+    if (!onBulkDistribute) return;
     setBulkDistributeLoading(true);
     try {
       await onBulkDistribute();
@@ -41,15 +42,18 @@ export const BulkOperationsPanel: React.FC<BulkOperationsPanelProps> = ({
       </div>
 
       <div className="bulk-actions">
-        <button
-          type="button"
-          className="bulk-action-btn bulk-distribute"
-          onClick={handleBulkDistribute}
-          disabled={selectedCount === 0 || loading || bulkDistributeLoading}
-          aria-label={`Distribute to ${selectedCount} selected contracts`}
-        >
-          {bulkDistributeLoading ? "Distributing..." : "Distribute to All"}
-        </button>
+        {/* TODO: Re-introduce bulk distribute once the multi-contract backend endpoint (/api/v1/batch-distribute) is available */}
+        {onBulkDistribute && (
+          <button
+            type="button"
+            className="bulk-action-btn bulk-distribute"
+            onClick={handleBulkDistribute}
+            disabled={selectedCount === 0 || loading || bulkDistributeLoading}
+            aria-label={`Distribute to ${selectedCount} selected contracts`}
+          >
+            {bulkDistributeLoading ? "Distributing..." : "Distribute to All"}
+          </button>
+        )}
 
         <button
           type="button"

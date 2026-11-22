@@ -108,21 +108,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     }
   };
 
-  const handleBulkDistribute = async () => {
-    if (selectedContracts.size === 0) return;
-    setBulkOperationLoading(true);
-    try {
-      if (
-        window.confirm(
-          `Distribute to ${selectedContracts.size} selected contracts? (This is a preview)`
-        )
-      ) {
-        console.log("Bulk distribute to:", selectedContracts);
-      }
-    } finally {
-      setBulkOperationLoading(false);
-    }
-  };
+  // TODO: Re-introduce bulk distribute once the multi-contract backend endpoint (/api/v1/batch-distribute) is available
 
   const handleBulkExport = () => {
     if (selectedContracts.size === 0) return;
@@ -300,7 +286,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
           {selectedContracts.size > 0 && (
             <BulkOperationsPanel
               selectedCount={selectedContracts.size}
-              onBulkDistribute={handleBulkDistribute}
               onBulkExport={handleBulkExport}
               onAggregatedView={handleAggregatedView}
               loading={bulkOperationLoading}
