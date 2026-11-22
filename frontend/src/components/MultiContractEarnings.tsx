@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../api";
 import { formatCurrency } from "../utils/format";
 import { useSettings } from "../context/SettingsContext";
+import { Skeleton } from "./Skeleton";
 import "./MultiContractEarnings.css";
 
 type EarningsData = Awaited<ReturnType<typeof api.getMultiContractEarnings>>;
@@ -121,7 +122,19 @@ export function MultiContractEarnings({ walletAddress }: MultiContractEarningsPr
       )}
 
       {loading && !data && (
-        <div className="mce-loading" aria-busy="true">Loading earnings…</div>
+        <div className="mce-loading" aria-busy="true" data-testid="mce-skeleton">
+          <div className="mce-kpis">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="mce-kpi">
+                <Skeleton width="60%" height="0.875rem" className="mb-2" />
+                <Skeleton width="80%" height="1.5rem" />
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: "1.5rem" }}>
+            <Skeleton width="100%" height="8rem" />
+          </div>
+        </div>
       )}
 
       {data && (
