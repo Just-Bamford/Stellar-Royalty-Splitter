@@ -265,4 +265,20 @@ describe("DocumentManager Component (#1060)", () => {
       expect(screen.getByText("No documents found")).toBeDefined();
     });
   });
+
+  it("rejects files larger than 5 MB with an error message on the client side", async () => {
+    const user = userEvent.setup();
+    render(<DocumentManager currentUserAddress="GAOWNER123" />);
+
+    const uploadBtn = screen.getByTestId("upload-doc-btn");
+    await user.click(uploadBtn);
+
+    const oversizedFile = new File(["x".repeat(100)], "huge_contract.pdf", { type: "application/pdf" });
+    Object.defineProperty(oversizedFile, "size", { value: 6 * 1024 * 1024 });
+
+    const fileInput = screen.getByTestId("input-doc-file");
+    fireEvent.change(fileInput, { target: { files: [oversizedFile] } });
+
+    expect(screen.getAllByText("File too large. Maximum size is 5 MB.").length).toBeGreaterThanOrEqual(1);
+  });
 });

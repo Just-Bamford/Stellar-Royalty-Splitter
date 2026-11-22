@@ -90,6 +90,8 @@ export interface DocumentManagerProps {
   onDocumentSelected?: (doc: DocumentItem) => void;
 }
 
+export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
 export const DocumentManager: React.FC<DocumentManagerProps> = ({
   currentUserAddress = "GADMIN...CONTRACT",
   contractId,
@@ -912,13 +914,21 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     type="file"
                     className="doc-input"
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setUploadFile(e.target.files[0]);
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > MAX_FILE_SIZE) {
+                        setError("File too large. Maximum size is 5 MB.");
+                        setUploadFile(null);
+                        e.target.value = "";
+                        return;
                       }
+                      setError(null);
+                      setUploadFile(file);
                     }}
                     required
                     data-testid="input-doc-file"
                   />
+                  {error && <div className="p-2 mt-2 bg-red-50 text-red-700 border border-red-200 rounded-md text-sm" role="alert">{error}</div>}
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -1004,13 +1014,21 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     type="file"
                     className="doc-input"
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setVersionFile(e.target.files[0]);
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > MAX_FILE_SIZE) {
+                        setError("File too large. Maximum size is 5 MB.");
+                        setVersionFile(null);
+                        e.target.value = "";
+                        return;
                       }
+                      setError(null);
+                      setVersionFile(file);
                     }}
                     required
                     data-testid="input-version-file"
                   />
+                  {error && <div className="p-2 mt-2 bg-red-50 text-red-700 border border-red-200 rounded-md text-sm" role="alert">{error}</div>}
                 </div>
               </div>
 
