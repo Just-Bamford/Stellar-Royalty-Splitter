@@ -14,7 +14,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   targetAddress,
   onClose,
 }) => {
-  const activeAddress = targetAddress || walletAddress || "GALAXY1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZAAAA";
+  const activeAddress = targetAddress || walletAddress;
+
+  if (!activeAddress) {
+    return <div className="user-profile-container">No wallet connected.</div>;
+  }
+
   const isSelf = walletAddress ? walletAddress === activeAddress : false;
 
   const {

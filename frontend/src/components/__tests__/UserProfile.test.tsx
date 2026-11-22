@@ -54,4 +54,9 @@ describe("UserProfile", () => {
 
     expect(useSocialStore.getState().isFollowing(OTHER_ADDR)).toBe(false);
   });
+
+  it("renders no wallet connected message when no address is provided", () => {
+    render(<UserProfile walletAddress={null} />);
+    expect(screen.getByText("No wallet connected.")).toBeInTheDocument();
+  });
 });
