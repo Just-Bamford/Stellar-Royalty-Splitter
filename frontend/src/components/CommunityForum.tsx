@@ -7,6 +7,9 @@ interface CommunityForumProps {
   onSelectUserAddress?: (address: string) => void;
 }
 
+const MAX_TITLE_LENGTH = 200;
+const MAX_CONTENT_LENGTH = 5000;
+
 export const CommunityForum: React.FC<CommunityForumProps> = ({
   walletAddress,
   onSelectUserAddress,
@@ -51,6 +54,7 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
   const handleSubmitPost = (e: React.FormEvent) => {
     e.preventDefault();
     if (!walletAddress || !currentUser || !postTitle.trim() || !postContent.trim()) return;
+    if (postTitle.trim().length > MAX_TITLE_LENGTH || postContent.trim().length > MAX_CONTENT_LENGTH) return;
 
     const tagsArray = postTags
       .split(",")
@@ -514,10 +518,16 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
               </div>
 
               <div className="form-group">
-                <label className="form-label" htmlFor="topic-title">Title</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label className="form-label" htmlFor="topic-title">Title</label>
+                  <span className="character-count" style={{ fontSize: "0.75rem", color: postTitle.length >= MAX_TITLE_LENGTH ? "#ef4444" : "#9ca3af" }}>
+                    {postTitle.length}/{MAX_TITLE_LENGTH}
+                  </span>
+                </div>
                 <input
                   id="topic-title"
                   type="text"
+                  maxLength={MAX_TITLE_LENGTH}
                   className="form-input"
                   placeholder="e.g. Best practices for automated secondary music royalty splits"
                   value={postTitle}
@@ -539,10 +549,16 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
               </div>
 
               <div className="form-group">
-                <label className="form-label" htmlFor="topic-content">Content</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label className="form-label" htmlFor="topic-content">Content</label>
+                  <span className="character-count" style={{ fontSize: "0.75rem", color: postContent.length >= MAX_CONTENT_LENGTH ? "#ef4444" : "#9ca3af" }}>
+                    {postContent.length}/{MAX_CONTENT_LENGTH}
+                  </span>
+                </div>
                 <textarea
                   id="topic-content"
                   className="form-textarea"
+                  maxLength={MAX_CONTENT_LENGTH}
                   rows={4}
                   placeholder="Describe your question or discussion topic in detail..."
                   value={postContent}

@@ -70,4 +70,28 @@ describe("CommunityForum", () => {
 
     expect(screen.getByText("How to split royalties for remix contests?")).toBeInTheDocument();
   });
+
+  it("enforces maxLength and renders live character counters for post title and content", () => {
+    render(<CommunityForum walletAddress={WALLET_ADDR} />);
+
+    const newTopicBtn = screen.getByRole("button", { name: "+ New Topic" });
+    fireEvent.click(newTopicBtn);
+
+    const titleInput = screen.getByLabelText("Title") as HTMLInputElement;
+    const contentInput = screen.getByLabelText("Content") as HTMLTextAreaElement;
+
+    expect(titleInput.maxLength).toBe(200);
+    expect(contentInput.maxLength).toBe(5000);
+
+    // Initial counter display
+    expect(screen.getByText("0/200")).toBeInTheDocument();
+    expect(screen.getByText("0/5000")).toBeInTheDocument();
+
+    // Type into title and content
+    fireEvent.change(titleInput, { target: { value: "Short title" } });
+    fireEvent.change(contentInput, { target: { value: "Detailed content description" } });
+
+    expect(screen.getByText("11/200")).toBeInTheDocument();
+    expect(screen.getByText("28/5000")).toBeInTheDocument();
+  });
 });
