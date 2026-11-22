@@ -39,6 +39,8 @@ async function rotateKey(
   return data;
 }
 
+const SECRET_KEY_RE = /^S[A-Z2-7]{55}$/;
+
 interface KeyRotationPanelProps {
   adminToken: string;
 }
@@ -98,7 +100,7 @@ export const KeyRotationPanel: React.FC<KeyRotationPanelProps> = ({ adminToken }
 
   const canRotate =
     !rotating &&
-    (method !== "secretKey" || secretInput.trim().startsWith("S"));
+    (method !== "secretKey" || SECRET_KEY_RE.test(secretInput.trim()));
 
   return (
     <div className="key-rotation-panel">
