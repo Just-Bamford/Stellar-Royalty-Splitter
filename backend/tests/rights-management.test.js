@@ -372,5 +372,17 @@ describe("Rights Management System", () => {
       expect(disputeRightsRes.status).toBe(200);
       expect(disputeRightsRes.body.rights.length).toBe(1);
     });
+
+    test("rejects invalid contractId with 400 on GET /contract/:contractId and /eligibility (#1427)", async () => {
+      const res1 = await request(app).get("/api/v1/rights/contract/invalid-id");
+      expect(res1.status).toBe(400);
+      expect(res1.body.code).toBe("invalid_contract_id");
+      expect(res1.body.error).toBe("Invalid contract ID format");
+
+      const res2 = await request(app).get("/api/v1/rights/contract/invalid-id/eligibility");
+      expect(res2.status).toBe(400);
+      expect(res2.body.code).toBe("invalid_contract_id");
+      expect(res2.body.error).toBe("Invalid contract ID format");
+    });
   });
 });
