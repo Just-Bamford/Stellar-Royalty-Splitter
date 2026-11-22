@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAdminBearerOrRole } from "../middleware/rbac.js";
 import {
+  countApplicationLogs,
   evaluateLogAlerts,
   pruneApplicationLogs,
   queryApplicationLogs,
@@ -10,7 +11,9 @@ export const applicationLogsRouter = Router();
 const operator = requireAdminBearerOrRole("operator");
 
 applicationLogsRouter.get("/logs", operator, (req, res) => {
-  const logs = queryApplicationLogs({
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const filters = {
     level: req.query.level,
     correlationId: req.query.correlationId,
     requestId: req.query.requestId,
@@ -18,10 +21,21 @@ applicationLogsRouter.get("/logs", operator, (req, res) => {
     search: req.query.search,
     from: req.query.from,
     to: req.query.to,
-    limit: req.query.limit,
-    offset: req.query.offset,
+  };
+  const logs = queryApplicationLogs({
+    ...filters,
+    limit,
+    offset,
   });
-  res.json({ success: true, data: logs, count: logs.length });
+  const total = countApplicationLogs(filters);
+  res.json({
+    success: true,
+    data: logs,
+    count: logs.length,
+    total,
+    limit,
+    offset,
+  });
 });
 
 applicationLogsRouter.get("/logs/alerts", operator, (req, res) => {

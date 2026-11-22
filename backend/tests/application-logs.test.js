@@ -9,12 +9,22 @@ process.env.DATABASE_PATH = databasePath;
 const { initializeDatabase } = await import("../src/database/core.js");
 const {
   appendApplicationLog,
+  countApplicationLogs,
   evaluateLogAlerts,
   pruneApplicationLogs,
   queryApplicationLogs,
 } = await import("../src/database/application-logs.js");
+const { applicationLogsRouter } = await import("../src/routes/application-logs.js");
+const { default: express } = await import("express");
+const { default: request } = await import("supertest");
 const { db } = await import("../src/database/core.js");
 initializeDatabase();
+
+process.env.ADMIN_ROTATE_TOKEN = "test-admin-token";
+
+const app = express();
+app.use(express.json());
+app.use(applicationLogsRouter);
 
 describe("centralized application logs (#874)", () => {
   beforeEach(() => {
@@ -62,6 +72,37 @@ describe("centralized application logs (#874)", () => {
 
     expect(pruneApplicationLogs(7).deleted).toBe(1);
     expect(queryApplicationLogs().map((row) => row.message)).toEqual(["recent"]);
+  });
+
+  test("countApplicationLogs counts total matching records", () => {
+    appendApplicationLog({ level: "info", message: "first", service: "api" });
+    appendApplicationLog({ level: "info", message: "second", service: "api" });
+    appendApplicationLog({ level: "warn", message: "warning", service: "worker" });
+
+    expect(countApplicationLogs()).toBe(3);
+    expect(countApplicationLogs({ level: "info" })).toBe(2);
+    expect(countApplicationLogs({ service: "worker" })).toBe(1);
+    expect(countApplicationLogs({ search: "second" })).toBe(1);
+  });
+
+  test("GET /logs returns total count and pagination metadata", async () => {
+    for (let i = 1; i <= 5; i += 1) {
+      appendApplicationLog({ level: "info", message: `log-${i}` });
+    }
+
+    const res = await request(app)
+      .get("/logs?limit=2&offset=1")
+      .set("Authorization", "Bearer test-admin-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      count: 2,
+      total: 5,
+      limit: 2,
+      offset: 1,
+    });
+    expect(res.body.data).toHaveLength(2);
   });
 });
 
