@@ -1,5 +1,6 @@
 // #588 Admin Key Rotation
 import { useState, useEffect } from "react";
+import { StrKey } from "@stellar/stellar-sdk";
 import { Skeleton } from "./Skeleton";
 import "./KeyRotationPanel.css";
 
@@ -68,13 +69,19 @@ export const KeyRotationPanel: React.FC<KeyRotationPanelProps> = ({ adminToken }
 
   useEffect(() => { loadStatus(); }, [adminToken]);
 
+  const secretKey = secretInput.trim();
+  const canRotate =
+    !rotating &&
+    (method !== "secretKey" || StrKey.isValidEd25519SecretSeed(secretKey));
+
   const handleRotate = async () => {
+    if (!canRotate) return;
     setRotating(true);
     setRotateResult(null);
     try {
       const body: Record<string, unknown> =
         method === "secretKey"
-          ? { secretKey: secretInput.trim() }
+          ? { secretKey }
           : method === "reloadFromFile"
           ? { reloadFromFile: true }
           : { reloadFromProvider: true };
@@ -95,10 +102,6 @@ export const KeyRotationPanel: React.FC<KeyRotationPanelProps> = ({ adminToken }
       setRotating(false);
     }
   };
-
-  const canRotate =
-    !rotating &&
-    (method !== "secretKey" || secretInput.trim().startsWith("S"));
 
   return (
     <div className="key-rotation-panel">
