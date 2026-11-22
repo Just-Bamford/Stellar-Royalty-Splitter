@@ -122,7 +122,7 @@ describe("DocumentManager Component (#1060)", () => {
     expect(screen.getByTestId("stat-pending-sigs").textContent).toBe("1");
   });
 
-  it("filters documents by search query and type dropdown", async () => {
+  it("combines search and type filters and clears them together", async () => {
     render(<DocumentManager currentUserAddress="GAOWNER123" />);
 
     await waitFor(() => {
@@ -136,6 +136,19 @@ describe("DocumentManager Component (#1060)", () => {
     fireEvent.change(typeSelect, { target: { value: "proof" } });
 
     expect(typeSelect).toHaveValue("proof");
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/v1/documents?query=Zero-Knowledge&docType=proof",
+        expect.anything(),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(searchInput).toHaveValue("");
+    expect(typeSelect).toHaveValue("all");
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenLastCalledWith("/api/v1/documents?", expect.anything());
+    });
   });
 
   it("opens upload modal and submits new document to IPFS", async () => {
@@ -163,12 +176,16 @@ describe("DocumentManager Component (#1060)", () => {
         expect.stringContaining("/documents"),
         expect.objectContaining({ method: "POST" }),
       );
+      expect(screen.queryByTestId("upload-modal")).not.toBeInTheDocument();
     });
+    await user.click(uploadBtn);
+    expect(screen.getByTestId("input-doc-title")).toHaveValue("");
   });
 
   it("opens share modal and allows granting & revoking permissions", async () => {
     const user = userEvent.setup();
-    render(<DocumentManager currentUserAddress="GAOWNER123" />);
+    const onDocumentSelected = vi.fn();
+    render(<DocumentManager currentUserAddress="GAOWNER123" onDocumentSelected={onDocumentSelected} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("share-btn-doc_test_1")).toBeDefined();
@@ -179,6 +196,7 @@ describe("DocumentManager Component (#1060)", () => {
 
     expect(screen.getByTestId("share-modal")).toBeDefined();
     expect(screen.getByText("Collaborator Access & Permissions")).toBeDefined();
+    expect(onDocumentSelected).toHaveBeenCalledExactlyOnceWith(MOCK_DOCS[0]);
 
     const addressInput = screen.getByTestId("input-share-address");
     await user.type(addressInput, "GANEWCOLLABORATOR123");
