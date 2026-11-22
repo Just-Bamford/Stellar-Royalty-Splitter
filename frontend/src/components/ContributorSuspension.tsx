@@ -29,6 +29,8 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`cs-badge ${cls}`}>{label}</span>;
 }
 
+const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+
 export function ContributorSuspension({ contractId, walletAddress }: ContributorSuspensionProps) {
   const [entries, setEntries] = useState<StatusEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +63,16 @@ export function ContributorSuspension({ contractId, walletAddress }: Contributor
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!editAddress.trim()) return;
+    const trimmed = editAddress.trim();
+    if (!trimmed) return;
+
+    if (!ADDRESS_RE.test(trimmed)) {
+      setSubmitMsg({
+        type: "err",
+        text: "Please enter a valid Stellar address (starts with G, 56 characters)",
+      });
+      return;
+    }
 
     setSubmitting(true);
     setSubmitMsg(null);
