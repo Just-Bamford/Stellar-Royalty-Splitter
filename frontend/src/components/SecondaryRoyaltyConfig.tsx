@@ -96,7 +96,8 @@ export default function SecondaryRoyaltyConfig({
     }
   }
 
-  const percentage = (parseInt(royaltyRate) / 100).toFixed(2);
+  const rateNum = parseInt(royaltyRate, 10);
+  const percentage = Number.isNaN(rateNum) ? "0.00" : (rateNum / 100).toFixed(2);
 
   return (
     <div className="card">
