@@ -97,6 +97,59 @@ describe('Contract Versioning System', () => {
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('validation_failed');
     });
+
+    it('should reject invalid fromVersion identifier', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: 'invalid version identifier with spaces',
+          toVersion: testVersion2,
+          initialPercentage: 5,
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('validation_failed');
+    });
+
+    it('should reject invalid toVersion identifier', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: testVersion1,
+          toVersion: 'invalid; DROP TABLE;',
+          initialPercentage: 5,
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('validation_failed');
+    });
+
+    it('should reject non-numeric initialPercentage', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: testVersion1,
+          toVersion: testVersion2,
+          initialPercentage: 'not-a-number',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('validation_failed');
+    });
+
+    it('should accept string number initialPercentage', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/start-migration')
+        .send({
+          fromVersion: testVersion1,
+          toVersion: testVersion2,
+          initialPercentage: '25',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.migration.rolloutPercentage).toBe(25);
+    });
   });
 
   describe('User Routing', () => {
