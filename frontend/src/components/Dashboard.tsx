@@ -101,7 +101,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
   const handleSelectAll = () => {
     if (performanceData && performanceData.contracts.length > 0) {
-      if (selectedContracts.size === performanceData.contracts.length) {
+      const allSelected = performanceData.contracts.every((c) =>
+        selectedContracts.has(c.contractId)
+      );
+      if (allSelected) {
         setSelectedContracts(new Set());
       } else {
         setSelectedContracts(
@@ -295,7 +298,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                         type="checkbox"
                         checked={
                           performanceData.contracts.length > 0 &&
-                          selectedContracts.size === performanceData.contracts.length
+                          performanceData.contracts.every((c) =>
+                            selectedContracts.has(c.contractId)
+                          )
                         }
                         onChange={handleSelectAll}
                         aria-label="Select all contracts"
@@ -337,7 +342,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             </span>
                           </td>
                           <td className="text-right" data-label="Revenue">
-                            {formatcurrency(contract.revenue, settings.displayCurrency)}
+                            {formatCurrency(contract.revenue, settings.displayCurrency)}
                           </td>
                           <td className="text-right" data-label="Transactions">
                             {formatNumber(contract.transactions)}
