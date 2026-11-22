@@ -3,6 +3,7 @@ import { SecondarySale } from "../api";
 import "./ResaleHistory.css";
 import { formatNumber } from "../utils/format";
 import { useSecondarySales, useSecondaryDistributions } from "../hooks/queries/useSecondarySales";
+import { TableSkeleton } from "./Skeleton";
 
 interface Props {
   contractId: string;
@@ -43,8 +44,9 @@ export default function ResaleHistory({ contractId }: Props) {
 
   if (loading) {
     return (
-      <div className="card">
-        <p>Loading resale history...</p>
+      <div className="card resale-history">
+        <h3>Resale & Royalty History</h3>
+        <TableSkeleton rows={5} />
       </div>
     );
   }
