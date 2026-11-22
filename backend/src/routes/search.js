@@ -68,7 +68,8 @@ searchRouter.get("/", (req, res, next) => {
     }
 
     const searchLimit = Math.min(parseInt(limit) || 50, 100);
-    const cKey = cacheKey("search:universal", searchQuery, searchLimit, semantic, advanced, req.query.searchType, req.query.contractId);
+    const searchOffset = parseInt(req.query.offset) || 0;
+    const cKey = cacheKey("search:universal", searchQuery, searchLimit, searchOffset, semantic, advanced, req.query.searchType, req.query.contractId);
     const cached = cacheGet(cKey);
     if (cached) {
       return res.json(cached);
@@ -87,17 +88,17 @@ searchRouter.get("/", (req, res, next) => {
         status: req.query.status,
         category: req.query.category,
         limit: searchLimit,
-        offset: parseInt(req.query.offset) || 0,
+        offset: searchOffset,
       };
       results = advancedSearch(params);
     }
     // Semantic search
     else if (semantic === 'true') {
-      results = semanticSearch(searchQuery, req.query.searchType || 'all', searchLimit);
+      results = semanticSearch(searchQuery, req.query.searchType || 'all', searchLimit, searchOffset);
     }
     // Standard full-text search
     else {
-      results = searchAll(searchQuery, searchLimit);
+      results = searchAll(searchQuery, searchLimit, searchOffset);
     }
 
     // Record search asynchronously for analytics without blocking response
@@ -108,6 +109,9 @@ searchRouter.get("/", (req, res, next) => {
       query: searchQuery,
       data: results,
       searchMode: advanced === 'true' ? 'advanced' : semantic === 'true' ? 'semantic' : 'standard',
+      offset: searchOffset,
+      limit: searchLimit,
+      totalResults: results.totalResults || 0,
     };
 
     cacheSet(cKey, responsePayload, 30_000); // 30s TTL
