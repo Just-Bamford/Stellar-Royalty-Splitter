@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useNotifications, Notification } from "../context/NotificationContext";
+import { useNetwork } from "../context/NetworkContext";
+import { getStellarExpertTxUrl } from "../lib/explorer";
 import { NotificationCenter } from "./NotificationCenter";
 import { formatDateTime } from "../utils/format";
 import "./NotificationBell.css";
 
 export function NotificationBell() {
+  const { network } = useNetwork();
   const {
     notifications,
     unreadCount,
@@ -31,7 +34,7 @@ export function NotificationBell() {
   const handleNotificationClick = (notification: Notification) => {
     if (notification.txHash) {
       window.open(
-        `https://stellar.expert/explorer/testnet/tx/${notification.txHash}`,
+        getStellarExpertTxUrl(network, notification.txHash),
         "_blank",
         "noopener,noreferrer",
       );
