@@ -116,6 +116,7 @@ export function TreasuryDashboard() {
   // New expense form
   const [category, setCategory] = useState("development");
   const [amount, setAmount] = useState("");
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receiptCid, setReceiptCid] = useState("");
@@ -161,10 +162,13 @@ export function TreasuryDashboard() {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    setAmountError(null);
     try {
       const parsedAmount = Number(amount);
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        throw new Error("Amount must be a positive number");
+        setAmountError("Amount must be a positive number");
+        setSubmitting(false);
+        return;
       }
       await fetchJson<ExpenseRow>("/api/v1/treasury/expenses", {
         method: "POST",
@@ -404,9 +408,19 @@ export function TreasuryDashboard() {
                 min="0"
                 step="0.01"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  if (amountError) setAmountError(null);
+                }}
+                placeholder="0.00"
+                aria-label="Amount in XLM"
                 required
               />
+              {amountError && (
+                <span className="field-error" style={{ color: "#e74c3c", fontSize: "0.85rem" }}>
+                  {amountError}
+                </span>
+              )}
             </label>
             <label>
               Date

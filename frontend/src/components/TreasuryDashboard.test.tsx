@@ -126,4 +126,31 @@ describe("TreasuryDashboard", () => {
     expect(screen.getByRole("button", { name: "Record expense" })).toBeInTheDocument();
     expect(screen.getByTestId("expenses-table")).toBeInTheDocument();
   });
+
+  it("validates amount input attributes and inline numeric validation", async () => {
+    render(<TreasuryDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("treasury-dashboard")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expenses" }));
+
+    const amountInput = screen.getByLabelText("Amount in XLM");
+    expect(amountInput).toHaveAttribute("type", "number");
+    expect(amountInput).toHaveAttribute("min", "0");
+    expect(amountInput).toHaveAttribute("step", "0.01");
+    expect(amountInput).toHaveAttribute("placeholder", "0.00");
+
+    // Test inline validation for invalid/zero amount
+    fireEvent.change(amountInput, { target: { value: "0" } });
+    const descInput = screen.getByLabelText("Description");
+    fireEvent.change(descInput, { target: { value: "Test expense" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Record expense" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Amount must be a positive number")).toBeInTheDocument();
+    });
+  });
 });
