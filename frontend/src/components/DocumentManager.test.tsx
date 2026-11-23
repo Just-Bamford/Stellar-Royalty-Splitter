@@ -164,9 +164,23 @@ describe("DocumentManager Component (#1060)", () => {
     const titleInput = screen.getByTestId("input-doc-title");
     fireEvent.change(titleInput, { target: { value: "New Licensing Deal" } });
 
-    const file = new File(["test license terms"], "license.pdf", { type: "application/pdf" });
     const fileInput = screen.getByTestId("input-doc-file");
+    const sizeLimit = 5 * 1024 * 1024;
+    const file = new File([new Uint8Array(sizeLimit)], "license.pdf", { type: "application/pdf" });
+    const oversized = new File([new Uint8Array(sizeLimit + 1)], "oversized.pdf");
+
     fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.change(fileInput, { target: { files: [oversized] } });
+    expect(screen.getByRole("alert")).toHaveTextContent("File too large. Maximum size is 5 MB.");
+    expect(screen.getByTestId("submit-upload-btn")).toBeDisabled();
+    fireEvent.submit(screen.getByTestId("upload-modal").querySelector("form")!);
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/documents"),
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     const form = screen.getByTestId("upload-modal").querySelector("form")!;
     fireEvent.submit(form);

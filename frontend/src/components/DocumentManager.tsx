@@ -1,6 +1,9 @@
 import React, { useReducer, useMemo, useEffect, useCallback } from "react";
 import "./DocumentManager.css";
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const FILE_SIZE_ERROR = "File too large. Maximum size is 5 MB.";
+
 export type DocumentType =
   | "contract"
   | "agreement"
@@ -122,6 +125,7 @@ interface DocManagerState {
     uploadTags: string;
     uploadSigners: string;
     uploadFile: File | null;
+    uploadFileError: string | null;
     uploadPin: boolean;
   };
   versionForm: {
@@ -170,6 +174,7 @@ const initialState: DocManagerState = {
     uploadTags: "",
     uploadSigners: "",
     uploadFile: null,
+    uploadFileError: null,
     uploadPin: true,
   },
   versionForm: { versionSummary: "", versionFile: null, versionSigners: "" },
@@ -201,7 +206,14 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     showUploadModal, showVersionModal, showShareModal, showSignModal, showAuditModal,
     selectedDoc, permissionsList, signatureList, uploading,
   } = state.dialogs;
-  const { uploadTitle, uploadType, uploadDesc, uploadTags, uploadSigners, uploadFile, uploadPin } = state.uploadForm;
+  const {
+    uploadTitle, uploadType, uploadDesc, uploadTags, uploadSigners, uploadFile, uploadFileError, uploadPin,
+  } = state.uploadForm;
+
+  const closeUploadDialog = () => {
+    dispatch({ group: "dialogs", changes: { showUploadModal: false } });
+    dispatch({ group: "uploadForm", changes: { uploadFile: null, uploadFileError: null } });
+  };
   const { versionSummary, versionFile, versionSigners } = state.versionForm;
   const { shareAddress, sharePermission } = state.shareForm;
   const { rejectionReason } = state.signatureForm;
@@ -271,6 +283,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
   // Handle Document Creation / Upload
   const handleCreateDocument = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploadFileError) return;
     if (!uploadTitle.trim() || !uploadFile) {
       alert("Please provide a document title and file");
       return;
@@ -324,7 +337,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } finally {
       dispatch({ group: "dialogs", changes: { uploading: false } });
     }
-  }, [uploadTitle, uploadFile, uploadSigners, uploadTags, uploadType, contractId, uploadDesc, currentUserAddress, uploadPin, apiBaseUrl, fetchDocuments]);
+  }, [uploadTitle, uploadFile, uploadFileError, uploadSigners, uploadTags, uploadType, contractId, uploadDesc, currentUserAddress, uploadPin, apiBaseUrl, fetchDocuments]);
 
   // Handle Uploading a New Version
   const handleUploadNewVersion = useCallback(async (e: React.FormEvent) => {
@@ -874,7 +887,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="doc-modal-close"
-                onClick={() => dispatch({ group: "dialogs", changes: { showUploadModal: false } })}
+                onClick={closeUploadDialog}
                 aria-label="Close modal"
               >
                 &times;
@@ -950,18 +963,39 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                 </div>
 
                 <div className="doc-form-group">
-                  <label>Select Document File *</label>
+                  <label htmlFor="upload-doc-file">Select Document File *</label>
                   <input
+                    id="upload-doc-file"
                     type="file"
                     className="doc-input"
+                    aria-invalid={Boolean(uploadFileError)}
+                    aria-describedby={uploadFileError ? "upload-doc-file-error" : undefined}
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        dispatch({ group: "uploadForm", changes: { uploadFile: e.target.files[0] } });
-                      }
+                      const input = e.currentTarget;
+                      const file = input.files?.[0] ?? null;
+                      const tooLarge = file !== null && file.size > MAX_FILE_SIZE;
+                      if (tooLarge) input.value = "";
+
+                      dispatch({
+                        group: "uploadForm",
+                        changes: {
+                          uploadFile: tooLarge ? null : file,
+                          uploadFileError: tooLarge ? FILE_SIZE_ERROR : null,
+                        },
+                      });
                     }}
                     required
                     data-testid="input-doc-file"
                   />
+                  {uploadFileError && (
+                    <div
+                      id="upload-doc-file-error"
+                      className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-md"
+                      role="alert"
+                    >
+                      {uploadFileError}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -981,14 +1015,14 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => dispatch({ group: "dialogs", changes: { showUploadModal: false } })}
+                  onClick={closeUploadDialog}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn-primary"
-                  disabled={uploading}
+                  disabled={uploading || Boolean(uploadFileError)}
                   data-testid="submit-upload-btn"
                 >
                   {uploading ? "Uploading to IPFS..." : "Upload & Store on IPFS"}
