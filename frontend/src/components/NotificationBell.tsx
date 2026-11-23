@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { useNotifications, Notification } from "../context/NotificationContext";
 import { NotificationCenter } from "./NotificationCenter";
 import { formatDateTime } from "../utils/format";
+import { useNetwork } from "../context/NetworkContext";
+import { getStellarExpertTxUrl } from "../lib/explorer";
 import "./NotificationBell.css";
 
 export function NotificationBell() {
@@ -11,6 +13,7 @@ export function NotificationBell() {
     markAsRead,
     clearAllNotifications,
   } = useNotifications();
+  const { network } = useNetwork();
   const [isOpen, setIsOpen] = useState(false);
   const [isCenterOpen, setIsCenterOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -31,7 +34,7 @@ export function NotificationBell() {
   const handleNotificationClick = (notification: Notification) => {
     if (notification.txHash) {
       window.open(
-        `https://stellar.expert/explorer/testnet/tx/${notification.txHash}`,
+        getStellarExpertTxUrl(network, notification.txHash),
         "_blank",
         "noopener,noreferrer",
       );

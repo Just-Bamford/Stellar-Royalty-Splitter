@@ -3,6 +3,8 @@ import { api, RoyaltyStats } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
 
+const C_ADDR = /^C[A-Z2-7]{55}$/;
+const TOKEN_ID_ERROR = "Please enter a valid token contract address (C..., 56 chars).";
 
 interface Props {
   contractId: string;
@@ -17,6 +19,7 @@ export default function DistributeSecondaryRoyalties({
 }: Props) {
   const { network, networkMismatch } = useNetwork();
   const [tokenId, setTokenId] = useState<string>("");
+  const [tokenIdError, setTokenIdError] = useState("");
   const [status, setStatus] = useState<{
     type: "ok" | "error" | "info";
     msg: string;
@@ -38,6 +41,15 @@ export default function DistributeSecondaryRoyalties({
       .catch(() => setPoolBalance("0"));
   }, [contractId]);
 
+  function validateTokenId(value: string) {
+    setTokenIdError(value !== "" && !C_ADDR.test(value) ? TOKEN_ID_ERROR : "");
+  }
+
+  function updateTokenId(value: string) {
+    setTokenId(value);
+    if (tokenIdError) setTokenIdError("");
+  }
+
   async function submit() {
     if (networkMismatch) {
       return setStatus({
@@ -47,6 +59,11 @@ export default function DistributeSecondaryRoyalties({
     }
     if (!contractId || !tokenId) {
       return setStatus({ type: "error", msg: "Please fill in all fields." });
+    }
+
+    if (!C_ADDR.test(tokenId)) {
+      setTokenIdError(TOKEN_ID_ERROR);
+      return setStatus({ type: "error", msg: TOKEN_ID_ERROR });
     }
 
     if (poolBalance === "0") {
@@ -81,6 +98,7 @@ export default function DistributeSecondaryRoyalties({
       });
 
       setTokenId("");
+      setTokenIdError("");
       onSuccess();
     } catch (err) {
       setStatus({
@@ -131,9 +149,12 @@ export default function DistributeSecondaryRoyalties({
           type="text"
           placeholder="C... (USDC or payment token)"
           value={tokenId}
-          onChange={(e) => setTokenId(e.target.value)}
+          onChange={(e) => updateTokenId(e.target.value)}
+          onBlur={(e) => validateTokenId(e.target.value)}
           disabled={loading}
+          className={tokenIdError ? "input-error" : ""}
         />
+        {tokenIdError && <span className="field-error">{tokenIdError}</span>}
       </div>
 
       {networkMismatch && (

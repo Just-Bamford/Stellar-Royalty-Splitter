@@ -84,18 +84,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
   const chartData = useChartData(chartRange);
 
-  const handleSelectContract = (contractId: string, event?: React.MouseEvent) => {
-    if (event?.shiftKey) {
-      setSelectedContracts(new Set(selectedContracts).add(contractId));
-    } else {
-      const newSet = new Set(selectedContracts);
+  const handleSelectContract = (contractId: string) => {
+    setSelectedContracts((prev) => {
+      const newSet = new Set(prev);
       if (newSet.has(contractId)) {
         newSet.delete(contractId);
       } else {
         newSet.add(contractId);
       }
-      setSelectedContracts(newSet);
-    }
+      return newSet;
+    });
   };
 
   const handleSelectAll = () => {
@@ -359,7 +357,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             <input
                               type="checkbox"
                               checked={selectedContracts.has(contract.contractId)}
-                              onChange={(e) => handleSelectContract(contract.contractId, e as any)}
+                              onChange={() => handleSelectContract(contract.contractId)}
                               aria-label={`Select contract ${formatContractId(contract.contractId)}`}
                             />
                           </td>
