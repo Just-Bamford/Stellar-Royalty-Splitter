@@ -40,7 +40,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedContracts, setSelectedContracts] = useState<Set<string>>(new Set());
   const [showAggregated, setShowAggregated] = useState(false);
-  const [bulkOperationLoading, setBulkOperationLoading] = useState(false);
   const [chartRange, setChartRange] = useState<ChartRange>("3M");
 
   const activeDateRange = allTime ? undefined : dateRange;
@@ -106,22 +105,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     }
   };
 
-  const handleBulkDistribute = async () => {
-    if (selectedContracts.size === 0) return;
-    setBulkOperationLoading(true);
-    try {
-      if (
-        window.confirm(
-          `Distribute to ${selectedContracts.size} selected contracts? (This is a preview)`
-        )
-      ) {
-        console.log("Bulk distribute to:", selectedContracts);
-      }
-    } finally {
-      setBulkOperationLoading(false);
-    }
-  };
-
   const handleBulkExport = () => {
     if (selectedContracts.size === 0) return;
     const selectedData = performanceData?.contracts.filter((c) =>
@@ -150,7 +133,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     return (
       <div className="dashboard-empty">
         <div className="empty-state">
-          <div className="empty-icon">💏</div>
+          <div className="empty-icon" aria-hidden="true">📊</div>
           <h2>No Contract Selected</h2>
           <p>Please initialize or select a contract to view analytics.</p>
         </div>
@@ -298,10 +281,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
           {selectedContracts.size > 0 && (
             <BulkOperationsPanel
               selectedCount={selectedContracts.size}
-              onBulkDistribute={handleBulkDistribute}
               onBulkExport={handleBulkExport}
               onAggregatedView={handleAggregatedView}
-              loading={bulkOperationLoading}
             />
           )}
 

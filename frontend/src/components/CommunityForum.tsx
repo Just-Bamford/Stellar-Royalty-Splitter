@@ -2,6 +2,9 @@ import React, { useState } from "react";
 import { useSocialStore, type ForumPost } from "../store/socialStore";
 import "./CommunityForum.css";
 
+/** Forum posts rendered per page; "Load more" reveals the next page (#1391). */
+export const FORUM_PAGE_SIZE = 20;
+
 interface CommunityForumProps {
   walletAddress: string | null;
   onSelectUserAddress?: (address: string) => void;
@@ -29,6 +32,7 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
   // Forums state
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [visibleCount, setVisibleCount] = useState<number>(FORUM_PAGE_SIZE);
   const [expandedCommentsPostId, setExpandedCommentsPostId] = useState<string | null>(null);
   const [commentInputText, setCommentInputText] = useState<string>("");
 
@@ -43,6 +47,17 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
   const [leaderboardType, setLeaderboardType] = useState<"earnings" | "active" | "streak">("earnings");
 
   const currentUser = walletAddress ? getProfile(walletAddress) : null;
+
+  // Changing the category or search starts again from the first page.
+  const handleCategoryChange = (category: string) => {
+    setSelectedCategory(category);
+    setVisibleCount(FORUM_PAGE_SIZE);
+  };
+
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+    setVisibleCount(FORUM_PAGE_SIZE);
+  };
 
   const handleOpenCreatePost = () => {
     setIsCreatingPost(true);
@@ -93,6 +108,8 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
       post.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
+  const visiblePosts = filteredPosts.slice(0, visibleCount);
+  const remainingPosts = filteredPosts.length - visiblePosts.length;
 
   return (
     <div className="community-forum-container" data-testid="community-forum-component">
@@ -129,42 +146,42 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
               <button
                 type="button"
                 className={`category-chip ${selectedCategory === "all" ? "active" : ""}`}
-                onClick={() => setSelectedCategory("all")}
+                onClick={() => handleCategoryChange("all")}
               >
                 🌐 All Topics
               </button>
               <button
                 type="button"
                 className={`category-chip ${selectedCategory === "music" ? "active" : ""}`}
-                onClick={() => setSelectedCategory("music")}
+                onClick={() => handleCategoryChange("music")}
               >
                 🎵 Music
               </button>
               <button
                 type="button"
                 className={`category-chip ${selectedCategory === "art" ? "active" : ""}`}
-                onClick={() => setSelectedCategory("art")}
+                onClick={() => handleCategoryChange("art")}
               >
                 🎨 Art
               </button>
               <button
                 type="button"
                 className={`category-chip ${selectedCategory === "gaming" ? "active" : ""}`}
-                onClick={() => setSelectedCategory("gaming")}
+                onClick={() => handleCategoryChange("gaming")}
               >
                 🎮 Gaming
               </button>
               <button
                 type="button"
                 className={`category-chip ${selectedCategory === "dev" ? "active" : ""}`}
-                onClick={() => setSelectedCategory("dev")}
+                onClick={() => handleCategoryChange("dev")}
               >
                 💻 Development
               </button>
               <button
                 type="button"
                 className={`category-chip ${selectedCategory === "collaboration" ? "active" : ""}`}
-                onClick={() => setSelectedCategory("collaboration")}
+                onClick={() => handleCategoryChange("collaboration")}
               >
                 🤝 Collaboration
               </button>
@@ -176,7 +193,7 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
                 className="forum-search-input"
                 placeholder="🔍 Search topics or tags..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
 
               {walletAddress && (
@@ -200,7 +217,7 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
                 <p>Be the first to start a conversation in this topic!</p>
               </div>
             ) : (
-              filteredPosts.map((post) => {
+              visiblePosts.map((post) => {
                 const hasUpvoted = walletAddress ? post.upvotedBy.includes(walletAddress) : false;
                 const isExpanded = expandedCommentsPostId === post.id;
 
@@ -300,6 +317,18 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
               })
             )}
           </div>
+
+          {remainingPosts > 0 && (
+            <div className="forum-load-more">
+              <button
+                type="button"
+                className="profile-btn forum-load-more-btn"
+                onClick={() => setVisibleCount((count) => count + FORUM_PAGE_SIZE)}
+              >
+                Load more ({remainingPosts} remaining)
+              </button>
+            </div>
+          )}
         </>
       )}
 
