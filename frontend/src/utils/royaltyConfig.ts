@@ -27,7 +27,7 @@ export type SupportedConfigVersion = (typeof SUPPORTED_CONFIG_VERSIONS)[number];
 
 // Mirrors InitializeForm.tsx's STELLAR_ADDRESS_RE / MAX_COLLABORATORS.
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
-const MAX_COLLABORATORS = 50;
+const MAX_COLLABORATORS = 10;
 
 export class RoyaltyConfigImportError extends Error {
   errors: string[];
