@@ -278,6 +278,8 @@ export default function DistributeForm({
       txLifecycle.setConfirmed(hash);
       setStatus("ok", "Distributed successfully.");
       localStorage.removeItem(draftKey);
+      setDraftPrompt(null);
+      setDraftDecisionMade(true);
       setTokenId("");
       setAmount("");
       onSuccess();
