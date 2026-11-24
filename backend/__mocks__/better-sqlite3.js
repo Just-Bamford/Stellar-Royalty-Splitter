@@ -72,7 +72,22 @@ function prepare(sql) {
   if (normalized.includes("from application_logs") && normalized.includes("count(*)")) {
     return {
       run: noop,
-      get: () => {
+      get: (...args) => {
+        if (normalized.includes("as total")) {
+          let rows = [...applicationLogs];
+          let index = 0;
+          if (normalized.includes("level = ?")) rows = rows.filter((row) => row.level === args[index++]);
+          if (normalized.includes("correlation_id = ?")) rows = rows.filter((row) => row.correlation_id === args[index++]);
+          if (normalized.includes("request_id = ?")) rows = rows.filter((row) => row.request_id === args[index++]);
+          if (normalized.includes("service = ?")) rows = rows.filter((row) => row.service === args[index++]);
+          if (normalized.includes("timestamp >= ?")) rows = rows.filter((row) => row.timestamp >= args[index++]);
+          if (normalized.includes("timestamp <= ?")) rows = rows.filter((row) => row.timestamp <= args[index++]);
+          if (normalized.includes("message like ?")) {
+            const search = String(args[index]).replaceAll("%", "");
+            rows = rows.filter((row) => row.message.includes(search) || row.metadata.includes(search));
+          }
+          return { total: rows.length };
+        }
         const errors = applicationLogs.filter((row) => row.level === "error");
         return { errorCount: errors.length, lastError: errors.at(-1)?.timestamp ?? null };
       },

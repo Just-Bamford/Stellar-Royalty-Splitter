@@ -207,7 +207,7 @@ describe("Contributor Tax - upload size limit", () => {
   const FIVE_MB = 5 * 1024 * 1024;
 
   beforeEach(() => {
-    mockUpsertContributorTax.mockClear();
+    mockUpsertContributorTax.mockReset();
   });
 
   test("accepts a small PDF and stores it", async () => {
@@ -255,5 +255,19 @@ describe("Contributor Tax - upload size limit", () => {
     expect(res.body.code).toBe("upload_error");
     expect(res.body.message).toBe("Only PDF, PNG, and JPG files are allowed");
     expect(mockUpsertContributorTax).not.toHaveBeenCalled();
+  });
+
+  test("removes the uploaded file when processing fails", async () => {
+    mockUpsertContributorTax.mockImplementation(() => {
+      throw new Error("database unavailable");
+    });
+
+    const res = await request(app)
+      .post(UPLOAD_URL)
+      .attach("taxDocument", Buffer.alloc(1024, 1), "w9.pdf");
+
+    expect(res.status).toBe(500);
+    const { w9_file_path } = mockUpsertContributorTax.mock.calls[0][0];
+    expect(fs.existsSync(w9_file_path)).toBe(false);
   });
 });
