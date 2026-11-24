@@ -27,9 +27,16 @@ const storage = multer.diskStorage({
   },
 });
 
+// W-9 and W-8BEN forms are small PDFs or scans, typically well under 1 MB.
+// 5 MB leaves headroom for high-resolution scans without letting a single
+// upload fill disk before it is ever processed.
+const MAX_TAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  // busboy (used by multer) rejects a file once its size reaches the limit, so
+  // the limit is one byte above the largest file that should be accepted.
+  limits: { fileSize: MAX_TAX_DOCUMENT_BYTES + 1 },
   fileFilter: (_req, file, cb) => {
     const allowed = [".pdf", ".png", ".jpg", ".jpeg"];
     const ext = path.extname(file.originalname).toLowerCase();
@@ -122,7 +129,26 @@ contributorTaxRouter.post("/", (req, res) => {
   }
 });
 
-contributorTaxRouter.post("/upload/:walletAddress", upload.single("taxDocument"), (req, res) => {
+/**
+ * Runs the multer upload and turns its errors into the standard error shape:
+ * oversized files get 413, and rejected types or other multer failures get 400.
+ */
+function handleTaxDocumentUpload(req, res, next) {
+  upload.single("taxDocument")(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      return sendError(
+        res,
+        413,
+        "file_too_large",
+        `Tax documents must be ${MAX_TAX_DOCUMENT_BYTES / (1024 * 1024)} MB or smaller`,
+      );
+    }
+    return sendError(res, 400, "upload_error", err.message);
+  });
+}
+
+contributorTaxRouter.post("/upload/:walletAddress", handleTaxDocumentUpload, (req, res) => {
   try {
     if (!req.file) {
       return sendError(res, 400, "upload_error", "No file uploaded");
