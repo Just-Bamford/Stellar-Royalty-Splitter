@@ -122,7 +122,7 @@ describe("DocumentManager Component (#1060)", () => {
     expect(screen.getByTestId("stat-pending-sigs").textContent).toBe("1");
   });
 
-  it("filters documents by search query and type dropdown", async () => {
+  it("combines search and type filters and clears them together", async () => {
     render(<DocumentManager currentUserAddress="GAOWNER123" />);
 
     await waitFor(() => {
@@ -136,6 +136,19 @@ describe("DocumentManager Component (#1060)", () => {
     fireEvent.change(typeSelect, { target: { value: "proof" } });
 
     expect(typeSelect).toHaveValue("proof");
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/v1/documents?query=Zero-Knowledge&docType=proof",
+        expect.anything(),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(searchInput).toHaveValue("");
+    expect(typeSelect).toHaveValue("all");
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenLastCalledWith("/api/v1/documents?", expect.anything());
+    });
   });
 
   it("opens upload modal and submits new document to IPFS", async () => {
@@ -151,9 +164,23 @@ describe("DocumentManager Component (#1060)", () => {
     const titleInput = screen.getByTestId("input-doc-title");
     fireEvent.change(titleInput, { target: { value: "New Licensing Deal" } });
 
-    const file = new File(["test license terms"], "license.pdf", { type: "application/pdf" });
     const fileInput = screen.getByTestId("input-doc-file");
+    const sizeLimit = 5 * 1024 * 1024;
+    const file = new File([new Uint8Array(sizeLimit)], "license.pdf", { type: "application/pdf" });
+    const oversized = new File([new Uint8Array(sizeLimit + 1)], "oversized.pdf");
+
     fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.change(fileInput, { target: { files: [oversized] } });
+    expect(screen.getByRole("alert")).toHaveTextContent("File too large. Maximum size is 5 MB.");
+    expect(screen.getByTestId("submit-upload-btn")).toBeDisabled();
+    fireEvent.submit(screen.getByTestId("upload-modal").querySelector("form")!);
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/documents"),
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     const form = screen.getByTestId("upload-modal").querySelector("form")!;
     fireEvent.submit(form);
@@ -163,12 +190,16 @@ describe("DocumentManager Component (#1060)", () => {
         expect.stringContaining("/documents"),
         expect.objectContaining({ method: "POST" }),
       );
+      expect(screen.queryByTestId("upload-modal")).not.toBeInTheDocument();
     });
+    await user.click(uploadBtn);
+    expect(screen.getByTestId("input-doc-title")).toHaveValue("");
   });
 
   it("opens share modal and allows granting & revoking permissions", async () => {
     const user = userEvent.setup();
-    render(<DocumentManager currentUserAddress="GAOWNER123" />);
+    const onDocumentSelected = vi.fn();
+    render(<DocumentManager currentUserAddress="GAOWNER123" onDocumentSelected={onDocumentSelected} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("share-btn-doc_test_1")).toBeDefined();
@@ -179,6 +210,7 @@ describe("DocumentManager Component (#1060)", () => {
 
     expect(screen.getByTestId("share-modal")).toBeDefined();
     expect(screen.getByText("Collaborator Access & Permissions")).toBeDefined();
+    expect(onDocumentSelected).toHaveBeenCalledExactlyOnceWith(MOCK_DOCS[0]);
 
     const addressInput = screen.getByTestId("input-share-address");
     await user.type(addressInput, "GANEWCOLLABORATOR123");

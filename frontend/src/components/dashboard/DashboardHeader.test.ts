@@ -5,13 +5,13 @@
  * DashboardHeader enforces before forwarding changes to its parent.
  */
 
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import type { DateRange } from "./DashboardHeader";
 
 /** Mirror of the validation logic inside DashboardHeader. */
 function validateStartChange(
   start: string,
-  range: DateRange,
+  range: DateRange
 ): { error: string | null; range: DateRange | null } {
   if (start > range.end) {
     return { error: "Start date must be on or before end date.", range: null };
@@ -21,7 +21,7 @@ function validateStartChange(
 
 function validateEndChange(
   end: string,
-  range: DateRange,
+  range: DateRange
 ): { error: string | null; range: DateRange | null } {
   if (end < range.start) {
     return { error: "End date must be on or after start date.", range: null };

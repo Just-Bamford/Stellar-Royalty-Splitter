@@ -1310,6 +1310,32 @@ export const openApiSpec = {
           400: { description: "Invalid Stellar wallet address" },
         },
       },
+      put: {
+        tags: ["Onboarding"],
+        summary: "Update onboarding checklist fields for a wallet",
+        parameters: [{ in: "path", name: "walletAddress", required: true, schema: { $ref: "#/components/schemas/StellarAddress" } }],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  email: { type: "string" },
+                  kycStatus: { type: "string", enum: ["unverified", "pending", "verified"] },
+                  paymentPreferencesSet: { type: "boolean" },
+                  payoutToken: { type: "string", maxLength: 12 },
+                  taxInfoSubmitted: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Updated summary", content: { "application/json": { schema: { type: "object", properties: { message: { type: "string" }, summary: { $ref: "#/components/schemas/OnboardingSummary" } } } } } },
+          400: { description: "Validation error" },
+          403: { description: "Forbidden - wallet address does not match requesting caller" },
+        },
+      },
       patch: {
         tags: ["Onboarding"],
         summary: "Update onboarding checklist fields for a wallet",
@@ -1333,6 +1359,7 @@ export const openApiSpec = {
         responses: {
           200: { description: "Updated summary", content: { "application/json": { schema: { type: "object", properties: { message: { type: "string" }, summary: { $ref: "#/components/schemas/OnboardingSummary" } } } } } },
           400: { description: "Validation error" },
+          403: { description: "Forbidden - wallet address does not match requesting caller" },
         },
       },
     },

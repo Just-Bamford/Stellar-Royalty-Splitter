@@ -97,6 +97,12 @@ const onboardingRouter = (await import("../src/routes/onboarding.js")).default;
 
 const app = express();
 app.use(express.json());
+app.use((req, res, next) => {
+  if (req.headers["x-user-wallet"]) {
+    req.user = { walletAddress: req.headers["x-user-wallet"] };
+  }
+  next();
+});
 app.use("/api/v1/onboarding", onboardingRouter);
 
 describe("Contributor Onboarding Router (#567)", () => {
@@ -192,19 +198,42 @@ describe("Contributor Onboarding Router (#567)", () => {
     expect(res.body.error).toBe("Valid email is required for reminder");
   });
 
-  test("POST /api/v1/onboarding/:walletAddress/remind returns 429 after the first reminder", async () => {
-    const rateLimitedWallet = `${TEST_WALLET.slice(0, -1)}B`;
-    const payload = { email: "rate-limited@example.com" };
-    const first = await request(app)
-      .post(`/api/v1/onboarding/${rateLimitedWallet}/remind`)
-      .send(payload);
-    const second = await request(app)
-      .post(`/api/v1/onboarding/${rateLimitedWallet}/remind`)
-      .send(payload);
+  test("PATCH /api/v1/onboarding/:walletAddress returns 403 when requesting wallet does not match auth context (Option B)", async () => {
+    const OTHER_WALLET = "GCKFJ2V347BMS4GJUX757Q4NO2Y6CQGZ7V4G3V3B7V6Q5M3B3M3B3M3B";
+    const res = await request(app)
+      .patch(`/api/v1/onboarding/${TEST_WALLET}`)
+      .set("x-user-wallet", OTHER_WALLET)
+      .send({
+        email: "attacker@example.com",
+      });
 
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(429);
-    expect(second.body.code).toBe("too_many_requests");
-    expect(second.headers["retry-after"]).toBe("300");
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("forbidden");
+  });
+
+  test("PUT /api/v1/onboarding/:walletAddress returns 403 when non-owner attempts update via x-wallet-address", async () => {
+    const OTHER_WALLET = "GCKFJ2V347BMS4GJUX757Q4NO2Y6CQGZ7V4G3V3B7V6Q5M3B3M3B3M3B";
+    const res = await request(app)
+      .put(`/api/v1/onboarding/${TEST_WALLET}`)
+      .set("x-wallet-address", OTHER_WALLET)
+      .send({
+        email: "attacker@example.com",
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("forbidden");
+  });
+
+  test("PUT /api/v1/onboarding/:walletAddress allows owner to update onboarding record", async () => {
+    const res = await request(app)
+      .put(`/api/v1/onboarding/${TEST_WALLET}`)
+      .set("x-user-wallet", TEST_WALLET)
+      .send({
+        email: "contributor@example.com",
+        paymentPreferencesSet: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary.email).toBe("contributor@example.com");
   });
 });

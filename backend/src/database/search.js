@@ -251,11 +251,11 @@ export function searchDisputes(query, limit = 20, offset = 0, status = null) {
 /**
  * Universal search across all indexed content.
  */
-export function searchAll(query, limit = 50) {
+export function searchAll(query, limit = 50, offset = 0) {
   const results = {
-    collaborators: searchCollaborators(query, Math.floor(limit / 3)),
-    transactions: searchTransactions(query, Math.floor(limit / 3)),
-    disputes: searchDisputes(query, Math.floor(limit / 3)),
+    collaborators: searchCollaborators(query, Math.floor(limit / 3), Math.floor(offset / 3)),
+    transactions: searchTransactions(query, Math.floor(limit / 3), Math.floor(offset / 3)),
+    disputes: searchDisputes(query, Math.floor(limit / 3), Math.floor(offset / 3)),
     totalResults: 0,
   };
 
@@ -346,7 +346,7 @@ export function getSearchStatistics() {
  * Semantic search using keyword embeddings and similarity.
  * This is a simplified semantic search using keyword matching and scoring.
  */
-export function semanticSearch(query, searchType = 'all', limit = 20) {
+export function semanticSearch(query, searchType = 'all', limit = 20, offset = 0) {
   // Extract keywords from query
   const keywords = query.toLowerCase()
     .split(/\s+/)
@@ -364,17 +364,17 @@ export function semanticSearch(query, searchType = 'all', limit = 20) {
 
   switch (searchType) {
     case 'collaborators':
-      results = searchCollaborators(ftsQuery, limit);
+      results = searchCollaborators(ftsQuery, limit, offset);
       break;
     case 'transactions':
-      results = searchTransactions(ftsQuery, limit);
+      results = searchTransactions(ftsQuery, limit, offset);
       break;
     case 'disputes':
-      results = searchDisputes(ftsQuery, limit);
+      results = searchDisputes(ftsQuery, limit, offset);
       break;
     case 'all':
     default:
-      results = searchAll(ftsQuery, limit);
+      results = searchAll(ftsQuery, limit, offset);
       break;
   }
 

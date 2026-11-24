@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import "./GovernancePortal.css";
+import { validateGovernanceProposal } from "../lib/governanceProposalValidation";
 
 export type GovProposalActionType =
   | "ChangeRoyaltyRate"
@@ -133,19 +134,41 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
     e.preventDefault();
     if (!onCreateProposal) return;
 
+    if (!Number.isFinite(votingDurationDays) || votingDurationDays < 2 || votingDurationDays > 7) {
+      setActionError("Voting duration must be between 2 and 7 days");
+      return;
+    }
+
+    // Validate the fields for the selected action before anything is submitted.
+    const validationError = validateGovernanceProposal({
+      title,
+      description,
+      actionType,
+      newRate,
+      tokenAddress,
+      feeBps,
+      collabAddress,
+      budgetRecipient,
+      budgetAmount,
+    });
+    if (validationError) {
+      setActionError(validationError);
+      return;
+    }
+
     let actionData: GovProposalActionData = { type: actionType };
     if (actionType === "ChangeRoyaltyRate") {
-      actionData = { type: actionType, rate: Number(newRate) };
+      actionData = { type: actionType, rate: Number(newRate.trim()) };
     } else if (actionType === "SetTokenFeeOverride") {
-      actionData = { type: actionType, token: tokenAddress, feeBps: Number(feeBps) };
+      actionData = { type: actionType, token: tokenAddress.trim(), feeBps: Number(feeBps.trim()) };
     } else if (actionType === "RemoveCollaborator") {
-      actionData = { type: actionType, collaborator: collabAddress };
+      actionData = { type: actionType, collaborator: collabAddress.trim() };
     } else if (actionType === "AllocateBudget") {
       actionData = {
         type: actionType,
-        token: tokenAddress,
-        recipient: budgetRecipient,
-        amount: budgetAmount,
+        token: tokenAddress.trim(),
+        recipient: budgetRecipient.trim(),
+        amount: budgetAmount.trim(),
       };
     }
 
@@ -153,8 +176,8 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
       setIsSubmitting(true);
       setActionError(null);
       await onCreateProposal({
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim(),
         action: actionData,
         votingPeriodSeconds: votingDurationDays * 86400,
       });
@@ -562,15 +585,14 @@ export const GovernancePortal: React.FC<GovernancePortalProps> = ({
 
               <div className="gov-form-group">
                 <label>Voting Period</label>
-                <select
+                <input
+                  type="number"
+                  min={2}
+                  max={7}
+                  step={1}
                   value={votingDurationDays}
                   onChange={(e) => setVotingDurationDays(Number(e.target.value))}
-                >
-                  <option value={2}>2 Days (Minimum)</option>
-                  <option value={3}>3 Days (Standard)</option>
-                  <option value={5}>5 Days</option>
-                  <option value={7}>7 Days (Maximum)</option>
-                </select>
+                />
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1rem" }}>

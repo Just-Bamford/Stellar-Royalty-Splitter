@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { sendError } from "../error-response.js";
+import { validateStellarAddress } from "../validation.js";
 import {
   getNotifications,
   getArchivedNotifications,
   getUnreadNotificationCount,
+  getUnreadCountByType,
   markNotificationRead,
   markNotificationUnread,
   markAllNotificationsRead,
@@ -33,6 +35,9 @@ const SMS_EVENT_PARAM_KEYS = {
 
 notificationsRouter.get("/:walletAddress", (req, res) => {
   try {
+    if (!validateStellarAddress(req.params.walletAddress, res)) {
+      return;
+    }
     const limit = parseInt(req.query.limit ?? "50");
     const offset = parseInt(req.query.offset ?? "0");
     const notifications = getNotifications(req.params.walletAddress, limit, offset);
@@ -45,6 +50,9 @@ notificationsRouter.get("/:walletAddress", (req, res) => {
 
 notificationsRouter.get("/:walletAddress/unread-count", (req, res) => {
   try {
+    if (!validateStellarAddress(req.params.walletAddress, res)) {
+      return;
+    }
     const count = getUnreadNotificationCount(req.params.walletAddress);
     res.json({ success: true, count });
   } catch (err) {
@@ -54,6 +62,9 @@ notificationsRouter.get("/:walletAddress/unread-count", (req, res) => {
 
 notificationsRouter.get("/:walletAddress/by-type/:type", (req, res) => {
   try {
+    if (!validateStellarAddress(req.params.walletAddress, res)) {
+      return;
+    }
     const { walletAddress, type } = req.params;
     const limit = parseInt(req.query.limit ?? "50");
     const offset = parseInt(req.query.offset ?? "0");
@@ -76,6 +87,9 @@ notificationsRouter.get("/:walletAddress/by-type/:type", (req, res) => {
 
 notificationsRouter.get("/:walletAddress/search", (req, res) => {
   try {
+    if (!validateStellarAddress(req.params.walletAddress, res)) {
+      return;
+    }
     const { walletAddress } = req.params;
     const query = req.query.q;
     const limit = parseInt(req.query.limit ?? "50");
@@ -94,13 +108,13 @@ notificationsRouter.get("/:walletAddress/search", (req, res) => {
 
 notificationsRouter.get("/:walletAddress/unread-by-type", (req, res) => {
   try {
-    const counts = {};
-    for (const type of NOTIFICATION_TYPES) {
-      const count = getNotificationsByType(req.params.walletAddress, type, 1, 0).filter(
-        (n) => !n.read
-      ).length;
-      if (count > 0) counts[type] = count;
-    }
+    // #1180: was one getNotificationsByType(..., limit: 1, ...) call per
+    // NOTIFICATION_TYPES entry, which could never report more than "0 or
+    // 1" unread for any type regardless of the real count. A single
+    // GROUP BY query returns the actual per-type count in one call, and
+    // (like the loop it replaces) a type with zero unread rows is simply
+    // absent from the result rather than present with a 0 value.
+    const counts = getUnreadCountByType(req.params.walletAddress);
     res.json({ success: true, data: counts });
   } catch (err) {
     sendError(res, 500, "unread_by_type_error", err.message);
@@ -127,6 +141,9 @@ notificationsRouter.post("/:id/unread", (req, res) => {
 
 notificationsRouter.post("/read-all/:walletAddress", (req, res) => {
   try {
+    if (!validateStellarAddress(req.params.walletAddress, res)) {
+      return;
+    }
     markAllNotificationsRead(req.params.walletAddress);
     res.json({ success: true });
   } catch (err) {
@@ -154,6 +171,9 @@ notificationsRouter.post("/:id/unarchive", (req, res) => {
 
 notificationsRouter.get("/:walletAddress/archived", (req, res) => {
   try {
+    if (!validateStellarAddress(req.params.walletAddress, res)) {
+      return;
+    }
     const limit = parseInt(req.query.limit ?? "50");
     const offset = parseInt(req.query.offset ?? "0");
     const notifications = getArchivedNotifications(req.params.walletAddress, limit, offset);
@@ -176,12 +196,7 @@ notificationsRouter.post("/send", async (req, res) => {
   try {
     const { walletAddress, type, title, message, data, channel } = req.body;
     if (!walletAddress || !type || !title) {
-      return sendError(
-        res,
-        400,
-        "validation_error",
-        "walletAddress, type, and title are required"
-      );
+      return sendError(res, 400, "validation_error", "walletAddress, type, and title are required");
     }
 
     if (!shouldSendNotification(walletAddress, type)) {
@@ -193,14 +208,19 @@ notificationsRouter.post("/send", async (req, res) => {
       });
     }
 
-    const notification = createSystemNotification(walletAddress, type, title, message, data, channel);
+    const notification = createSystemNotification(
+      walletAddress,
+      type,
+      title,
+      message,
+      data,
+      channel
+    );
     sendNotification(walletAddress, notification);
 
     const paramKeys = SMS_EVENT_PARAM_KEYS[type];
     if (paramKeys) {
-      const templateParams = Object.fromEntries(
-        paramKeys.map((key) => [key, data?.[key]])
-      );
+      const templateParams = Object.fromEntries(paramKeys.map((key) => [key, data?.[key]]));
       await sendEventSms(walletAddress, type, templateParams);
     }
 

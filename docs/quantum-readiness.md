@@ -1,5 +1,7 @@
 # Quantum Readiness (Post-Quantum Migration)
 
+**Status:** Phase 0 → Phase 1 in progress. Hybrid signing infrastructure (`backend/src/crypto/post-quantum.js`) is implemented; integration into request verification middleware is planned (Phase 1).
+
 ## Why
 
 Ed25519 (used by Stellar accounts) and ECDSA/secp256k1 are secure against
@@ -8,7 +10,7 @@ large, fault-tolerant quantum computer. Signatures made today may need to remain
 verifiable for decades, so the project prepares a **hybrid** signing scheme now:
 a payload is signed with the classical key **and** a post-quantum key, and
 verification requires both halves to pass. A forged hybrid signature has to
-defeat Ed25519 *and* the PQ primitive, so the system stays secure even if one of
+defeat Ed25519 _and_ the PQ primitive, so the system stays secure even if one of
 them is later broken.
 
 This work is "preparation": it selects algorithms, adds a hybrid signer, and
@@ -17,12 +19,12 @@ documents the migration. On-chain (Soroban) post-quantum support is explicitly
 
 ## Algorithm selection
 
-| Role | Algorithm | Standard | Keys | Signature | Notes |
-| --- | --- | --- | --- | --- | --- |
-| Classical | Ed25519 | RFC 8032 | 32 B | 64 B | Stellar's curve; kept for compatibility |
-| PQ primary | **ML-DSA-44** | FIPS 204 | 1312 B | 2420 B | Lattice-based; fast, compact, many-time |
-| PQ long-term | **SLH-DSA-SHA2-128s** | FIPS 205 | 32 B | 7856 B | Hash-based; conservative, large signatures |
-| PQ key exchange (future) | ML-KEM-768 | FIPS 203 | — | — | For future encrypted channels |
+| Role                     | Algorithm             | Standard | Keys   | Signature | Notes                                      |
+| ------------------------ | --------------------- | -------- | ------ | --------- | ------------------------------------------ |
+| Classical                | Ed25519               | RFC 8032 | 32 B   | 64 B      | Stellar's curve; kept for compatibility    |
+| PQ primary               | **ML-DSA-44**         | FIPS 204 | 1312 B | 2420 B    | Lattice-based; fast, compact, many-time    |
+| PQ long-term             | **SLH-DSA-SHA2-128s** | FIPS 205 | 32 B   | 7856 B    | Hash-based; conservative, large signatures |
+| PQ key exchange (future) | ML-KEM-768            | FIPS 203 | —      | —         | For future encrypted channels              |
 
 **Primary choice: ML-DSA-44 (CRYSTALS-Dilithium).** It is the NIST-standardized
 lattice signature, has small keys and fast verification, and is well suited to
@@ -49,9 +51,9 @@ const signature = signHybrid(canonicalRequest, secretKey);
 verifyHybrid(signature, canonicalRequest, publicKey); // true only if BOTH halves pass
 ```
 
-* The message is **domain-separated** (`stellar-royalty-splitter/hybrid-signature/v1`),
+- The message is **domain-separated** (`stellar-royalty-splitter/hybrid-signature/v1`),
   so a hybrid signature cannot be replayed as a different protocol's signature.
-* Keys and signatures use a **versioned, length-prefixed** encoding so new
+- Keys and signatures use a **versioned, length-prefixed** encoding so new
   schemes can be added without breaking existing material:
 
   ```
@@ -60,17 +62,17 @@ verifyHybrid(signature, canonicalRequest, publicKey); // true only if BOTH halve
   signature:   ver(1) | schemeId(1) | u16be(clSigLen) | clSig | u16be(pqSigLen) | pqSig
   ```
 
-* Verification fails closed: malformed input, unsupported version/scheme, and
+- Verification fails closed: malformed input, unsupported version/scheme, and
   wrong keys all return `false` rather than throwing.
 
 ## Migration path
 
-| Phase | Status | Behaviour |
-| --- | --- | --- |
-| **0 — today** | shipped | Ed25519 only (`backend/src/verify-signature.js`). |
-| **1 — hybrid** | this change | Clients may attach a PQ/public key and a hybrid signature. Verification accepts hybrids **and** legacy Ed25519, and requires both halves when a hybrid is present. |
-| **2 — deprecate classical** | planned | Emit a deprecation warning/telemetry when a request is verified with Ed25519 only; require hybrid for high-value operations. |
-| **3 — post-quantum only** | planned | Reject classical-only signatures; retain ML-DSA or SLH-DSA based on the security policy. |
+| Phase                       | Status      | Behaviour                                                                                                                                                          |
+| --------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **0 — today**               | shipped     | Ed25519 only (`backend/src/verify-signature.js`).                                                                                                                  |
+| **1 — hybrid**              | this change | Clients may attach a PQ/public key and a hybrid signature. Verification accepts hybrids **and** legacy Ed25519, and requires both halves when a hybrid is present. |
+| **2 — deprecate classical** | planned     | Emit a deprecation warning/telemetry when a request is verified with Ed25519 only; require hybrid for high-value operations.                                       |
+| **3 — post-quantum only**   | planned     | Reject classical-only signatures; retain ML-DSA or SLH-DSA based on the security policy.                                                                           |
 
 ### Phase 1 integration sketch
 
@@ -97,11 +99,11 @@ middleware does not need to know the algorithm ahead of time.
 
 Measured on Node 24 (see `backend/tests/post-quantum.test.js`):
 
-| Operation | Approx. cost |
-| --- | --- |
-| Ed25519 verify | ~0.1 ms |
-| ML-DSA-44 verify | ~0.3–1 ms |
-| SLH-DSA-SHA2-128s verify | ~1–3 ms |
+| Operation                | Approx. cost |
+| ------------------------ | ------------ |
+| Ed25519 verify           | ~0.1 ms      |
+| ML-DSA-44 verify         | ~0.3–1 ms    |
+| SLH-DSA-SHA2-128s verify | ~1–3 ms      |
 
 Hybrid verification adds ~0.3–1 ms of CPU per request versus Ed25519-only — far
 below the <20% end-to-end latency budget for the request handlers, where the
@@ -111,15 +113,15 @@ byte sizes.
 
 ## Out of scope / follow-ups
 
-* Soroban/host support for post-quantum primitives (waiting on the Stellar
+- Soroban/host support for post-quantum primitives (waiting on the Stellar
   protocol; see the issue's "Out" scope).
-* Persistent hybrid key storage and key rotation.
-* ML-KEM based transport encryption for sensitive exports.
+- Persistent hybrid key storage and key rotation.
+- ML-KEM based transport encryption for sensitive exports.
 
 ## References
 
-* FIPS 203 — ML-KEM (key encapsulation)
-* FIPS 204 — ML-DSA (lattice signatures)
-* FIPS 205 — SLH-DSA (hash-based signatures)
-* NIST IR 8547 — Transition to Post-Quantum Cryptography Standards
-* `@noble/post-quantum` — auditable JS implementation
+- FIPS 203 — ML-KEM (key encapsulation)
+- FIPS 204 — ML-DSA (lattice signatures)
+- FIPS 205 — SLH-DSA (hash-based signatures)
+- NIST IR 8547 — Transition to Post-Quantum Cryptography Standards
+- `@noble/post-quantum` — auditable JS implementation

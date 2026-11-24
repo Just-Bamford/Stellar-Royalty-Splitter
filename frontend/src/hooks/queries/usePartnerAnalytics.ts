@@ -11,7 +11,7 @@ import { api } from "../../api";
 export function usePartnerAnalytics(days = 30, partnerId?: string) {
   return useQuery({
     queryKey: ["partner-analytics", days, partnerId ?? null],
-    queryFn: () => api.getPartnerAnalytics(days, partnerId),
+    queryFn: () => api.getPartnerAnalytics(partnerId || "platform"),
     enabled: days > 0,
   });
 }

@@ -5,7 +5,7 @@
  * that MetricsGrid delegates to, without requiring a DOM renderer.
  */
 
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import { formatNumber, formatCurrency } from "../../utils/format";
 import type { MetricsData } from "./MetricsGrid";
 

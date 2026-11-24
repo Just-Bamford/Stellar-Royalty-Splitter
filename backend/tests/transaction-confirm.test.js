@@ -47,7 +47,20 @@ await jest.unstable_mockModule("../src/cache.js", () => ({
   TTL: { history: 60000 },
 }));
 
+const broadcastToContract = jest.fn(() => 0);
+
+await jest.unstable_mockModule("../src/websocket.js", () => ({
+  initializeWebSocket: jest.fn(),
+  sendNotification: jest.fn(),
+  broadcastToContract,
+  broadcastFinalityUpdate: jest.fn(),
+  broadcastTransactionStatus: jest.fn(),
+  broadcastContractEdit: jest.fn(),
+  broadcastAuditEvent: jest.fn(),
+}));
+
 const { default: historyRouter } = await import("../src/routes/history.js");
+const { resetMetrics } = await import("../src/metrics.js");
 
 import express from "express";
 
@@ -58,7 +71,10 @@ app.use("/api/v1", historyRouter);
 const TX_HASH = "a".repeat(64);
 
 describe("POST /api/v1/transaction/confirm/:txHash", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetMetrics();
+  });
 
   test("confirms an existing pending transaction after Horizon polling", async () => {
     getTransactionDetails
@@ -102,6 +118,38 @@ describe("POST /api/v1/transaction/confirm/:txHash", () => {
       null
     );
     expect(deliverDistributeWebhooks).toHaveBeenCalled();
+    // #1125: completion is announced only once the chain confirms it.
+    expect(broadcastToContract).toHaveBeenCalledWith(
+      "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      expect.objectContaining({
+        type: "distribution_completed",
+        transactionId: 1,
+        txHash: TX_HASH,
+        ledger: 12345,
+      }),
+    );
+  });
+
+  test("does not broadcast distribution_completed when the transaction failed on-chain", async () => {
+    const pending = {
+      id: 2,
+      txHash: TX_HASH,
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      type: "distribute",
+      status: "pending",
+      payouts: [],
+    };
+    getTransactionDetails
+      .mockReturnValueOnce(pending)
+      .mockReturnValueOnce({ ...pending, status: "failed" });
+    pollHorizonTransaction.mockResolvedValue({ status: "failed", ledger: 12346 });
+
+    const res = await request(app).post(`/api/v1/transaction/confirm/${TX_HASH}`).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("failed");
+    expect(broadcastToContract).not.toHaveBeenCalled();
+    expect(deliverDistributeWebhooks).not.toHaveBeenCalled();
   });
 
   test("links transactionId to txHash when row has no hash yet", async () => {

@@ -31,6 +31,7 @@ export {
   getTransactionDetails,
   getTransactionById,
   getRetryEligibleTransactions,
+  getTransactionMetrics,
   RETRY_BACKOFF_MS,
   MAX_RETRY_COUNT,
 } from "./transactions.js";
@@ -94,7 +95,12 @@ export {
 export { getPaymentPreference, savePaymentPreference } from "./payment-preferences.js";
 
 // Transaction fee display (#606)
-export { recordTransactionFee, getTransactionFee, getFeesByContract } from "./transaction-fees.js";
+export {
+  recordTransactionFee,
+  getTransactionFee,
+  getFeesByContract,
+  getFeeCountByContract,
+} from "./transaction-fees.js";
 
 // Notification preferences (#605)
 export {
@@ -622,4 +628,3 @@ export {
   upsertCarbonSettings,
   listAutoOffsetWallets,
 } from "./carbon.js";
-

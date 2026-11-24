@@ -55,6 +55,19 @@ export function getAccountAddressError(value: string): string | null {
 }
 
 /**
+ * Strict version of getAccountAddressError that treats empty strings as errors.
+ * Use this in form submit handlers to ensure required fields are filled.
+ *
+ * @param value - The address to validate
+ * @returns An error message for invalid or empty values, or null for valid addresses
+ */
+export function getAccountAddressErrorStrict(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "Collaborator address is required.";
+  return ACCOUNT_ADDRESS_REGEX.test(trimmed) ? null : INVALID_ACCOUNT_ADDRESS_MESSAGE;
+}
+
+/**
  * Returns true if the value structurally matches a Stellar account address.
  */
 export function isValidAccountAddress(value: string): boolean {
@@ -111,6 +124,21 @@ export function getAmountValidationError(value: string): string | null {
   const num = Number(value);
   if (Number.isNaN(num) || num <= 0) return "Enter a valid positive amount.";
   return null;
+}
+
+// ── Email validation ─────────────────────────────────────────────────────────
+
+/**
+ * Same pattern the backend enforces in `backend/src/routes/onboarding.js`,
+ * so the client rejects exactly what the API would reject.
+ */
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const INVALID_EMAIL_MESSAGE = "Please enter a valid email address.";
+
+/** True when `value` (after trimming) is a well-formed email address. */
+export function isValidEmail(value: string): boolean {
+  return EMAIL_RE.test(value.trim());
 }
 
 // ── Field state helpers ──────────────────────────────────────────────────────

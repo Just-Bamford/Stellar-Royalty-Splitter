@@ -28,8 +28,6 @@ const {
   xdr,
 } = StellarSdk;
 
-const DUMMY_ACCOUNT = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-
 // Timelock configuration (seconds)
 export const MIN_UPGRADE_TIMELOCK_SECS = 86_400; // 24 hours
 export const MAX_UPGRADE_TIMELOCK_SECS = 172_800; // 48 hours
@@ -140,14 +138,20 @@ export class UpgradeManagerService {
     votingDurationSeconds = 86400,
   }) {
     if (!/^[0-9a-fA-F]{64}$/.test(newWasmHash)) {
-      throw new Error("Invalid newWasmHash: must be a 64-character hex string (32 bytes)");
+      throw Object.assign(
+        new Error("Invalid newWasmHash: must be a 64-character hex string (32 bytes)"),
+        { status: 400 }
+      );
     }
     if (
       timelockDelaySeconds < MIN_UPGRADE_TIMELOCK_SECS ||
       timelockDelaySeconds > MAX_UPGRADE_TIMELOCK_SECS
     ) {
-      throw new Error(
-        `timelockDelaySeconds must be between ${MIN_UPGRADE_TIMELOCK_SECS} (24h) and ${MAX_UPGRADE_TIMELOCK_SECS} (48h)`
+      throw Object.assign(
+        new Error(
+          `timelockDelaySeconds must be between ${MIN_UPGRADE_TIMELOCK_SECS} (24h) and ${MAX_UPGRADE_TIMELOCK_SECS} (48h)`
+        ),
+        { status: 400 }
       );
     }
 
@@ -197,10 +201,13 @@ export class UpgradeManagerService {
   async castVote({ proposalId, voter, approve, weight = 1000 }) {
     const proposal = this.getProposal(proposalId);
     if (!proposal) {
-      throw new Error(`Upgrade proposal ${proposalId} not found`);
+      throw Object.assign(new Error(`Upgrade proposal ${proposalId} not found`), { status: 404 });
     }
     if (proposal.status !== UpgradeStatus.VOTING && proposal.status !== UpgradeStatus.PROPOSED) {
-      throw new Error(`Proposal is not in voting state (current: ${proposal.status})`);
+      throw Object.assign(
+        new Error(`Proposal is not in voting state (current: ${proposal.status})`),
+        { status: 400 }
+      );
     }
 
     const existingVote = db
@@ -208,7 +215,10 @@ export class UpgradeManagerService {
       .get(proposalId, voter);
 
     if (existingVote) {
-      throw new Error(`Voter ${voter} has already cast a vote on proposal ${proposalId}`);
+      throw Object.assign(
+        new Error(`Voter ${voter} has already cast a vote on proposal ${proposalId}`),
+        { status: 400 }
+      );
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -237,17 +247,20 @@ export class UpgradeManagerService {
   async scheduleUpgrade({ proposalId, caller }) {
     const proposal = this.getProposal(proposalId);
     if (!proposal) {
-      throw new Error(`Proposal ${proposalId} not found`);
+      throw Object.assign(new Error(`Proposal ${proposalId} not found`), { status: 404 });
     }
     if (proposal.status === UpgradeStatus.SCHEDULED) {
-      throw new Error(`Proposal ${proposalId} is already scheduled`);
+      throw Object.assign(new Error(`Proposal ${proposalId} is already scheduled`), { status: 400 });
     }
     if (proposal.status === UpgradeStatus.EXECUTED) {
-      throw new Error(`Proposal ${proposalId} is already executed`);
+      throw Object.assign(new Error(`Proposal ${proposalId} is already executed`), { status: 400 });
     }
     if (proposal.yes_votes <= proposal.no_votes) {
-      throw new Error(
-        `Upgrade proposal did not receive majority approval (yes: ${proposal.yes_votes}, no: ${proposal.no_votes})`
+      throw Object.assign(
+        new Error(
+          `Upgrade proposal did not receive majority approval (yes: ${proposal.yes_votes}, no: ${proposal.no_votes})`
+        ),
+        { status: 400 }
       );
     }
 
@@ -270,17 +283,25 @@ export class UpgradeManagerService {
   async executeUpgrade({ proposalId, caller }) {
     const proposal = this.getProposal(proposalId);
     if (!proposal) {
-      throw new Error(`Proposal ${proposalId} not found`);
+      throw Object.assign(new Error(`Proposal ${proposalId} not found`), { status: 404 });
     }
     if (proposal.status !== UpgradeStatus.SCHEDULED) {
-      throw new Error(`Proposal ${proposalId} must be scheduled before execution (current: ${proposal.status})`);
+      throw Object.assign(
+        new Error(
+          `Proposal ${proposalId} must be scheduled before execution (current: ${proposal.status})`
+        ),
+        { status: 400 }
+      );
     }
 
     const now = Math.floor(Date.now() / 1000);
     if (now < proposal.timelock_until) {
       const remainingSeconds = proposal.timelock_until - now;
-      throw new Error(
-        `Timelock not elapsed! Must wait ${remainingSeconds}s (${Math.ceil(remainingSeconds / 3600)}h) before execution`
+      throw Object.assign(
+        new Error(
+          `Timelock not elapsed! Must wait ${remainingSeconds}s (${Math.ceil(remainingSeconds / 3600)}h) before execution`
+        ),
+        { status: 400 }
       );
     }
 
@@ -356,7 +377,10 @@ export class UpgradeManagerService {
       .get(contractId);
 
     if (!proxyRecord || !proxyRecord.previous_logic_wasm) {
-      throw new Error(`No previous version available for rollback on contract ${contractId}`);
+      throw Object.assign(
+        new Error(`No previous version available for rollback on contract ${contractId}`),
+        { status: 404 }
+      );
     }
 
     const now = Math.floor(Date.now() / 1000);

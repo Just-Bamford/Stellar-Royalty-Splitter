@@ -5,7 +5,7 @@
  * guard that CollaboratorList applies to its props.
  */
 
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import { formatNumber, formatCurrency } from "../../utils/format";
 import type { CollaboratorStat } from "./CollaboratorList";
 

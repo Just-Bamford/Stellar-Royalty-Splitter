@@ -48,11 +48,19 @@ await jest.unstable_mockModule("../src/websocket.js", () => ({
   initializeWebSocket: jest.fn(),
 }));
 
+const getTransactionById = jest.fn();
+const getTransactionDetails = jest.fn();
+await jest.unstable_mockModule("../src/database/index.js", () => ({
+  getTransactionById,
+  getTransactionDetails,
+}));
+
 // Import subject under test AFTER mocks are registered
 const {
   computeBackoffMs,
   startTracking,
   cancelTracking,
+  stopAllTracking,
   isTracking,
   MAX_POLL_DURATION_MS,
   JITTER_FACTOR,
@@ -61,6 +69,17 @@ const {
 const {
   executeFinalityCleanup,
 } = await import("../src/jobs/finality-cleanup-job.js");
+
+const { transactionFinalityRouter } = await import(
+  "../src/routes/transaction-finality.js"
+);
+
+import express from "express";
+import request from "supertest";
+
+const app = express();
+app.use(express.json());
+app.use("/api/v1/transactions", transactionFinalityRouter);
 
 // ─── computeBackoffMs ─────────────────────────────────────────────────────────
 
@@ -335,6 +354,67 @@ describe("cancelTracking", () => {
   });
 });
 
+// ─── stopAllTracking ──────────────────────────────────────────────────────────
+
+describe("stopAllTracking", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Clear any trackers left over from previous tests
+    stopAllTracking();
+  });
+
+  test("returns 0 when no trackers are active", () => {
+    expect(stopAllTracking()).toBe(0);
+  });
+
+  test("cancels all active trackers and returns the count", () => {
+    createFinalityRecord.mockReturnValue(40);
+    pollHorizonTransaction.mockResolvedValue({ status: "not_found" });
+
+    startTracking({ transactionId: 60, txHash: "h".repeat(64) });
+    startTracking({ transactionId: 61, txHash: "i".repeat(64) });
+    expect(isTracking(60)).toBe(true);
+    expect(isTracking(61)).toBe(true);
+
+    const count = stopAllTracking();
+    expect(count).toBe(2);
+    expect(isTracking(60)).toBe(false);
+    expect(isTracking(61)).toBe(false);
+  });
+
+  test("leaves no trackers active after call", () => {
+    createFinalityRecord.mockReturnValue(50);
+    pollHorizonTransaction.mockResolvedValue({ status: "not_found" });
+
+    startTracking({ transactionId: 70, txHash: "j".repeat(64) });
+    stopAllTracking();
+
+    // Subsequent stopAllTracking call returns 0 (idempotent)
+    expect(stopAllTracking()).toBe(0);
+  });
+
+  test("polling loop does not call DB functions after stopAllTracking", async () => {
+    // Arrange: start tracking a transaction that will poll Horizon
+    createFinalityRecord.mockReturnValue(60);
+    // Horizon always returns not_found so the loop would keep polling
+    pollHorizonTransaction.mockResolvedValue({ status: "not_found" });
+
+    startTracking({ transactionId: 80, txHash: "k".repeat(64) });
+
+    // Act: cancel all trackers immediately
+    stopAllTracking();
+
+    // Allow any in-flight microtasks to complete
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Assert: no DB write functions were called after cancellation
+    expect(markFinalityConfirmed).not.toHaveBeenCalled();
+    expect(markFinalityFailed).not.toHaveBeenCalled();
+    expect(markFinalityTimeout).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Cleanup job ──────────────────────────────────────────────────────────────
 
 describe("executeFinalityCleanup", () => {
@@ -372,3 +452,96 @@ describe("executeFinalityCleanup", () => {
     );
   });
 });
+
+// ─── POST /api/v1/transactions/confirm/:txHash (#1164) ───────────────────────
+
+describe("POST /api/v1/transactions/confirm/:txHash", () => {
+  const validHash = "a".repeat(64);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    pollHorizonTransaction.mockResolvedValue({ status: "confirmed", ledger: 1, createdAt: null });
+  });
+
+  test("returns 400 if txHash is not a 64-character hex string", async () => {
+    const res = await request(app)
+      .post("/api/v1/transactions/confirm/invalid-hash")
+      .send({ transactionId: 1 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_param");
+  });
+
+  test("returns 400 if transactionId in body is invalid", async () => {
+    const res = await request(app)
+      .post(`/api/v1/transactions/confirm/${validHash}`)
+      .send({ transactionId: -5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_param");
+  });
+
+  test("returns 404 if transaction is not found", async () => {
+    getTransactionById.mockReturnValue(null);
+
+    const res = await request(app)
+      .post(`/api/v1/transactions/confirm/${validHash}`)
+      .send({ transactionId: 999 });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("not_found");
+  });
+
+  test("starts tracking when transactionId is provided in body", async () => {
+    getTransactionById.mockReturnValue({ id: 10, hash: validHash });
+    getFinalityByTransactionId.mockReturnValue({
+      transaction_id: 10,
+      tx_hash: validHash,
+      status: "pending",
+      confirmations: 0,
+      fee_paid: null,
+      submission_at: "2026-08-01T00:00:00.000Z",
+      first_confirmation_at: null,
+      final_status: null,
+      final_status_at: null,
+      error_message: null,
+      poll_attempts: 0,
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/transactions/confirm/${validHash}`)
+      .send({ transactionId: 10 });
+
+    expect(res.status).toBe(200);
+    expect(createFinalityRecord).toHaveBeenCalledWith(10, validHash);
+    expect(res.body.txHash).toBe(validHash);
+    expect(res.body.transactionId).toBe(10);
+  });
+
+  test("starts tracking when transaction is looked up by txHash", async () => {
+    getTransactionDetails.mockReturnValue({ id: 25, hash: validHash });
+    getFinalityByTransactionId.mockReturnValue({
+      transaction_id: 25,
+      tx_hash: validHash,
+      status: "pending",
+      confirmations: 0,
+      fee_paid: null,
+      submission_at: "2026-08-01T00:00:00.000Z",
+      first_confirmation_at: null,
+      final_status: null,
+      final_status_at: null,
+      error_message: null,
+      poll_attempts: 0,
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/transactions/confirm/${validHash}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(getTransactionDetails).toHaveBeenCalledWith(validHash);
+    expect(createFinalityRecord).toHaveBeenCalledWith(25, validHash);
+    expect(res.body.transactionId).toBe(25);
+  });
+});
+

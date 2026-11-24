@@ -40,6 +40,13 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
     minLatencyMs: null,
     maxLatencyMs: null,
   })),
+  getTransactionMetrics: jest.fn(() => ({
+    total: 42,
+    confirmed: 40,
+    failed: 1,
+    pending: 1,
+    lastActivity: "2026-10-17T06:39:25.000Z",
+  })),
   recordHealthSnapshot: jest.fn(),
   pruneHealthHistory: jest.fn(),
   startHealthMonitor: jest.fn(),

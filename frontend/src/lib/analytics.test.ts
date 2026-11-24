@@ -127,6 +127,10 @@ describe("analytics #524", () => {
     analytics.enable();
     analytics.dispatch("page_view", { page: "x" });
     expect(beacon).toHaveBeenCalledTimes(1);
-    expect(beacon.mock.calls[0][0]).toBe("https://example.test/collect");
+    const calls = beacon.mock.calls;
+    if (calls.length > 0) {
+      // @ts-ignore - tuple access after length check
+      expect(calls[0]?.[0]).toBe("https://example.test/collect");
+    }
   });
 });

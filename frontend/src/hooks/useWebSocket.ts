@@ -7,7 +7,7 @@ interface WebSocketMessage {
 }
 
 export interface DistributionEvent {
-  type: "distribution_completed" | "secondary_distribution_completed" | "secondary_sale_recorded";
+  type: "distribution_pending" | "distribution_prepared" | "distribution_completed" | "secondary_distribution_completed" | "secondary_sale_recorded";
   contractId: string;
   transactionId: string | number;
   timestamp: string;
@@ -33,9 +33,11 @@ export function useWebSocket({ walletAddress, onNotification, onDistributionEven
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const [connected, setConnected] = useState(false);
   const [lastPong, setLastPong] = useState<number>(Date.now());
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [permanentlyDisconnected, setPermanentlyDisconnected] = useState(false);
 
   const connect = useCallback(() => {
-    if (!walletAddress || !enabled) return;
+    if (!walletAddress || !enabled || permanentlyDisconnected) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
@@ -46,6 +48,7 @@ export function useWebSocket({ walletAddress, onNotification, onDistributionEven
 
       ws.onopen = () => {
         setConnected(true);
+        setReconnectAttempts(0);
         ws.send(JSON.stringify({ type: "subscribe", walletAddress }));
       };
 
@@ -77,10 +80,15 @@ export function useWebSocket({ walletAddress, onNotification, onDistributionEven
             setConnected(true);
           }
 
-          // Handle distribution events for real-time earnings updates
+          // Handle distribution events for real-time earnings updates.
+          // `distribution_prepared` (unsigned XDR built, nothing submitted yet)
+          // is deliberately not forwarded: earnings only change once the
+          // backend confirms the transaction on-chain and emits
+          // `distribution_completed` (#1125).
           if (msg.type === "notification" && onDistributionEvent) {
             const data = msg.data as Record<string, unknown>;
             if (
+              data.type === "distribution_prepared" ||
               data.type === "distribution_completed" ||
               data.type === "secondary_distribution_completed" ||
               data.type === "secondary_sale_recorded"
@@ -95,8 +103,17 @@ export function useWebSocket({ walletAddress, onNotification, onDistributionEven
 
       ws.onclose = () => {
         setConnected(false);
-        if (enabled && walletAddress) {
-          reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        if (enabled && walletAddress && !permanentlyDisconnected) {
+          setReconnectAttempts((prev) => {
+            const nextAttempt = prev + 1;
+            if (nextAttempt >= 10) {
+              setPermanentlyDisconnected(true);
+              return prev;
+            }
+            const delay = Math.min(3000 * Math.pow(2, prev), 60_000);
+            reconnectTimeoutRef.current = setTimeout(connect, delay);
+            return nextAttempt;
+          });
         }
       };
 
@@ -133,5 +150,5 @@ export function useWebSocket({ walletAddress, onNotification, onDistributionEven
     send({ type: "ping" });
   }, [send]);
 
-  return { connected, send, ping, lastPong };
+  return { connected, send, ping, lastPong, reconnectAttempts, permanentlyDisconnected };
 }

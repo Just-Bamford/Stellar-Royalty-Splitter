@@ -64,10 +64,13 @@ csvImportRouter.post("/validate", upload.single("file"), (req, res) => {
     const csvContent = fs.readFileSync(req.file.path, "utf-8");
     const rows = parseCsv(csvContent);
     const validation = validateCsvRows(rows);
-    fs.unlinkSync(req.file.path);
     res.json({ success: true, data: validation });
   } catch (err) {
     sendError(res, 500, "validation_error", err.message);
+  } finally {
+    if (req.file) {
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore cleanup errors */ }
+    }
   }
 });
 
@@ -95,9 +98,12 @@ csvImportRouter.post("/preview", upload.single("file"), (req, res) => {
         },
       },
     });
-    fs.unlinkSync(req.file.path);
   } catch (err) {
     sendError(res, 500, "preview_error", err.message);
+  } finally {
+    if (req.file) {
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore cleanup errors */ }
+    }
   }
 });
 

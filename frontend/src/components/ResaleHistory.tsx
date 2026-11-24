@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { SecondarySale } from "../api";
 import "./ResaleHistory.css";
+import { TableSkeleton } from "./Skeleton";
 import { formatNumber } from "../utils/format";
 import { useSecondarySales, useSecondaryDistributions } from "../hooks/queries/useSecondarySales";
 
@@ -43,8 +44,9 @@ export default function ResaleHistory({ contractId }: Props) {
 
   if (loading) {
     return (
-      <div className="card">
-        <p>Loading resale history...</p>
+      <div className="card resale-history">
+        <h3>Resale & Royalty History</h3>
+        <TableSkeleton rows={5} columns={6} label="Loading resale history…" />
       </div>
     );
   }

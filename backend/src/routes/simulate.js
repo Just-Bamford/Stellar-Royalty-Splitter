@@ -15,20 +15,20 @@ const {
 
 export const simulateRouter = Router();
 
-function invokeIfFunction(value) {
+export function invokeIfFunction(value) {
   return typeof value === "function" ? value() : value;
 }
 
-function readEventField(event, field) {
+export function readEventField(event, field) {
   const value = event?.[field];
   return invokeIfFunction(value);
 }
 
-function getEventPayload(event) {
+export function getEventPayload(event) {
   return invokeIfFunction(event?.event) ?? event?.value ?? event;
 }
 
-function nativeToString(value) {
+export function nativeToString(value) {
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "string") return value;
   if (typeof value === "number") return value.toString();
@@ -38,7 +38,7 @@ function nativeToString(value) {
   return stringValue && stringValue !== "[object Object]" ? stringValue : null;
 }
 
-function scValToString(value) {
+export function scValToString(value) {
   if (value === undefined || value === null) return null;
   if (typeof value === "string") return value;
   if (typeof value === "number") return value.toString();
@@ -51,7 +51,7 @@ function scValToString(value) {
   }
 }
 
-function scValTupleToNative(value) {
+export function scValTupleToNative(value) {
   if (Array.isArray(value)) return value;
 
   try {
@@ -87,15 +87,7 @@ function calculatePerRecipientEffectiveFee(totalFee, recipientCount) {
   return totalFee / recipientCount;
 }
 
-function calculateFeeScalingComparison(baseFee, recipientCount) {
-  const collaboratorCounts = [2, 5, 10, 20];
-  return collaboratorCounts
-    .filter(count => count >= recipientCount)
-    .map(count => ({
-      collaborators: count,
-      estimated_total_fee: baseFee * (1 + (count - 1) * 0.1), // Simplified scaling model
-    }));
-}
+
 
 function readContractError(sim) {
   const error = sim.error ?? sim.message;
@@ -144,7 +136,7 @@ function readRecipientAmounts(events = []) {
 /**
  * POST /api/simulate
  * Body: { contractId, walletAddress, tokenId }
- * Returns: { fee, recipientAmounts, contractError, feeBreakdown, perRecipientEffectiveFee, feeScalingComparison }
+ * Returns: { fee, recipientAmounts, contractError, feeBreakdown, perRecipientEffectiveFee }
  *
  * Simulates the distribute call and returns expected fee, recipient amounts, and any contract errors.
  */
@@ -173,7 +165,6 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
         contractError: readContractError(sim),
         feeBreakdown,
         perRecipientEffectiveFee: 0,
-        feeScalingComparison: calculateFeeScalingComparison(feeBreakdown.total, 0),
       });
     }
 
@@ -182,7 +173,6 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
     const recipientAmounts = readRecipientAmounts(sim.events);
     const feeBreakdown = calculateFeeBreakdown(sim);
     const perRecipientEffectiveFee = calculatePerRecipientEffectiveFee(feeBreakdown.total, recipientAmounts.length);
-    const feeScalingComparison = calculateFeeScalingComparison(feeBreakdown.total, recipientAmounts.length);
 
     res.json({
       fee: readSimulationFee(sim),
@@ -191,7 +181,6 @@ simulateRouter.post("/", validate(distributeSchema), async (req, res, next) => {
       contractError: null,
       feeBreakdown,
       perRecipientEffectiveFee,
-      feeScalingComparison,
     });
   } catch (err) {
     next(err);

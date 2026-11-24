@@ -22,6 +22,7 @@ const updateSchema = z.object({
   paymentPreferencesSet: z.boolean().optional(),
   payoutToken: z.string().min(1).max(12).optional(),
   taxInfoSubmitted: z.boolean().optional(),
+  walletAddress: z.string().optional(),
 });
 
 const remindSchema = z.object({
@@ -143,12 +144,21 @@ router.get("/:walletAddress", (req, res) => {
   }
 });
 
-// PATCH /api/onboarding/:walletAddress
-router.patch("/:walletAddress", (req, res) => {
+const updateOnboardingHandler = (req, res) => {
   const { walletAddress } = req.params;
 
   if (!isValidStellarAddress(walletAddress)) {
     return sendError(res, 400, "validation_failed", "Invalid Stellar wallet address format");
+  }
+
+  const requestingWallet =
+    req.user?.walletAddress ||
+    req.user?.address ||
+    req.headers["x-wallet-address"] ||
+    req.body?.walletAddress;
+
+  if (requestingWallet && requestingWallet !== walletAddress) {
+    return sendError(res, 403, "forbidden", "You do not have permission to update this onboarding record");
   }
 
   const parseResult = updateSchema.safeParse(req.body);
@@ -172,7 +182,13 @@ router.patch("/:walletAddress", (req, res) => {
       "Internal server error updating onboarding checklist",
     );
   }
-});
+};
+
+// PATCH /api/onboarding/:walletAddress
+router.patch("/:walletAddress", updateOnboardingHandler);
+
+// PUT /api/onboarding/:walletAddress
+router.put("/:walletAddress", updateOnboardingHandler);
 
 // POST /api/onboarding/:walletAddress/remind
 router.post("/:walletAddress/remind", onboardingReminderLimiter, (req, res) => {

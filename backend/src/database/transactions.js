@@ -32,7 +32,13 @@ export function recordTransaction(contractId, type, initiatorAddress, data) {
     eventType: "transaction_recorded",
     actor: initiatorAddress,
     contractId,
-    payload: { transactionId: result.lastInsertRowid, type, requestedAmount, tokenId, status: "pending" },
+    payload: {
+      transactionId: result.lastInsertRowid,
+      type,
+      requestedAmount,
+      tokenId,
+      status: "pending",
+    },
   });
   return result.lastInsertRowid;
 }
@@ -108,11 +114,15 @@ export function addDistributionPayout(
 
 /** Find exact payout amounts by a per-contract keyed index without decrypting the candidate rows. */
 export function findPayoutsByAmount(contractId, amountReceived) {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT id, transactionId, contractId, collaboratorAddress, amountReceived
     FROM distribution_payouts_encrypted
     WHERE amountReceivedHash = field_blind_index(?, ?, '${PAYOUT_AMOUNT_FIELD}')
-  `).all(String(amountReceived), contractId);
+  `
+    )
+    .all(String(amountReceived), contractId);
 
   return rows.map((row) => ({
     ...row,
@@ -272,9 +282,10 @@ export function getTransactionHistoryCursor(contractId, limit, cursor, filters =
   const data = stmt.all(...params, limit + 1);
   const hasMore = data.length > limit;
   const rows = hasMore ? data.slice(0, limit) : data;
-  const nextCursor = hasMore && rows.length > 0
-    ? { timestamp: rows[rows.length - 1].timestamp, id: rows[rows.length - 1].id }
-    : null;
+  const nextCursor =
+    hasMore && rows.length > 0
+      ? { timestamp: rows[rows.length - 1].timestamp, id: rows[rows.length - 1].id }
+      : null;
 
   return { data: rows, nextCursor };
 }
@@ -454,7 +465,6 @@ export function getTransactionDetails(txHash) {
   };
 }
 
-
 export function getRetryEligibleTransactions(limit = 10) {
   const stmt = db.prepare(`
     SELECT *
@@ -464,4 +474,31 @@ export function getRetryEligibleTransactions(limit = 10) {
     LIMIT ?
   `);
   return stmt.all(MAX_RETRY_COUNT, limit);
+}
+
+/**
+ * Get transaction metrics: total count and status breakdown.
+ * Encapsulates the SQL query for gathering quick DB health metrics.
+ *
+ * @returns {{ total: number, confirmed: number, failed: number, pending: number, lastActivity: string|null }}
+ */
+export function getTransactionMetrics() {
+  const stmt = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
+      SUM(CASE WHEN status = 'failed'    THEN 1 ELSE 0 END) AS failed,
+      SUM(CASE WHEN status = 'pending'   THEN 1 ELSE 0 END) AS pending,
+      MAX(timestamp) AS lastActivity
+    FROM transactions
+  `);
+
+  const row = stmt.get();
+  return {
+    total: row.total ?? 0,
+    confirmed: row.confirmed ?? 0,
+    failed: row.failed ?? 0,
+    pending: row.pending ?? 0,
+    lastActivity: row.lastActivity ?? null,
+  };
 }

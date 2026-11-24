@@ -5,13 +5,13 @@
  * initialisation that EarningsDashboard implements.
  */
 
-import { describe, test, expect } from "@jest/globals";
+import { describe, test, expect } from "vitest";
 import type { EarnerStat } from "./TopEarners";
 
 /** Mirror of the filter applied inside EarningsDashboard. */
 function filterEarners(
   earners: EarnerStat[],
-  collaboratorAddress: string | undefined,
+  collaboratorAddress: string | undefined
 ): EarnerStat[] {
   if (collaboratorAddress) {
     return earners.filter((e) => e.address === collaboratorAddress);
@@ -45,12 +45,10 @@ describe("EarningsDashboard #833", () => {
   test("filter by existing address returns exactly one earner", () => {
     const result = filterEarners(
       earners,
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
     );
     expect(result).toHaveLength(1);
-    expect(result[0].address).toBe(
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    expect(result[0].address).toBe("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
   });
 
   test("filter by unknown address returns empty array", () => {
@@ -59,8 +57,7 @@ describe("EarningsDashboard #833", () => {
   });
 
   test("filter is case-sensitive (Stellar addresses are uppercase)", () => {
-    const lower =
-      "gbbd47if6lwk7p7mdevscwr7dpuwv3ny3dtqevfl4nat4aqh3zllfla5";
+    const lower = "gbbd47if6lwk7p7mdevscwr7dpuwv3ny3dtqevfl4nat4aqh3zllfla5";
     const result = filterEarners(earners, lower);
     expect(result).toHaveLength(0);
   });
@@ -74,9 +71,7 @@ describe("EarningsDashboard #833", () => {
   test("default date range spans 30 days back from today", () => {
     const end = new Date();
     const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const diffDays = Math.round(
-      (end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000),
-    );
+    const diffDays = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
     // Allow ±1 day for clock drift during test execution
     expect(diffDays).toBeGreaterThanOrEqual(29);
     expect(diffDays).toBeLessThanOrEqual(31);
@@ -84,10 +79,7 @@ describe("EarningsDashboard #833", () => {
 
   test("filtered earner total earned is less than unfiltered sum", () => {
     const all = filterEarners(earners, undefined);
-    const one = filterEarners(
-      earners,
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    const one = filterEarners(earners, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
     const allTotal = all.reduce((sum, e) => sum + e.totalEarned, 0);
     const oneTotal = one.reduce((sum, e) => sum + e.totalEarned, 0);
     expect(oneTotal).toBeLessThan(allTotal);

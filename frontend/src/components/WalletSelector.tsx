@@ -1,51 +1,51 @@
-import React, { useState } from 'react';
-import { useWallet } from '../context/WalletContext';
+import React, { useState } from "react";
+import { useWallet } from "../hooks/useWallet";
 
 interface WalletOption {
   id: string;
   name: string;
   description: string;
   icon: string;
-  type: 'metamask' | 'ledger' | 'trezor' | 'walletconnect' | 'freighter';
+  type: "metamask" | "ledger" | "trezor" | "walletconnect" | "freighter";
   hardware?: boolean;
 }
 
 const WALLET_OPTIONS: WalletOption[] = [
   {
-    id: 'freighter',
-    name: 'Freighter',
-    description: 'Connect using the Freighter wallet extension.',
-    icon: '🦋',
-    type: 'freighter',
+    id: "freighter",
+    name: "Freighter",
+    description: "Connect using the Freighter wallet extension.",
+    icon: "🦋",
+    type: "freighter",
   },
   {
-    id: 'metamask',
-    name: 'MetaMask',
-    description: 'Connect using MetaMask browser extension.',
-    icon: '🦊}',
-    type: 'metamask',
+    id: "metamask",
+    name: "MetaMask",
+    description: "Connect using MetaMask browser extension.",
+    icon: "🦊}",
+    type: "metamask",
   },
   {
-    id: 'walletconnect',
-    name: 'WalletConnect',
-    description: 'Scan QR code to connect mobile wallet.',
-    icon: '📱',
-    type: 'walletconnect',
+    id: "walletconnect",
+    name: "WalletConnect",
+    description: "Scan QR code to connect mobile wallet.",
+    icon: "📱",
+    type: "walletconnect",
   },
   {
-    id: 'ledger',
-    name: 'Ledger',
-    description: 'Connect using your Ledger hardware wallet.',
-    icon: '🔑',
-    type: 'ledger',
+    id: "ledger",
+    name: "Ledger",
+    description: "Connect using your Ledger hardware wallet.",
+    icon: "🔑",
+    type: "ledger",
     hardware: true,
   },
   {
-    id: 'trezor',
-    name: 'Trezor',
-    description: 'Connect using your Trezor hardware wallet.',
-    icon: '🔒',
-    type: 'trezor',
+    id: "trezor",
+    name: "Trezor",
+    description: "Connect using your Trezor hardware wallet.",
+    icon: "🔒",
+    type: "trezor",
     hardware: true,
   },
 ];
@@ -56,7 +56,7 @@ interface WalletSelectorProps {
 }
 
 export const WalletSelector: React.FC<WalletSelectorProps> = ({ onSelect, onClose }) => {
-  const { connect, error, clearError, activeWalletId, disconnect } = useWallet();
+  const { connect, error, clearError, walletId, disconnect } = useWallet();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [hardwareWallet, setHardwareWallet] = useState<WalletOption | null>(null);
 
@@ -67,7 +67,7 @@ export const WalletSelector: React.FC<WalletSelectorProps> = ({ onSelect, onClos
     }
     setPendingId(wallet.id);
     try {
-      await connect(wallet.id);
+      await connect(wallet.id as any);
       onSelect?.(wallet.id);
       onClose?.();
     } catch {
@@ -99,23 +99,25 @@ export const WalletSelector: React.FC<WalletSelectorProps> = ({ onSelect, onClos
       )}
 
       {hardwareWallet && (
-        <div className="hardware-confirmation" role="dialog" aria-label="Hardware wallet confirmation">
-          <p>
-            Please confirm the connection on your {hardwareWallet.name} device.
-          </p>
+        <div
+          className="hardware-confirmation"
+          role="dialog"
+          aria-label="Hardware wallet confirmation"
+        >
+          <p>Please confirm the connection on your {hardwareWallet.name} device.</p>
           <p>Make sure your device is unlocked and the app is open.</p>
         </div>
       )}
 
       <div className="wallet-options-grid">
         {WALLET_OPTIONS.map((wallet) => {
-          const isActive = activeWalletId === wallet.id;
+          const isActive = walletId === (wallet.id as any);
           const isPending = pendingId === wallet.id;
           return (
             <button
               key={wallet.id}
               onClick={() => (isActive ? handleSwitch(wallet.id) : handleConnect(wallet))}
-              className={`wallet-option-btn${isActive ? ' active' : ''}${isPending ? ' pending' : ''}`}
+              className={`wallet-option-btn${isActive ? " active" : ""}${isPending ? " pending" : ""}`}
               aria-label={`Connect with ${wallet.name}`}
               aria-pressed={isActive}
               disabled={isPending}

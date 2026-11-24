@@ -1,0 +1,1 @@
+# Route and form safety boundaries`n`nAuthenticated context must be authoritative for audit fields; route modules must use the project module system; local-date defaults must not use UTC stamps; and shared form-status lifecycle belongs in the shared hook.

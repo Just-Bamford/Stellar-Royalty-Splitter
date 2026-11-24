@@ -1,7 +1,13 @@
 import { Router } from "express";
 import { addressToScVal, BatchTransactionBuilder, buildTx, vecToScVal } from "../stellar.js";
 import { determineOptimalBatchSize, estimateBatchClaimCosts } from "../services/gas-optimizer.js";
-import { validate, batchDistributeSchema, MAX_BATCH_OPERATIONS } from "../validation.js";
+import {
+  validate,
+  batchDistributeSchema,
+  MAX_BATCH_OPERATIONS,
+  validateContractId,
+  validateStellarAddress,
+} from "../validation.js";
 import { recordTransaction, addAuditLog } from "../database/index.js";
 import { sendError } from "../error-response.js";
 import { invalidateContractCaches } from "../cache-invalidation.js";
@@ -62,24 +68,28 @@ batchDistributeRouter.post(
         );
       }
 
-      // Record each operation as a pending transaction up front so the
-      // audit trail and history reflect the whole batch even if some
-      // operations fail to build.
+      // Phase 1 — register operations with the builder (no DB writes yet).
       const builder = new BatchTransactionBuilder(walletAddress);
-      const pending = operations.map((op) => {
-        const transactionId = recordTransaction(op.contractId, "distribute", walletAddress, {
-          tokenId: op.tokenId,
-          batch: true,
-        });
+      const preparedOps = operations.map((op) => {
         builder.add({
           contractId: op.contractId,
           method: "distribute",
           args: [addressToScVal(op.tokenId)],
         });
-        return { transactionId, contractId: op.contractId, tokenId: op.tokenId };
+        return { contractId: op.contractId, tokenId: op.tokenId };
       });
 
+      // Phase 2 — build XDR first; only write DB records after a successful build.
       const built = await builder.build();
+
+      // Phase 3 — build succeeded, now record transactions.
+      const pending = preparedOps.map((op) => ({
+        ...op,
+        transactionId: recordTransaction(op.contractId, "distribute", walletAddress, {
+          tokenId: op.tokenId,
+          batch: true,
+        }),
+      }));
 
       const results = built.map((result, i) => {
         const { transactionId, contractId, tokenId } = pending[i];
@@ -154,6 +164,9 @@ batchDistributeRouter.post(
       if (!contractId || !walletAddress || !tokens || !Array.isArray(tokens)) {
         return sendError(res, 400, "invalid_request", "contractId, walletAddress, and tokens array are required");
       }
+
+      if (!validateContractId(contractId, res)) return;
+      if (!validateStellarAddress(walletAddress, res)) return;
 
       if (tokens.length === 0) {
         return sendError(res, 400, "invalid_request", "tokens array cannot be empty");

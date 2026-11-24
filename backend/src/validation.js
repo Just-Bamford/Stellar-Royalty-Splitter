@@ -54,9 +54,6 @@ export const initializeSchema = z
 export const INITIALIZE_PAYLOAD_LIMIT_BYTES = 10 * 1024;
 export const INITIALIZE_COLLABORATORS_PAYLOAD_LIMIT_BYTES = 8 * 1024;
 
-// Named size limits ÔÇö kept in sync with on-chain MAX_COLLABORATORS / MAX_RECIPIENTS constants.
-export const MAX_COLLABORATORS_BACKEND = 20;
-
 // `.finite()` is load-bearing, not defensive: z.number().positive() is a plain
 // `> 0` test, and Infinity satisfies it. Without this the schema accepts
 // Infinity as a distribution amount, which then reaches BigInt() in
@@ -636,15 +633,16 @@ export const createScheduleSchema = z.object({
   tokenId: contractAddress,
   frequency: z.enum(["weekly", "biweekly", "monthly"]),
   dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
-  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28, "dayOfMonth must be 1–28 for monthly schedules to run reliably across all months").optional().nullable(),
   hourOfDay: z.number().int().min(0).max(23).optional().default(0),
   minuteOfHour: z.number().int().min(0).max(59).optional().default(0),
 }).superRefine(validateScheduleTiming);
 
 export const updateScheduleSchema = z.object({
+  walletAddress: stellarAddress.optional(),
   frequency: z.enum(["weekly", "biweekly", "monthly"]).optional(),
   dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
-  dayOfMonth: z.number().int().min(1).max(28).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(28, "dayOfMonth must be 1–28 for monthly schedules to run reliably across all months").optional().nullable(),
   hourOfDay: z.number().int().min(0).max(23).optional(),
   minuteOfHour: z.number().int().min(0).max(59).optional(),
   enabled: z.boolean().optional(),
@@ -792,4 +790,72 @@ export const treasuryReceiptSchema = z
   .refine((d) => d.ipfsCid != null || d.url != null, {
     message: "Either ipfsCid or url is required",
   });
+
+
+// ── Feature Flags & Gradual Rollout Schemas (#1075) ────────────────────────────
+
+export const FEATURE_FLAG_RULE_TYPES = ["user", "org", "role"];
+export const FEATURE_FLAG_METRIC_TYPES = ["request", "error", "latency"];
+
+export const featureFlagName = z
+  .string()
+  .min(1, "name is required")
+  .max(100, "name must be at most 100 characters")
+  .regex(/^[a-z0-9][a-z0-9._-]*$/i, "name may only contain letters, numbers, dots, dashes and underscores");
+
+export const createFeatureFlagSchema = z.object({
+  name: featureFlagName,
+  description: z.string().max(500, "description must be at most 500 characters").optional().nullable(),
+  enabled: z.boolean().optional().default(false),
+  rolloutPercentage: z.number().int().min(0).max(100).optional().default(100),
+});
+
+export const updateFeatureFlagSchema = z
+  .object({
+    description: z.string().max(500, "description must be at most 500 characters").optional().nullable(),
+    enabled: z.boolean().optional(),
+    rolloutPercentage: z.number().int().min(0).max(100).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field must be provided",
+  });
+
+export const createFeatureFlagRuleSchema = z.object({
+  ruleType: z.enum(FEATURE_FLAG_RULE_TYPES, {
+    errorMap: () => ({ message: `ruleType must be one of: ${FEATURE_FLAG_RULE_TYPES.join(", ")}` }),
+  }),
+  value: z.string().min(1, "value is required").max(200, "value must be at most 200 characters"),
+  enabled: z.boolean().optional().default(true),
+});
+
+export const featureFlagRolloutSchema = z.object({
+  percentage: z.number().int().min(0).max(100),
+});
+
+export const featureFlagMetricSchema = z.object({
+  metricType: z.enum(FEATURE_FLAG_METRIC_TYPES, {
+    errorMap: () => ({ message: `metricType must be one of: ${FEATURE_FLAG_METRIC_TYPES.join(", ")}` }),
+  }),
+  value: z.number().min(0).optional().default(0),
+});
+
+export const featureFlagMonitorSchema = z.object({
+  autoRollback: z.boolean().optional().default(true),
+  maxErrorRate: z.number().min(0).max(1).optional(),
+  maxP95LatencyMs: z.number().min(0).optional(),
+  windowMs: z.number().int().positive().optional(),
+});
+
+export const evaluateFeatureFlagSchema = z.object({
+  names: z.array(z.string()).optional(),
+  context: z
+    .object({
+      walletAddress: z.string().optional().nullable(),
+      userId: z.string().optional().nullable(),
+      orgId: z.string().optional().nullable(),
+      role: z.enum(["viewer", "collaborator", "operator", "admin"]).optional().nullable(),
+    })
+    .optional()
+    .default({}),
+});
 

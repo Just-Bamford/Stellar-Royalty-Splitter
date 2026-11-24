@@ -15,10 +15,9 @@
 
 import { Router } from "express";
 import { sendError } from "../error-response.js";
-import { getTransactionById } from "../database/index.js";
+import { getTransactionById, getTransactionDetails } from "../database/index.js";
 import {
   getFinalityByTransactionId,
-  setFinalityTxHash,
 } from "../database/transaction-finality.js";
 import {
   startTracking,
@@ -113,6 +112,66 @@ transactionFinalityRouter.post("/:id/finality", async (req, res) => {
   } catch (err) {
     logger.error("Error starting finality tracking", {
       transactionId,
+      error: err?.message ?? String(err),
+    });
+    return sendError(res, 500, "internal_error", "Failed to start finality tracking");
+  }
+});
+
+// ─── POST /api/v1/transactions/confirm/:txHash ────────────────────────────────
+
+/**
+ * Confirm transaction and start finality tracking with the submitted txHash (#1164).
+ *
+ * Body (optional):
+ *   { transactionId?: number }
+ *
+ * Response 200:
+ *   {
+ *     transactionId, txHash, status, confirmations, feePaid,
+ *     submissionAt, firstConfirmationAt, finalStatus, finalStatusAt,
+ *     errorMessage, pollAttempts, tracking
+ *   }
+ */
+transactionFinalityRouter.post("/confirm/:txHash", async (req, res) => {
+  const { txHash } = req.params;
+  const { transactionId } = req.body ?? {};
+
+  // Validate txHash format (64-character hex string)
+  if (typeof txHash !== "string" || !/^[0-9a-fA-F]{64}$/.test(txHash)) {
+    return sendError(res, 400, "invalid_param", "txHash must be a 64-character hex string");
+  }
+
+  try {
+    let tx = null;
+    if (transactionId != null) {
+      const id = parseInt(transactionId, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return sendError(res, 400, "invalid_param", "Transaction ID must be a positive integer");
+      }
+      tx = getTransactionById(id);
+    } else {
+      tx = getTransactionDetails(txHash);
+    }
+
+    if (!tx) {
+      return sendError(res, 404, "not_found", "Transaction not found");
+    }
+
+    const targetTxId = tx.id;
+    startTracking({ transactionId: targetTxId, txHash });
+    const record = getFinalityByTransactionId(targetTxId);
+
+    logger.info("Transaction confirmed and finality tracking started", {
+      transactionId: targetTxId,
+      txHash: txHash.substring(0, 8),
+      status: record?.status,
+    });
+
+    return res.json(formatFinalityRecord(record, targetTxId));
+  } catch (err) {
+    logger.error("Error starting finality tracking on confirmation", {
+      txHash: txHash?.substring(0, 8),
       error: err?.message ?? String(err),
     });
     return sendError(res, 500, "internal_error", "Failed to start finality tracking");

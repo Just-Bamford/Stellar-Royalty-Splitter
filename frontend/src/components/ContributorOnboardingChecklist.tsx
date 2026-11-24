@@ -5,6 +5,7 @@ import {
   OnboardingItem,
   OnboardingReminderResponse,
 } from "../api";
+import { INVALID_EMAIL_MESSAGE, isValidEmail } from "../lib/formValidation";
 import "./ContributorOnboardingChecklist.css";
 
 interface ContributorOnboardingChecklistProps {
@@ -31,11 +32,10 @@ export const ContributorOnboardingChecklist: React.FC<
   // Demo state switcher for quick testing (0%, 50%, 100%)
   const [demoState, setDemoState] = useState<"live" | "0" | "50" | "100">("live");
 
-  const effectiveAddress =
-    walletAddress || "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFXYCZTM6W2XYFORCWA4V";
+  const effectiveAddress = walletAddress;
 
   const fetchStatus = useCallback(async () => {
-    if (!walletAddress && demoState === "live") {
+    if (!effectiveAddress && demoState === "live") {
       // Build unauthenticated initial state (0% completion or wallet disconnected)
       setData({
         walletAddress: "",
@@ -99,6 +99,8 @@ export const ContributorOnboardingChecklist: React.FC<
       });
       return;
     }
+
+    if (!effectiveAddress) return;
 
     setLoading(true);
     setError(null);
@@ -214,10 +216,22 @@ export const ContributorOnboardingChecklist: React.FC<
 
   async function handleSendReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!emailInput || !emailInput.includes("@")) {
+    // Validate with the same pattern as the backend's remindSchema so an
+    // obviously malformed address gets an inline message instead of a
+    // generic API error, and never reaches the API.
+    const email = emailInput.trim();
+    if (!isValidEmail(email)) {
       setEmailToast({
         type: "error",
-        message: "Please enter a valid email address.",
+        message: INVALID_EMAIL_MESSAGE,
+      });
+      return;
+    }
+
+    if (!walletAddress) {
+      setEmailToast({
+        type: "error",
+        message: "Connect a wallet to send an email reminder.",
       });
       return;
     }
@@ -225,12 +239,10 @@ export const ContributorOnboardingChecklist: React.FC<
     setSendingEmail(true);
     setEmailToast(null);
 
-    const targetAddress = walletAddress || effectiveAddress;
-
     try {
       const res: OnboardingReminderResponse = await api.sendOnboardingReminder(
-        targetAddress,
-        emailInput,
+        walletAddress,
+        email,
       );
       setEmailToast({
         type: "success",
@@ -278,7 +290,8 @@ export const ContributorOnboardingChecklist: React.FC<
         </div>
 
         {/* Demo State Selector for Acceptance Criteria (0%, 50%, 100%) */}
-        <div className="onboarding-state-controls">
+        {Boolean(import.meta.env?.DEV) && (
+          <div className="onboarding-state-controls">
           <label>Test State:</label>
           <button
             type="button"
@@ -309,6 +322,7 @@ export const ContributorOnboardingChecklist: React.FC<
             100%
           </button>
         </div>
+        )}
       </div>
 
       {error && <div className="onboarding-email-toast error">{error}</div>}
@@ -445,11 +459,16 @@ export const ContributorOnboardingChecklist: React.FC<
         <p>
           Enter your email to receive an instant reminder with your current progress, pending steps, and action links.
         </p>
-        <form className="onboarding-email-form" onSubmit={handleSendReminder}>
+        {/* noValidate: the native bubble would pre-empt the inline message
+            and accepts addresses (e.g. "a@b") the backend rejects. */}
+        <form className="onboarding-email-form" onSubmit={handleSendReminder} noValidate>
           <input
             type="email"
             className="onboarding-email-input"
             placeholder="contributor@example.com"
+            aria-label="Email address"
+            aria-invalid={emailToast?.type === "error" ? true : undefined}
+            aria-describedby={emailToast ? "onboarding-email-feedback" : undefined}
             value={emailInput}
             onChange={(e) => setEmailInput(e.target.value)}
             required
@@ -464,7 +483,11 @@ export const ContributorOnboardingChecklist: React.FC<
         </form>
 
         {emailToast && (
-          <div className={`onboarding-email-toast ${emailToast.type}`}>
+          <div
+            id="onboarding-email-feedback"
+            className={`onboarding-email-toast ${emailToast.type}`}
+            role={emailToast.type === "error" ? "alert" : "status"}
+          >
             <span>{emailToast.message}</span>
           </div>
         )}

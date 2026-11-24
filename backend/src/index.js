@@ -21,6 +21,7 @@ import { initializeRouter } from "./routes/initialize.js";
 import { distributeRouter } from "./routes/distribute.js";
 import { batchDistributeRouter } from "./routes/batch-distribute.js";
 import { collaboratorsRouter } from "./routes/collaborators.js";
+import { clearWarmTimers } from "./routes/collaborators.js";
 import { secondaryRoyaltyRouter } from "./routes/secondary-royalty.js";
 import { simulateRouter } from "./routes/simulate.js";
 import historyRouter from "./routes/history.js";
@@ -82,12 +83,17 @@ import { recordApiKeyRequest } from "./database/rate-limit.js";
 import { createMetricsPusher } from "./metrics-pushgateway.js";
 import { transactionFinalityRouter } from "./routes/transaction-finality.js";
 import { startFinalityCleanupScheduler } from "./jobs/finality-cleanup-job.js";
+import { stopAllTracking } from "./transaction-finality.js";
 import { startPaymentScheduleJob } from "./jobs/payment-schedule-job.js";
 import { startEditSessionCleanup } from "./jobs/edit-session-cleanup.js";
 import { setupGraphQL } from "./graphql.js";
 import { requestComplexityMiddleware } from "./request-complexity.js";
 import { auditTrailRouter } from "./routes/audit-trail.js";
-import { startAuditTrailVerifier, closeAuditTrail } from "./services/audit-trail.js";
+import {
+  startAuditTrailVerifier,
+  startRetentionScheduler,
+  closeAuditTrail,
+} from "./services/audit-trail.js";
 import { setSecondaryRoyaltyPoolSource } from "./metrics.js";
 import { httpMetricsMiddleware } from "./middleware/http-metrics.js";
 import { responseTimeMiddleware } from "./middleware/response-time.js";
@@ -481,6 +487,10 @@ app.use("/api/v1/analytics/benchmarking", benchmarkingRouter);
 // Advanced token economics & vesting analytics (#1062)
 app.use("/api/v1/tokenomics", readLimiter);
 app.use("/api/v1/tokenomics", tokenomicsRouter);
+// Contract upgrades build `update_wasm` transactions (#1127). Scoped to POST on
+// the upgrade paths so the read-only contract routes (GET /state, /info,
+// /balance/:id, /version/:id, …) keep the general limit.
+app.post(["/api/v1/contract/upgrade", "/api/v1/contract/upgrade/*"], writeLimiter);
 app.use("/api/v1/contract", contractRouter);
 app.use("/api/v1/health", healthRouter);
 app.use(livenessRouter);
@@ -702,8 +712,12 @@ async function startServer() {
   // #935: pool balance gauge reads the database at scrape time.
   setSecondaryRoyaltyPoolSource(getPendingRoyaltyPools);
 
-  // #938: periodic hash-chain verification + retention enforcement.
+  // #938: periodic hash-chain verification.
   const auditTrailVerifier = startAuditTrailVerifier();
+
+  // #1215: retention runs on its own schedule and prunes at startup, even if
+  // verification is disabled or never started.
+  const auditTrailRetentionScheduler = startRetentionScheduler();
 
   // Start capacity planning monitor (#traffic-shaping).
   capacityPlanner.start();
@@ -736,11 +750,14 @@ async function startServer() {
     server,
     closeDatabase,
     logger,
-    onShutdown: () => {
+    closeWebSocket: () => {
       if (wss) {
         wss.close();
         logger.info("WebSocket server closed");
       }
+    },
+    onShutdown: () => {
+      stopAllTracking();
       if (digestInterval) {
         clearInterval(digestInterval);
         digestInterval = null;
@@ -768,6 +785,9 @@ async function startServer() {
       if (auditTrailVerifier) {
         auditTrailVerifier.stop();
       }
+      if (auditTrailRetentionScheduler) {
+        auditTrailRetentionScheduler.stop();
+      }
       closeAuditTrail();
       if (l1WarmingInterval) {
         clearInterval(l1WarmingInterval);
@@ -778,6 +798,8 @@ async function startServer() {
       if (typeof stopDeprecationTracking === "function") {
         stopDeprecationTracking();
       }
+      // Cancel all pending collaborator cache-warm timers (#1143)
+      clearWarmTimers();
     },
   });
 

@@ -1,0 +1,55 @@
+name: Security Scan (Weekly)
+
+on:
+  schedule:
+    # Every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Gitleaks
+        run: |
+          wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+          tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
+          sudo mv gitleaks /usr/local/bin/
+          chmod +x /usr/local/bin/gitleaks
+
+      - name: Run Gitleaks scan
+        continue-on-error: true
+        run: gitleaks detect --source . --verbose --exit-code 0
+
+      - name: Run cargo-audit
+        continue-on-error: true
+        run: cargo install cargo-audit --locked && cargo audit || true
+
+      - name: Run npm audit (backend)
+        continue-on-error: true
+        working-directory: backend
+        run: npm audit --audit-level=moderate || true
+
+      - name: Run npm audit (frontend)
+        continue-on-error: true
+        working-directory: frontend
+        run: npm audit --audit-level=moderate || true

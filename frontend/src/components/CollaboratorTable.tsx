@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 
 import { api } from "../api";
-import { queryClient } from "../lib/queryClient";
+import { useCollaborators } from "../hooks/queries/useCollaborators";
+import { useAnalytics } from "../hooks/queries/useAnalytics";
 import { TableSkeleton } from "./Skeleton";
 import CollaboratorAllocationChart from "./CollaboratorAllocationChart";
 import {
@@ -36,7 +37,6 @@ interface ActiveFilters {
   paymentStatus: PaymentStatus;
 }
 
-
 const SHARE_RANGE_LABELS: Record<ShareRange, string> = {
   all: "All shares",
   gt10: "> 10%",
@@ -53,15 +53,13 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
 
 /* ÔöÇÔöÇ Persistent names: single JSON blob per contract (O(1) read) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
 
-const NAME_STORAGE_KEY = "srs_collab_names";
+const getNameStorageKey = (contractId: string): string => `srs_collab_names_${contractId}`;
 
 function loadNames(contractId: string): Map<string, string> {
   try {
-    const blob = localStorage.getItem(NAME_STORAGE_KEY);
+    const blob = localStorage.getItem(getNameStorageKey(contractId));
     if (!blob) return new Map();
-    const all: Record<string, Record<string, string>> = JSON.parse(blob);
-    const contractNames = all[contractId];
-    if (!contractNames) return new Map();
+    const contractNames: Record<string, string> = JSON.parse(blob);
     return new Map(Object.entries(contractNames));
   } catch {
     return new Map();
@@ -70,16 +68,11 @@ function loadNames(contractId: string): Map<string, string> {
 
 function saveNames(contractId: string, names: Map<string, string>) {
   try {
-    const blob = localStorage.getItem(NAME_STORAGE_KEY);
-    const all: Record<string, Record<string, string>> = blob
-      ? JSON.parse(blob)
-      : {};
     const contractNames: Record<string, string> = {};
     names.forEach((value, key) => {
       contractNames[key] = value;
     });
-    all[contractId] = contractNames;
-    localStorage.setItem(NAME_STORAGE_KEY, JSON.stringify(all));
+    localStorage.setItem(getNameStorageKey(contractId), JSON.stringify(contractNames));
   } catch {
     // localStorage may be full or unavailable
   }
@@ -104,93 +97,90 @@ function matchesShareRange(basisPoints: number, range: ShareRange): boolean {
 }
 
 export default function CollaboratorTable({ contractId, refreshKey }: Props) {
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  // Bumped by the error state's Retry button to re-run the fetch effect
-  // below without requiring the parent to change `refreshKey` (#747).
-  const [retryCount, setRetryCount] = useState(0);
   const [sort, setSort] = useState<SortKey>("share");
   const [copied, setCopied] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
-
-  // ÔöÇÔöÇ debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── debounced search ────────────────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ÔöÇÔöÇ filters ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── filters ────────────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<ActiveFilters>({
     shareRange: "all",
     paymentStatus: "all",
   });
 
-  // ÔöÇÔöÇ editable names ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── editable names ─────────────────────────────────────────────────────────────
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  // ÔöÇÔöÇ payment data (from analytics) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-  const [paymentData, setPaymentData] = useState<Map<string, number> | null>(
-    null,
-  );
-
-  // ÔöÇÔöÇ tier data ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+  // ── tier data ──────────────────────────────────────────────────────────────────
   const [tierData, setTierData] = useState<Map<string, string> | null>(null);
 
+  // ── React Query hooks ──────────────────────────────────────────────────────────
+  const {
+    data: collaborators = [],
+    isLoading: loading,
+    isError: isCollabError,
+    error: collabError,
+    refetch: refetchCollaborators,
+  } = useCollaborators(contractId);
+  const {
+    data: analyticsRes,
+    refetch: refetchAnalytics,
+  } = useAnalytics(contractId);
+
+  const error = isCollabError
+    ? (collabError instanceof Error ? collabError.message : "Failed to load collaborators")
+    : "";
+
+  // Refetch when refreshKey changes
+  useEffect(() => {
+    if (!contractId) return;
+    refetchCollaborators();
+    refetchAnalytics();
+  }, [contractId, refreshKey, refetchCollaborators, refetchAnalytics]);
+
+  // Load names when contractId changes
+  useEffect(() => {
+    if (contractId) setNames(loadNames(contractId));
+  }, [contractId]);
+
+  // Fetch tiers (no React Query hook exists for this yet)
   useEffect(() => {
     if (!contractId) return;
     let cancelled = false;
-
-    async function loadCollaborators() {
-      setLoading(true);
-      setError("");
-      try {
-        const [nextCollaborators, analyticsRes, tiersRes] = await Promise.all([
-          api.getCollaborators(contractId),
-          api.getAnalytics(contractId).catch(() => null),
-          api.getContractTiers(contractId).catch(() => ({ data: [] })),
-        ]);
-
+    api.getContractTiers(contractId)
+      .then((tiersRes) => {
         if (cancelled) return;
-
-        queryClient.setQueryData(["collaborators", contractId], nextCollaborators);
-        if (analyticsRes) {
-          queryClient.setQueryData(["analytics", contractId], analyticsRes);
-        }
-        setCollaborators(nextCollaborators);
-        setNames(loadNames(contractId));
-
-        if (analyticsRes?.success && analyticsRes.data.collaboratorStats) {
-          const map = new Map<string, number>();
-          for (const stat of analyticsRes.data.collaboratorStats) {
-            map.set(stat.address, stat.payoutCount);
-          }
-          setPaymentData(map);
-        } else {
-          setPaymentData(null);
-        }
-
         const tierMap = new Map<string, string>();
         for (const tier of tiersRes.data ?? []) {
           tierMap.set(tier.walletAddress, tier.tier);
         }
         setTierData(tierMap);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load collaborators");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadCollaborators();
-
+      })
+      .catch(() => {
+        if (!cancelled) setTierData(null);
+      });
     return () => {
       cancelled = true;
     };
-  }, [contractId, refreshKey, retryCount]);
+  }, [contractId, refreshKey]);
+
+  // Derive payment data from analytics
+  const paymentData = useMemo(() => {
+    if (analyticsRes?.success && analyticsRes.data.collaboratorStats) {
+      const map = new Map<string, number>();
+      for (const stat of analyticsRes.data.collaboratorStats) {
+        map.set(stat.address, stat.payoutCount);
+      }
+      return map;
+    }
+    return null;
+  }, [analyticsRes]);
 
   /* ÔöÇÔöÇ Debounced search ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   useEffect(() => {
@@ -216,7 +206,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       setEditingName(address);
       setEditValue(names.get(address) ?? "");
     },
-    [names],
+    [names]
   );
 
   const commitName = useCallback(
@@ -232,7 +222,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       setEditingName(null);
       setEditValue("");
     },
-    [contractId, editValue, names],
+    [contractId, editValue, names]
   );
 
   const cancelEditing = useCallback(() => {
@@ -242,11 +232,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
 
   /* ÔöÇÔöÇ Filter/Sort helpers ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */
   function hasActiveFilters(): boolean {
-    return (
-      filters.shareRange !== "all" ||
-      filters.paymentStatus !== "all" ||
-      search !== ""
-    );
+    return filters.shareRange !== "all" || filters.paymentStatus !== "all" || search !== "";
   }
 
   function clearAllFilters() {
@@ -272,17 +258,13 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
         if (searchLower) {
           const name = names.get(c.address);
           const matchesAddress = c.address.toLowerCase().includes(searchLower);
-          const matchesName = name
-            ? name.toLowerCase().includes(searchLower)
-            : false;
+          const matchesName = name ? name.toLowerCase().includes(searchLower) : false;
           if (!matchesAddress && !matchesName) return false;
         }
         return true;
       })
       .sort((a, b) =>
-        sort === "address"
-          ? a.address.localeCompare(b.address)
-          : b.basisPoints - a.basisPoints,
+        sort === "address" ? a.address.localeCompare(b.address) : b.basisPoints - a.basisPoints
       );
   }, [collaborators, filters, paymentData, searchLower, names, sort]);
 
@@ -347,11 +329,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
     return (
       <div className="card status error" role="alert" data-testid="collaborators-error">
         <p>{error}</p>
-        <button
-          type="button"
-          className="retry-btn"
-          onClick={() => setRetryCount((n) => n + 1)}
-        >
+        <button type="button" className="retry-btn" onClick={() => refetchCollaborators()}>
           Retry
         </button>
       </div>
@@ -391,7 +369,6 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
       },
     });
   }
-
 
   return (
     <div className="card collab-table-card">
@@ -455,7 +432,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             disabled={paymentData === null}
             title={
               paymentData === null
-                ? "Payment data unavailable ÔÇö connect wallet and fetch analytics to enable"
+                ? "Payment data unavailable — connect wallet and fetch analytics to enable"
                 : undefined
             }
             onChange={(e) =>
@@ -465,6 +442,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
               }))
             }
             aria-label="Filter by payment status"
+            aria-describedby={paymentData === null ? "payment-status-hint" : undefined}
           >
             <option value="all">All statuses</option>
             <option value="paid">Paid</option>
@@ -472,10 +450,16 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
           </select>
           {paymentData === null && (
             <span
-              className="collab-filter-hint"
-              title="Payment status data is not yet available"
+              id="payment-status-hint"
+              className="collab-filter-hint-text"
+              aria-live="polite"
             >
-              Ôôÿ
+              Connect wallet to enable
+            </span>
+          )}
+          {paymentData === null && (
+            <span className="collab-filter-hint" title="Payment status data is not yet available" aria-hidden="true">
+              ⚘
             </span>
           )}
         </div>
@@ -547,11 +531,7 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             </span>
           ))}
           <div className="collab-filter-actions">
-            <button
-              type="button"
-              className="collab-clear-filters"
-              onClick={clearAllFilters}
-            >
+            <button type="button" className="collab-clear-filters" onClick={clearAllFilters}>
               Clear all
             </button>
           </div>
@@ -579,14 +559,8 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
             ­ƒöÄ
           </span>
           <p>No collaborators match your current filters.</p>
-          <p style={{ fontSize: "0.75rem" }}>
-            Try adjusting your search or filter criteria.
-          </p>
-          <button
-            type="button"
-            className="collab-no-results-reset"
-            onClick={clearAllFilters}
-          >
+          <p style={{ fontSize: "0.75rem" }}>Try adjusting your search or filter criteria.</p>
+          <button type="button" className="collab-no-results-reset" onClick={clearAllFilters}>
             Reset all filters
           </button>
         </div>
@@ -629,23 +603,17 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ")
-                            startEditing(c.address);
+                          if (e.key === "Enter" || e.key === " ") startEditing(c.address);
                         }}
                       >
                         {names.has(c.address) ? (
-                          <span className="collab-name-text">
-                            {names.get(c.address)}
-                          </span>
+                          <span className="collab-name-text">{names.get(c.address)}</span>
                         ) : (
                           <span className="collab-name-text collab-name-text--unnamed">
                             {c.address.slice(0, 8)}...{c.address.slice(-6)}
                           </span>
                         )}
-                        <span
-                          className="collab-name-edit-icon"
-                          aria-hidden="true"
-                        >
+                        <span className="collab-name-edit-icon" aria-hidden="true">
                           Ô£Ä
                         </span>
                       </span>
@@ -655,36 +623,22 @@ export default function CollaboratorTable({ contractId, refreshKey }: Props) {
                     <button
                       className={`copy-btn-sm${copied === c.address ? " copied" : ""}`}
                       onClick={() => copyAddress(c.address)}
-                      title={
-                        copied === c.address ? "Address copied" : "Copy address"
-                      }
+                      title={copied === c.address ? "Address copied" : "Copy address"}
                       aria-label={
-                        copied === c.address
-                          ? "Address copied"
-                          : "Copy collaborator address"
+                        copied === c.address ? "Address copied" : "Copy collaborator address"
                       }
                     >
                       {copied === c.address ? "Ô£ô" : "Ôºë"}
                     </button>
                   </td>
                   <td>
-                    <span
-                      className={`tier-badge tier-badge--${tier}`}
-                      title={tier}
-                    >
-                      {tier === "vip"
-                        ? "Ô¡É VIP"
-                        : tier === "trial"
-                          ? "­ƒö╣ Trial"
-                          : "Regular"}
+                    <span className={`tier-badge tier-badge--${tier}`} title={tier}>
+                      {tier === "vip" ? "Ô¡É VIP" : tier === "trial" ? "­ƒö╣ Trial" : "Regular"}
                     </span>
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <span>{(c.basisPoints / 100).toFixed(2)}%</span>
-                    <div
-                      className="share-bar"
-                      style={{ width: `${c.basisPoints / 100}%` }}
-                    />
+                    <div className="share-bar" style={{ width: `${c.basisPoints / 100}%` }} />
                   </td>
                 </tr>
               );

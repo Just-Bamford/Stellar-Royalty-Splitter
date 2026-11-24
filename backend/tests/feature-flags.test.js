@@ -327,6 +327,69 @@ describe("Feature Flags & Gradual Rollout", () => {
       expect(history.body.history.some((h) => h.action === "rollback")).toBe(true);
     });
 
+    test("POST /evaluate does not echo wallet address or user ID (#1395)", async () => {
+      await asAdmin(request(app).post("/api/v1/feature-flags")).send({
+        name: "pii-check",
+        enabled: true,
+      });
+      await asAdmin(request(app).post("/api/v1/feature-flags/pii-check/rules")).send({
+        ruleType: "user",
+        value: WALLET,
+        enabled: true,
+      });
+
+      const res = await request(app)
+        .post("/api/v1/feature-flags/evaluate")
+        .set("x-wallet-address", WALLET)
+        .set("x-user-id", "user-42")
+        .send({ names: ["pii-check"], context: { orgId: "acme", role: "operator" } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.flags).toEqual({ "pii-check": true });
+      expect(res.body.context).toEqual({
+        orgId: "acme",
+        role: "operator",
+        hasWalletAddress: true,
+        hasUserId: true,
+      });
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain(WALLET);
+      expect(raw).not.toContain("user-42");
+    });
+
+    test("POST /evaluate reports absent identifiers without leaking body context", async () => {
+      const res = await request(app)
+        .post("/api/v1/feature-flags/evaluate")
+        .send({ context: { walletAddress: WALLET } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.context).toEqual({
+        orgId: null,
+        role: null,
+        hasWalletAddress: true,
+        hasUserId: false,
+      });
+      expect(JSON.stringify(res.body)).not.toContain(WALLET);
+    });
+
+    test("GET /evaluate/:name does not echo wallet address or user ID", async () => {
+      await asAdmin(request(app).post("/api/v1/feature-flags")).send({
+        name: "single-pii",
+        enabled: true,
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/feature-flags/evaluate/single-pii?walletAddress=${WALLET}&userId=user-7`)
+        .set("x-org-id", "acme");
+
+      expect(res.status).toBe(200);
+      expect(res.body.enabled).toBe(true);
+      expect(res.body.context).toMatchObject({ orgId: "acme", hasWalletAddress: true, hasUserId: true });
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain(WALLET);
+      expect(raw).not.toContain("user-7");
+    });
+
     test("returns 404 for unknown flags", async () => {
       const res = await request(app).get("/api/v1/feature-flags/does-not-exist");
       expect(res.status).toBe(404);

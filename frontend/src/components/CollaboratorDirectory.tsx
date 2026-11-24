@@ -381,12 +381,12 @@ export default function CollaboratorDirectory({
        * Follows the same visual pattern as BulkOperationsPanel.tsx (the
        * `.bulk-operations-panel` / `.bulk-header` / `.bulk-actions` /
        * `.bulk-action-btn` structure and CSS classes), but that component's
-       * props (onBulkDistribute / onAggregatedView) are hard-coded for
-       * multi-*contract* selection (Dashboard.tsx's "Distribute to All"
-       * flow) and don't fit collaborator-level actions — reusing it as-is
-       * would show a "Distribute to All" button that actually suspends
-       * collaborators. So this renders its own action bar, matching the
-       * panel's look via the same CSS classes, with correctly labeled
+       * props (onBulkExport / onAggregatedView) are hard-coded for
+       * multi-*contract* selection (Dashboard.tsx) and don't fit
+       * collaborator-level actions — reusing it as-is would show contract
+       * actions wired to collaborator handlers. So this renders its own
+       * action bar, matching the panel's look via the same CSS classes,
+       * with correctly labeled
        * collaborator actions instead of mismatched contract ones. */}
       <div className="bulk-operations-panel" role="region" aria-label="Bulk operations">
         <div className="bulk-header">

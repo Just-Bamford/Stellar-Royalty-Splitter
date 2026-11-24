@@ -1,7 +1,6 @@
 import { retryBuildTx } from "../stellar.js";
 import { recordTransaction, addAuditLog } from "../database/index.js";
 import { startSpan } from "../tracing.js";
-import { startTracking } from "../transaction-finality.js";
 import logger from "../logger.js";
 
 /**
@@ -77,20 +76,6 @@ export async function buildAndRecordTransaction({
       transactionId,
       durationMs: Date.now() - startedAt,
     });
-
-    // Start best-effort finality tracking in the background.
-    // The tx hash is not known yet (the frontend hasn't submitted the XDR),
-    // so we pass null here.  The client can attach the hash later via
-    // POST /api/v1/transactions/:id/finality with { txHash }.
-    try {
-      startTracking({ transactionId, txHash: null });
-    } catch (trackErr) {
-      // Finality tracking is best-effort — never fail the build response
-      logger.warn("Failed to start finality tracking (non-fatal)", {
-        transactionId,
-        error: trackErr?.message ?? String(trackErr),
-      });
-    }
 
     return { xdr: txXdr, transactionId };
   } catch (err) {

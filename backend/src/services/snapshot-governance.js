@@ -39,21 +39,18 @@ export const EXECUTION_DELAY = 86400; // 24 hours
  */
 export async function fetchProposals() {
   try {
-    const response = await fetch(
-      `${SNAPSHOT_API_URL}/api/proposals`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          where: {
-            space_in: [SNAPSHOT_SPACE],
-            state: "active"
-          },
-          orderBy: "created",
-          orderDirection: "desc"
-        })
-      }
-    );
+    const response = await fetch(`${SNAPSHOT_API_URL}/api/proposals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        where: {
+          space_in: [SNAPSHOT_SPACE],
+          state: "active",
+        },
+        orderBy: "created",
+        orderDirection: "desc",
+      }),
+    });
 
     if (!response.ok) {
       throw new Error(`Snapshot API error: ${response.statusText}`);
@@ -72,9 +69,7 @@ export async function fetchProposals() {
  */
 export async function fetchProposal(proposalId) {
   try {
-    const response = await fetch(
-      `${SNAPSHOT_API_URL}/api/proposal/${proposalId}`
-    );
+    const response = await fetch(`${SNAPSHOT_API_URL}/api/proposal/${proposalId}`);
 
     if (!response.ok) {
       throw new Error(`Snapshot API error: ${response.statusText}`);
@@ -93,9 +88,7 @@ export async function fetchProposal(proposalId) {
  */
 export async function fetchVotes(proposalId) {
   try {
-    const response = await fetch(
-      `${SNAPSHOT_API_URL}/api/proposal/${proposalId}/votes`
-    );
+    const response = await fetch(`${SNAPSHOT_API_URL}/api/proposal/${proposalId}/votes`);
 
     if (!response.ok) {
       throw new Error(`Snapshot API error: ${response.statusText}`);
@@ -114,18 +107,15 @@ export async function fetchVotes(proposalId) {
  */
 export async function getVotingPower(address) {
   try {
-    const response = await fetch(
-      `${SNAPSHOT_API_URL}/api/score`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          space: SNAPSHOT_SPACE,
-          address,
-          strategies: JSON.parse(process.env.SNAPSHOT_STRATEGIES || "[]")
-        })
-      }
-    );
+    const response = await fetch(`${SNAPSHOT_API_URL}/api/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        space: SNAPSHOT_SPACE,
+        address,
+        strategies: JSON.parse(process.env.SNAPSHOT_STRATEGIES || "[]"),
+      }),
+    });
 
     if (!response.ok) {
       throw new Error(`Snapshot API error: ${response.statusText}`);
@@ -180,8 +170,10 @@ export async function executeProposal(proposalId, executorAddress) {
     stmt.run(proposalId, executorAddress, new Date().toISOString(), "pending", null);
     countWrite();
 
-    // TODO: Execute actual on-chain transaction based on proposal type
-    // This would integrate with the Stellar SDK to execute the approved action
+    // TODO: Execute actual on-chain transaction based on proposal type (#995)
+    // Currently: Records execution attempt as "pending"; execution step is deferred
+    // Implementation needed: Integrate with Stellar SDK to execute the approved action
+    // This would translate proposal choices into contract invocations
 
     logger.info("Proposal execution queued", { proposalId, executorAddress });
 
@@ -286,7 +278,7 @@ function formatProposal(proposal) {
     scores_by_strategy: proposal.scores_by_strategy,
     strategies: proposal.strategies,
     type: proposal.type,
-    link: `https://snapshot.org/#/${proposal.space.id}/proposal/${proposal.id}`
+    link: `https://snapshot.org/#/${proposal.space.id}/proposal/${proposal.id}`,
   };
 }
 
@@ -296,6 +288,6 @@ function formatVote(vote) {
     voter: vote.voter,
     choice: vote.choice,
     votingPower: vote.vp,
-    created: vote.created
+    created: vote.created,
   };
 }

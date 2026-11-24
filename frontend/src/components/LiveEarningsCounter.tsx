@@ -26,8 +26,9 @@ export const LiveEarningsCounter: React.FC<LiveEarningsCounterProps> = ({
 
   const animateValue = useCallback(
     (from: number, to: number, duration: number = 1500) => {
-      if (animationFrameRef.current) {
+      if (animationFrameRef.current !== undefined) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = undefined;
       }
 
       startValueRef.current = from;
@@ -49,6 +50,7 @@ export const LiveEarningsCounter: React.FC<LiveEarningsCounterProps> = ({
         if (progress < 1) {
           animationFrameRef.current = requestAnimationFrame(animate);
         } else {
+          animationFrameRef.current = undefined;
           setIsAnimating(false);
           setDisplayValue(to);
         }
@@ -82,11 +84,16 @@ export const LiveEarningsCounter: React.FC<LiveEarningsCounterProps> = ({
     }
   }, [value, animateValue]);
 
+  // Stop any in-flight animation frame when the component unmounts so the
+  // callback never calls setDisplayValue on an unmounted component.
   useEffect(() => {
     return () => {
-      if (animationFrameRef.current) {
+      if (animationFrameRef.current !== undefined) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = undefined;
       }
+      startTimeRef.current = undefined;
+      startValueRef.current = undefined;
     };
   }, []);
 

@@ -17,6 +17,7 @@
 import { Router } from "express";
 import logger from "../logger.js";
 import { sendError } from "../error-response.js";
+import { requireAdminBearerToken } from "../middleware/admin-auth.js";
 import { cacheGet, cacheSet, cacheKey } from "../cache.js";
 import {
   searchAll,
@@ -34,6 +35,8 @@ import {
 
 export const searchRouter = Router();
 
+const MAX_SEARCH_QUERY_LENGTH = 500;
+
 // Helper to record search analytics in the background without blocking the HTTP response
 function recordSearchAsync(query, type, count) {
   setImmediate(() => {
@@ -43,26 +46,6 @@ function recordSearchAsync(query, type, count) {
       logger.warn("Asynchronous search recording failed", { error: err.message });
     }
   });
-}
-
-// ─── Admin auth middleware ────────────────────────────────────────────────────
-
-function extractBearerToken(req) {
-  const header = req.get("Authorization");
-  if (!header?.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
-}
-
-function requireAdminToken(req, res, next) {
-  const envToken = process.env.ADMIN_ROTATE_TOKEN;
-  if (!envToken) {
-    return sendError(res, 503, "service_unavailable", "Admin operations are not configured on this server");
-  }
-  const token = extractBearerToken(req);
-  if (!token || token !== envToken) {
-    return sendError(res, 401, "unauthorized", "Unauthorized");
-  }
-  next();
 }
 
 // ─── Universal search ─────────────────────────────────────────────────────────
@@ -80,8 +63,13 @@ searchRouter.get("/", (req, res, next) => {
       return sendError(res, 400, "query_too_short", "Query must be at least 2 characters");
     }
 
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
+    }
+
     const searchLimit = Math.min(parseInt(limit) || 50, 100);
-    const cKey = cacheKey("search:universal", searchQuery, searchLimit, semantic, advanced, req.query.searchType, req.query.contractId);
+    const searchOffset = parseInt(req.query.offset) || 0;
+    const cKey = cacheKey("search:universal", searchQuery, searchLimit, searchOffset, semantic, advanced, req.query.searchType, req.query.contractId);
     const cached = cacheGet(cKey);
     if (cached) {
       return res.json(cached);
@@ -100,17 +88,17 @@ searchRouter.get("/", (req, res, next) => {
         status: req.query.status,
         category: req.query.category,
         limit: searchLimit,
-        offset: parseInt(req.query.offset) || 0,
+        offset: searchOffset,
       };
       results = advancedSearch(params);
     }
     // Semantic search
     else if (semantic === 'true') {
-      results = semanticSearch(searchQuery, req.query.searchType || 'all', searchLimit);
+      results = semanticSearch(searchQuery, req.query.searchType || 'all', searchLimit, searchOffset);
     }
     // Standard full-text search
     else {
-      results = searchAll(searchQuery, searchLimit);
+      results = searchAll(searchQuery, searchLimit, searchOffset);
     }
 
     // Record search asynchronously for analytics without blocking response
@@ -121,6 +109,9 @@ searchRouter.get("/", (req, res, next) => {
       query: searchQuery,
       data: results,
       searchMode: advanced === 'true' ? 'advanced' : semantic === 'true' ? 'semantic' : 'standard',
+      offset: searchOffset,
+      limit: searchLimit,
+      totalResults: results.totalResults || 0,
     };
 
     cacheSet(cKey, responsePayload, 30_000); // 30s TTL
@@ -139,6 +130,10 @@ searchRouter.get("/collaborators", (req, res, next) => {
 
     if (!searchQuery || typeof searchQuery !== 'string') {
       return sendError(res, 400, "missing_query", "Query parameter 'q' or 'query' is required");
+    }
+
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
     }
 
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
@@ -180,6 +175,10 @@ searchRouter.get("/transactions", (req, res, next) => {
       return sendError(res, 400, "missing_query", "Query parameter 'q' or 'query' is required");
     }
 
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
+    }
+
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
     const searchOffset = parseInt(offset) || 0;
 
@@ -217,6 +216,10 @@ searchRouter.get("/disputes", (req, res, next) => {
 
     if (!searchQuery || typeof searchQuery !== 'string') {
       return sendError(res, 400, "missing_query", "Query parameter 'q' or 'query' is required");
+    }
+
+    if (searchQuery.length > MAX_SEARCH_QUERY_LENGTH) {
+      return sendError(res, 400, "query_too_long", `Query must not exceed ${MAX_SEARCH_QUERY_LENGTH} characters`);
     }
 
     const searchLimit = Math.min(parseInt(limit) || 20, 100);
@@ -336,7 +339,7 @@ searchRouter.get("/statistics", (req, res, next) => {
 
 // ─── Admin: Rebuild search indexes ────────────────────────────────────────────
 
-searchRouter.post("/admin/rebuild", requireAdminToken, async (req, res, next) => {
+searchRouter.post("/admin/rebuild", requireAdminBearerToken, async (req, res, next) => {
   try {
     logger.info("Starting search index rebuild", { admin: true });
 

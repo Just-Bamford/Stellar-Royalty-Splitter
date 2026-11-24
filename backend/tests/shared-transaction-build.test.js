@@ -97,11 +97,10 @@ describe("buildAndRecordTransaction", () => {
     });
   });
 
-  test("starts best-effort finality tracking with a null tx hash", async () => {
+  test("does not call startTracking during transaction build (#1164)", async () => {
     await buildAndRecordTransaction(INPUT);
 
-    expect(mockStartTracking).toHaveBeenCalledTimes(1);
-    expect(mockStartTracking).toHaveBeenCalledWith({ transactionId: 42, txHash: null });
+    expect(mockStartTracking).not.toHaveBeenCalled();
   });
 
   test("does not record the transaction when the build fails", async () => {

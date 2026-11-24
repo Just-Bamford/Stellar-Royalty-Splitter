@@ -49,6 +49,13 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
     walMode: true,
     tableCount: 10,
   })),
+  getTransactionMetrics: jest.fn(() => ({
+    total: 42,
+    confirmed: 40,
+    failed: 1,
+    pending: 1,
+    lastActivity: "2026-10-17T06:39:25.000Z",
+  })),
   startHealthMonitor: jest.fn(),
   stopHealthMonitor: jest.fn(),
 }));

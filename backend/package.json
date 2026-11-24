@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "lint": "eslint src/**/*.js",
+    "lint": "eslint src --ext .js",
     "format": "prettier --write src/**/*.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",
     "test:backend": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests/",

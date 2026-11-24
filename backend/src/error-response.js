@@ -28,7 +28,6 @@ export function buildErrorPayload(status, code, message, extra = {}) {
   const normalizedCode = normalizeErrorCode(status, code);
   const retryable = retryableErrorCodes[normalizedCode] || false;
   const retryAfter = retryable ? (status === 429 ? 60 : 5) : null; // Default retry after hints
-  const detailsUrl = `docs/errors#${normalizedCode}`;
   
   return {
     status,
@@ -37,7 +36,6 @@ export function buildErrorPayload(status, code, message, extra = {}) {
     error: message,
     retryable,
     retryAfter,
-    details_url: detailsUrl,
     ...extra,
   };
 }
@@ -49,6 +47,10 @@ export function sendError(res, status, code, message, extra = {}) {
 export function sendValidationError(res, issues) {
   const firstMessage = issues.length > 0 ? issues[0].message : "Validation failed";
   return sendError(res, 400, "validation_failed", firstMessage, { details: issues });
+}
+
+export function errorResponse(error, message) {
+  return { error, message };
 }
 
 /**

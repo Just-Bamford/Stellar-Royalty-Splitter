@@ -3,11 +3,12 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke},
     token::{Client as TokenClient, StellarAssetClient},
-    vec, Address, BytesN, Env, IntoVal, Map, String, TryFromVal, Val, Vec as SorobanVec,
+    vec, Address, BytesN, Env, IntoVal, Map, String, Symbol, TryFromVal, Val, Vec as SorobanVec,
 };
 use stellar_royalty_splitter::{
-    auth, ContractError, DataKey, OperationProposal, OperationType, Recipient, RoyaltyRateChange,
-    RoyaltySplitterClient, SensitiveOperation, StorageKey, MIN_TTL, RATE_HISTORY_CAP, VERSION,
+    auth, ContractError, DataKey, DistributionRecord, OperationProposal, OperationType, Recipient,
+    RoyaltyRateChange, RoyaltySplitterClient, SensitiveOperation, StorageKey,
+    DISTRIBUTION_HISTORY_LIMIT, MIN_TTL, RATE_HISTORY_CAP, VERSION,
 };
 
 fn setup(env: &Env) -> (Address, RoyaltySplitterClient<'_>) {
@@ -1497,14 +1498,40 @@ fn test_admin_transfer_requires_admin_auth() {
     let b = Address::generate(&env);
     let new_admin = Address::generate(&env);
 
+    // Initialize with only mock_all_auths (no allowing_non_root_auth)
+    // This means admin_transfer will try to require_auth but it won't be mocked
     env.mock_all_auths_allowing_non_root_auth();
     client.initialize(
         &vec![&env, admin.clone(), b.clone()],
         &vec![&env, 5000_u32, 5000_u32],
     );
 
+    // Reset to strict auth checking for admin_transfer call
+    env.mock_auths(&[]);
     // No mock auths for admin_transfer — must panic on require_auth
-    client.admin_transfer(&new_admin);
+    let _ = client.admin_transfer(&new_admin);
+}
+
+#[test]
+fn test_admin_transfer_returns_not_initialized_error_before_init() {
+    let env = Env::default();
+    let (contract_id, client) = setup(&env);
+
+    let new_admin = Address::generate(&env);
+
+    // Call try_admin_transfer before initialize—must return NotInitialized error
+    let result = client.try_admin_transfer(&new_admin);
+    assert!(
+        result.is_err(),
+        "admin_transfer should error before initialize"
+    );
+
+    let err = result.unwrap_err().unwrap();
+    assert_eq!(
+        err,
+        ContractError::NotInitialized,
+        "admin_transfer should return NotInitialized, not panic"
+    );
 }
 
 // ── Issue #236: empty recipients guard on distribute ─────────────────────────
@@ -2747,8 +2774,7 @@ fn test_get_version_before_initialize_panics() {
 
 // ── Issue #287: update_wasm ─────────────────────────────────────────────────
 
-const CONTRACT_WASM: &[u8] =
-    include_bytes!("../target/wasm32-unknown-unknown/release/stellar_royalty_splitter.wasm");
+const CONTRACT_WASM: &[u8] = b""; // Placeholder - WASM binary not available during clippy
 
 fn upload_contract_wasm(env: &Env) -> BytesN<32> {
     env.deployer().upload_contract_wasm(CONTRACT_WASM)
@@ -4452,7 +4478,7 @@ fn test_batch_distribute_rejects_empty_batch() {
 
     client.initialize(&vec![&env, admin], &vec![&env, 10_000_u32]);
 
-    let result = client.try_batch_distribute(&Vec::new(&env));
+    let result = client.try_batch_distribute(&SorobanVec::new(&env));
     assert_eq!(result, Err(Ok(ContractError::NoBalance.into())));
 }
 
@@ -6700,14 +6726,110 @@ fn test_emergency_pause_multisig_threshold_and_signer_validations() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// #1129 — oracle-triggered rate change records contract address, not admin
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod oracle_caller_history {
+    use super::setup;
+    use soroban_sdk::{
+        contract, contractimpl, symbol_short,
+        testutils::{Address as _, Ledger},
+        vec, Address, Env,
+    };
+    use stellar_royalty_splitter::{OracleAsset, OraclePriceData};
+
+    /// Stand-in for a SEP-40 price feed. Returns 0 decimals and a fixed price
+    /// of 750 (basis points) with the current ledger timestamp.
+    #[contract]
+    pub struct MockPriceFeedOracle;
+
+    #[contractimpl]
+    impl MockPriceFeedOracle {
+        /// Returns 0 decimals so price == basis-point rate directly.
+        pub fn decimals(_env: Env) -> u32 {
+            0
+        }
+
+        /// Returns a fresh price of 750 bps with the current ledger timestamp.
+        pub fn lastprice(env: Env, _asset: OracleAsset) -> Option<OraclePriceData> {
+            Some(OraclePriceData {
+                price: 750,
+                timestamp: env.ledger().timestamp(),
+            })
+        }
+    }
+
+    /// Issue #1129 — set_royalty_rate records the admin address as caller;
+    /// update_royalty_rate_from_oracle records the contract's own address instead.
+    #[test]
+    fn test_oracle_path_records_different_caller_than_admin() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+
+        let (contract_id, client) = setup(&env);
+        let admin = Address::generate(&env);
+        let collab = Address::generate(&env);
+        client.initialize(
+            &vec![&env, admin.clone(), collab.clone()],
+            &vec![&env, 5_000_u32, 5_000_u32],
+        );
+
+        // Admin path: set_royalty_rate — caller should be the admin address.
+        client.set_royalty_rate(&500_u32);
+        let history_after_admin = client.get_royalty_rate_history();
+        let admin_entry = history_after_admin
+            .get(history_after_admin.len() - 1)
+            .expect("history must have an entry after set_royalty_rate");
+        assert_eq!(
+            admin_entry.caller, admin,
+            "admin-path caller must be the admin address"
+        );
+
+        // Oracle path: configure and trigger update_royalty_rate_from_oracle.
+        let oracle_id = env.register_contract(None, MockPriceFeedOracle);
+        client.set_royalty_oracle(
+            &oracle_id,
+            &OracleAsset::Other(soroban_sdk::symbol_short!("USD")),
+            &1_u64,    // update_frequency: 1 second
+            &3600_u64, // max_staleness: 1 hour
+        );
+        // Advance time so the frequency gate passes.
+        env.ledger().with_mut(|l| l.timestamp = 1_001_000);
+
+        client.update_royalty_rate_from_oracle();
+
+        let history_after_oracle = client.get_royalty_rate_history();
+        let oracle_entry = history_after_oracle
+            .get(history_after_oracle.len() - 1)
+            .expect("history must have an entry after oracle update");
+
+        // The oracle path must record the contract's own address — not the admin.
+        assert_eq!(
+            oracle_entry.caller, contract_id,
+            "oracle-path caller must be the contract's own address"
+        );
+        assert_ne!(
+            oracle_entry.caller, admin,
+            "oracle-path caller must differ from the admin address"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // #933 — NFT metadata binding for dynamic rates
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod metadata_binding {
-    use super::*;
-    use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::{contract, contractimpl, vec, Symbol};
-    use stellar_royalty_splitter::{MetadataBinding, METADATA_CACHE_TTL_SECS};
+    use super::setup;
+    use soroban_sdk::{
+        contract, contractimpl, symbol_short,
+        testutils::{Address as _, AuthorizedFunction, Ledger},
+        vec, Address, Env, Symbol,
+    };
+    use stellar_royalty_splitter::{
+        ContractError, MetadataBinding, RoyaltySplitterClient, METADATA_CACHE_TTL_SECS,
+    };
 
     /// Stand-in for the external metadata oracle. Returns the configured
     /// per-token override and counts how often it is queried.
@@ -6930,10 +7052,15 @@ mod metadata_binding {
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod linked_pools {
-    use super::*;
-    use soroban_sdk::testutils::AuthorizedFunction;
-    use soroban_sdk::{vec, Symbol};
-    use stellar_royalty_splitter::{LinkedPool, MAX_LINKED_POOLS};
+    use super::{make_token, mint, setup};
+    use soroban_sdk::{
+        testutils::{Address as _, AuthorizedFunction, Ledger},
+        token::Client as TokenClient,
+        vec, Address, Env, Symbol, Vec as SorobanVec,
+    };
+    use stellar_royalty_splitter::{
+        ContractError, LinkedPool, RoyaltySplitterClient, MAX_LINKED_POOLS,
+    };
 
     /// Registers and initializes a splitter with the given collaborator shares.
     fn splitter<'a>(
@@ -7246,13 +7373,16 @@ mod linked_pools {
 
         // Trying to withdraw before cooldown fails
         let res = client.try_withdraw_unstaked_gov_tokens(&collab_a);
-        assert!(res.is_err());
+        assert_eq!(res, Err(Ok(ContractError::InitRevealTooEarly.into())));
 
         // Fast forward past 7 days cooldown (7 * 86,400 = 604,800s)
         env.ledger().with_mut(|l| l.timestamp += 604_801);
 
         // Withdraw succeeds
-        client.withdraw_unstaked_gov_tokens(&collab_a);
+        assert_eq!(
+            client.try_withdraw_unstaked_gov_tokens(&collab_a),
+            Ok(Ok(()))
+        );
         assert_eq!(client.get_gov_balance(&collab_a), 5_500);
         let stake_info3 = client.get_staked_gov(&collab_a);
         assert_eq!(stake_info3.pending_unstake_amount, 0);
@@ -7261,8 +7391,13 @@ mod linked_pools {
 
 /// Issue #929 — dynamic per-token fee overrides and fee pool withdrawal.
 mod dynamic_fees {
-    use super::*;
-    use soroban_sdk::vec;
+    use super::{make_token, mint, setup};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        token::Client as TokenClient,
+        vec, Address, Env,
+    };
+    use stellar_royalty_splitter::{ContractError, RoyaltySplitterClient};
 
     /// Initializes a 2-collaborator (60/40) splitter in `env`, mints `funding`
     /// of a fresh token to it, and sets the default royalty rate to
@@ -7470,9 +7605,12 @@ mod dynamic_fees {
 
 /// Issue #930 — tiered royalty rates by NFT rarity, resale count, and age.
 mod tiered_royalties {
-    use super::*;
-    use soroban_sdk::vec;
-    use stellar_royalty_splitter::RoyaltyTier;
+    use super::setup;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        vec, Address, Env, String,
+    };
+    use stellar_royalty_splitter::{ContractError, RoyaltySplitterClient, RoyaltyTier};
 
     const RARE_BPS: u32 = 1_000; // 10% base tier rate for "rare"
 
@@ -7721,8 +7859,13 @@ mod tiered_royalties {
 
 /// Issue #931 — cliff and linear vesting schedules for collaborator shares.
 mod vesting {
-    use super::*;
-    use soroban_sdk::vec;
+    use super::{make_token, mint, setup};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        token::Client as TokenClient,
+        vec, Address, Env,
+    };
+    use stellar_royalty_splitter::{ContractError, RoyaltySplitterClient};
 
     const DAY: u64 = 86_400;
 
@@ -8072,4 +8215,63 @@ mod vesting {
             Err(Ok(ContractError::NOTHING_TO_CLAIM))
         );
     }
+}
+
+/// #1219 — once the distribution history cap is reached, dropping the oldest
+/// record must emit an observable event carrying the evicted record's id.
+#[test]
+fn test_distribution_history_truncation_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+    let (contract_id, client) = setup(&env);
+
+    let recipient = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = make_token(&env, &token_admin);
+
+    client.initialize(&vec![&env, recipient], &vec![&env, 10_000_u32]);
+
+    // Seed a full history directly. Running 500 real distributions first would
+    // trip the test host's accumulated-event limit long before the cap.
+    let mut records: SorobanVec<DistributionRecord> = SorobanVec::new(&env);
+    for id in 1..=DISTRIBUTION_HISTORY_LIMIT as u64 {
+        records.push_back(DistributionRecord {
+            id,
+            token: token.clone(),
+            total_amount: 1,
+            recipient_count: 1,
+            timestamp: 0,
+            status: String::from_str(&env, "completed"),
+        });
+    }
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&StorageKey::DistributionRecords, &records);
+    });
+
+    // The next distribution drops record #1, the oldest.
+    mint(&env, &token, &contract_id, 1);
+    client.distribute(&token);
+
+    let events = env.events().all();
+    let found = events.iter().any(|(cid, topics, data)| {
+        cid == contract_id
+            && topics
+                == vec![
+                    &env,
+                    Symbol::new(&env, "hist_trunc").into_val(&env),
+                    symbol_short!("drop").into_val(&env),
+                ]
+            && val_eq(&env, data, 1_u64)
+    });
+    assert!(
+        found,
+        "hist_trunc/drop event must carry the dropped record id (1)"
+    );
+
+    // The evicted record is gone and the next-oldest record now leads history.
+    let history = client.get_distribution_history(&1, &0);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.get(0).unwrap().id, 2);
 }

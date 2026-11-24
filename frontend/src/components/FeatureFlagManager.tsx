@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { isValidStellarAccountAddress } from "../../../shared/stellar-address";
 import {
   api,
   type FeatureFlag,
@@ -19,6 +20,19 @@ import {
 import "./FeatureFlagManager.css";
 
 type RuleType = "user" | "org" | "role";
+const TARGET_ROLES = ["viewer", "collaborator", "operator", "admin"];
+
+function validateRuleValue(type: RuleType, value: string): string | null {
+  if (!value) return "Rule value is required";
+  if (value.length > 200) return "Rule value must be at most 200 characters";
+  if (type === "user" && !isValidStellarAccountAddress(value)) {
+    return "User rule value must be a valid Stellar address";
+  }
+  if (type === "role" && !TARGET_ROLES.includes(value)) {
+    return "Role must be viewer, collaborator, operator, or admin";
+  }
+  return null;
+}
 
 export function FeatureFlagManager() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
@@ -32,6 +46,7 @@ export function FeatureFlagManager() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [ruleType, setRuleType] = useState<RuleType>("user");
   const [ruleValue, setRuleValue] = useState("");
+  const [ruleError, setRuleError] = useState<string | null>(null);
   const [health, setHealth] = useState<FeatureFlagHealth | null>(null);
   const [history, setHistory] = useState<FeatureFlagHistoryEntry[]>([]);
 
@@ -39,8 +54,8 @@ export function FeatureFlagManager() {
     setLoading(true);
     setError(null);
     try {
-      const { flags: fetched } = await api.listFeatureFlags();
-      setFlags(fetched);
+      const response = await api.listFeatureFlags();
+      setFlags(response.flags ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load feature flags");
     } finally {
@@ -85,6 +100,7 @@ export function FeatureFlagManager() {
 
   async function openDetails(name: string) {
     setExpanded(name);
+    setRuleError(null);
     setHealth(null);
     setHistory([]);
     try {
@@ -93,20 +109,20 @@ export function FeatureFlagManager() {
         api.getFeatureFlagHistory(name),
       ]);
       setHealth(healthData);
-      setHistory(historyData.history);
+      setHistory(historyData.history ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load flag details");
     }
   }
 
   async function handleAddRule(name: string) {
-    if (!ruleValue.trim()) {
-      setError("Rule value is required");
-      return;
-    }
+    const value = ruleValue.trim();
+    const validationError = validateRuleValue(ruleType, value);
+    setRuleError(validationError);
+    if (validationError) return;
     await run(
-      () => api.addFeatureFlagRule(name, { ruleType, value: ruleValue.trim(), enabled: true }),
-      "Targeting rule added",
+      () => api.addFeatureFlagRule(name, { ruleType, value, enabled: true }),
+      "Targeting rule added"
     );
     setRuleValue("");
   }
@@ -185,7 +201,7 @@ export function FeatureFlagManager() {
                     onClick={() =>
                       run(
                         () => api.updateFeatureFlag(flag.name, { enabled: !flag.enabled }),
-                        `Flag ${flag.enabled ? "disabled" : "enabled"}`,
+                        `Flag ${flag.enabled ? "disabled" : "enabled"}`
                       )
                     }
                     disabled={loading}
@@ -196,9 +212,7 @@ export function FeatureFlagManager() {
                   <button
                     type="button"
                     className="ffm-danger"
-                    onClick={() =>
-                      run(() => api.rollbackFeatureFlag(flag.name, "Manual rollback"), "Flag rolled back")
-                    }
+                    onClick={() => run(() => api.rollbackFeatureFlag(flag.name, "Manual rollback"), "Flag rolled back")}
                     disabled={loading}
                     aria-label={`Rollback ${flag.name}`}
                   >
@@ -215,11 +229,9 @@ export function FeatureFlagManager() {
               </div>
 
               <div className="ffm-rollout">
-                <label htmlFor={`ffm-rollout-${flag.name}`}>
-                  Rollout percentage for {flag.name}
-                </label>
+                <label htmlFor={`ffm-rollout-${flag.id}`}>Rollout percentage for {flag.name}</label>
                 <input
-                  id={`ffm-rollout-${flag.name}`}
+                  id={`ffm-rollout-${flag.id}`}
                   type="number"
                   min={0}
                   max={100}
@@ -229,7 +241,7 @@ export function FeatureFlagManager() {
                     if (Number.isFinite(next) && next !== flag.rolloutPercentage) {
                       void run(
                         () => api.setFeatureFlagRollout(flag.name, next),
-                        `Rollout set to ${next}%`,
+                        `Rollout set to ${next}%`
                       );
                     }
                   }}
@@ -249,10 +261,7 @@ export function FeatureFlagManager() {
                           <button
                             type="button"
                             onClick={() =>
-                              run(
-                                () => api.removeFeatureFlagRule(flag.name, rule.id),
-                                "Rule removed",
-                              )
+                              run(() => api.removeFeatureFlagRule(flag.name, rule.id), "Rule removed")
                             }
                             disabled={loading}
                             aria-label={`Remove rule ${rule.value}`}
@@ -268,7 +277,10 @@ export function FeatureFlagManager() {
                       <select
                         id={`ffm-rule-type-${flag.name}`}
                         value={ruleType}
-                        onChange={(e) => setRuleType(e.target.value as RuleType)}
+                        onChange={(e) => {
+                          setRuleType(e.target.value as RuleType);
+                          setRuleError(null);
+                        }}
                       >
                         <option value="user">User</option>
                         <option value="org">Org</option>
@@ -276,14 +288,28 @@ export function FeatureFlagManager() {
                       </select>
                       <input
                         aria-label={`Rule value for ${flag.name}`}
+                        aria-invalid={Boolean(ruleError)}
+                        aria-describedby={ruleError ? `ffm-rule-error-${flag.name}` : undefined}
                         value={ruleValue}
-                        onChange={(e) => setRuleValue(e.target.value)}
+                        onChange={(e) => {
+                          setRuleValue(e.target.value);
+                          setRuleError(null);
+                        }}
                         placeholder="Wallet, org id, or role"
                       />
-                      <button type="button" onClick={() => handleAddRule(flag.name)} disabled={loading}>
+                      <button
+                        type="button"
+                        onClick={() => handleAddRule(flag.name)}
+                        disabled={loading}
+                      >
                         Add rule
                       </button>
                     </div>
+                    {ruleError && (
+                      <p id={`ffm-rule-error-${flag.name}`} className="ffm-error" role="alert">
+                        {ruleError}
+                      </p>
+                    )}
                   </div>
 
                   {health && (
@@ -301,10 +327,7 @@ export function FeatureFlagManager() {
                       <button
                         type="button"
                         onClick={() =>
-                          run(
-                            () => api.monitorFeatureFlag(flag.name),
-                            "Rollout monitored",
-                          )
+                          run(() => api.monitorFeatureFlag(flag.name), "Rollout monitored")
                         }
                         disabled={loading}
                       >

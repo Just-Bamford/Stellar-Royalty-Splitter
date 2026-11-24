@@ -456,7 +456,8 @@ pub enum ExtKey {
 pub const RATE_HISTORY_CAP: u32 = 20;
 
 /// Maximum number of distribution records kept in history (#775).
-/// Oldest entries are dropped when the cap is reached (FIFO).
+/// Oldest entries are dropped when the cap is reached (FIFO). Each drop emits
+/// a `(hist_trunc, drop)` event carrying the evicted record's id (#1219).
 pub const DISTRIBUTION_HISTORY_LIMIT: u32 = 500;
 
 /// Maximum distribution history items per pagination request (#775).
@@ -467,13 +468,57 @@ pub const DISTRIBUTION_HISTORY_PAGE_SIZE: u32 = 50;
 /// Configurable per-deployment via `set_max_secondary_pool_size`.
 pub const MAX_SECONDARY_POOL_SIZE: i128 = 1_000_000_000_000;
 
-/// Maximum number of collaborators accepted by `initialize`.
-/// Bounded by Soroban execution and storage costs.
+/// Maximum number of persistent contract collaborators accepted by `initialize`
+/// and `commit_initialize` (#1178).
+///
+/// ### Relationship with `MAX_RECIPIENTS`
+/// - **Domain distinction**: `MAX_COLLABORATORS` bounds the persistent contract
+///   members stored in `StorageKey::Collaborators` during contract initialization.
+///   These accounts hold governance weight (`TOTAL_SHARE_WEIGHT`), participate in
+///   proposal voting, and are tracked for vesting schedules and incentive bonuses.
+/// - **In-sync constraint**: `MAX_COLLABORATORS` and `MAX_RECIPIENTS` must remain
+///   in sync (`MAX_COLLABORATORS == MAX_RECIPIENTS`). When an admin updates the
+///   collaborator set post-initialization via `set_recipients`, that entry point
+///   validates the incoming list using `validate_recipient_list` (bounded by
+///   `MAX_RECIPIENTS`) and directly overwrites `StorageKey::Collaborators`. If
+///   `MAX_RECIPIENTS` were allowed to exceed `MAX_COLLABORATORS`, an admin could
+///   bypass the initialization collaborator bound post-facto.
+/// - **Resource bounding**: Both constants are pinned to 10 to guarantee that
+///   linear address loops (`validate_unique_addresses`, share validations, and
+///   payout token transfers) remain strictly within Soroban CPU/instruction and
+///   storage gas budgets.
+///
+/// ### Call sites guarded
+/// - `initialize` / `initialize_validated`: verifies `collaborators.len() <= MAX_COLLABORATORS`.
+/// - `commit_initialize`: verifies `collaborators.len() <= MAX_COLLABORATORS`.
 pub const MAX_COLLABORATORS: u32 = 10;
 
-/// Maximum number of recipients accepted by `set_recipients`, `set_default_recipients`,
-/// and `distribute_with_override`.
+/// Maximum number of split payout recipients accepted by `set_recipients`,
+/// `set_default_recipients`, `distribute_with_override`, and `clawback_dispute` (#1178).
+///
+/// ### Relationship with `MAX_COLLABORATORS`
+/// - **Domain distinction**: While `MAX_COLLABORATORS` limits the initial persistent
+///   governance and royalty collaborator set, `MAX_RECIPIENTS` limits payout
+///   targets across distribution and recipient configuration entry points.
+/// - **Why they must stay equal**: `set_recipients` accepts a `Vec<Recipient>`
+///   bounded by `MAX_RECIPIENTS`, but writes the resulting address list into
+///   `StorageKey::Collaborators`. Allowing `MAX_RECIPIENTS > MAX_COLLABORATORS`
+///   would permit expanding the stored collaborator list beyond the initialization
+///   capacity. Furthermore, both distribution execution costs and initialization
+///   validation costs scale linearly with recipient count; keeping both limits
+///   equal at 10 guarantees predictable, deterministic Soroban resource consumption.
+///
+/// ### Call sites guarded
+/// - `validate_recipient_list`: guards `set_recipients`, `set_default_recipients`,
+///   and `calculate_payouts` (used by `distribute_with_override`).
+/// - `clawback_dispute`: guards the batch clawback targets vector `from.len() <= MAX_RECIPIENTS`.
 pub const MAX_RECIPIENTS: u32 = 10;
+
+// Compile-time assertion: ensure MAX_COLLABORATORS and MAX_RECIPIENTS remain equal (#1178).
+const _: () = assert!(
+    MAX_COLLABORATORS == MAX_RECIPIENTS,
+    "MAX_COLLABORATORS and MAX_RECIPIENTS must remain in sync to preserve collaborator storage invariants"
+);
 
 /// Maximum number of admins in the multi-sig admin list (`set_admins`).
 pub const MAX_ADMIN_LIST: u32 = 10;
@@ -530,6 +575,14 @@ pub const DEFAULT_UPGRADE_TIMELOCK: u64 = 86_400;
 
 /// Maximum number of tokens accepted per `batch_distribute` call.
 pub const MAX_BATCH_TOKENS: u32 = 50;
+
+/// Maximum number of combined transfer operations (tokens × recipients) permitted
+/// per `batch_distribute` call. Each operation is a Soroban cross-contract `transfer`
+/// invocation; at the current Soroban instruction budget (~100 M instructions per
+/// transaction) empirical measurement puts a safe ceiling at roughly 100 transfers.
+/// MAX_BATCH_TOKENS (50) × MAX_RECIPIENTS (10) = 500 would far exceed that budget,
+/// so this constant provides a tighter, combined guard.
+pub const MAX_BATCH_OPERATIONS: u32 = 100;
 
 /// Maximum number of tokens in the approved-token whitelist (#840).
 pub const MAX_APPROVED_TOKENS: u32 = 25;
@@ -949,8 +1002,28 @@ impl RoyaltySplitter {
         storage::instance_set(env, &StorageKey::Admin, &admin);
         storage::persistent_set(env, &StorageKey::Collaborators, &collaborators);
         storage::persistent_set(env, &StorageKey::ShareMap, &share_map);
-        // #982 — Initialize total governance token supply to 0
-        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &0_i128);
+
+        // #955/#982 — Issue governance tokens 1:1 with each collaborator's share
+        // at initialisation. No delegates exist yet so there is no delegation
+        // propagation to handle; we write balances and total supply directly.
+        let mut gov_supply: i128 = 0;
+        for i in 0..collaborators.len() {
+            let addr = collaborators.get(i).unwrap_optimized();
+            let share = shares.get(i).unwrap() as i128;
+            storage::persistent_set(
+                env,
+                &StorageKey::Ext(ExtKey::GovBalance(addr.clone())),
+                &share,
+            );
+            gov_supply = gov_supply
+                .checked_add(share)
+                .ok_or(ContractError::ArithmeticOverflow)?;
+            env.events().publish(
+                (symbol_short!("gov"), symbol_short!("mint")),
+                (addr, share, gov_supply),
+            );
+        }
+        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &gov_supply);
 
         let version = String::from_str(env, VERSION);
         storage::instance_set(env, &StorageKey::ContractVersion, &version);
@@ -1140,7 +1213,11 @@ impl RoyaltySplitter {
     /// Core rate-set logic, shared by the admin-gated `set_royalty_rate`,
     /// the oracle refresh path, and governance execution. Does NOT perform
     /// authorization — callers are responsible for gating access first.
-    fn set_royalty_rate_value(env: &Env, new_rate: u32) -> Result<(), ContractError> {
+    fn set_royalty_rate_value(
+        env: &Env,
+        new_rate: u32,
+        caller: Address,
+    ) -> Result<(), ContractError> {
         if new_rate == 0 {
             return Err(ContractError::RoyaltyRateZero);
         }
@@ -1155,12 +1232,6 @@ impl RoyaltySplitter {
             .unwrap_or(0);
 
         storage::instance_set(env, &StorageKey::RoyaltyRate, &new_rate);
-
-        let caller: Address = env
-            .storage()
-            .instance()
-            .get(&StorageKey::Admin)
-            .ok_or(ContractError::NotInitialized)?;
 
         let mut history: Vec<RoyaltyRateChange> =
             storage::persistent_get::<Vec<RoyaltyRateChange>>(env, &StorageKey::RoyaltyRateHistory)
@@ -1193,7 +1264,8 @@ impl RoyaltySplitter {
     pub fn set_royalty_rate(env: Env, new_rate: u32) -> Result<(), ContractError> {
         storage::extend_instance_ttl(&env);
         Self::check_admin_auth(&env, auth::msg::SET_ROYALTY_RATE_ADMIN);
-        Self::set_royalty_rate_value(&env, new_rate)
+        let admin = Self::require_admin_address(&env)?;
+        Self::set_royalty_rate_value(&env, new_rate, admin)
     }
 
     pub fn get_royalty_rate_history(env: Env) -> Vec<RoyaltyRateChange> {
@@ -1329,7 +1401,7 @@ impl RoyaltySplitter {
         }
 
         let rate = Self::fetch_royalty_rate_from_oracle(env.clone())?;
-        Self::set_royalty_rate_value(&env, rate)?;
+        Self::set_royalty_rate_value(&env, rate, env.current_contract_address())?;
 
         config.last_updated = now;
         storage::instance_set(&env, &StorageKey::OracleConfig, &config);
@@ -1350,18 +1422,14 @@ impl RoyaltySplitter {
         Ok(())
     }
 
-    pub fn admin_transfer(env: Env, new_admin: Address) {
+    pub fn admin_transfer(env: Env, new_admin: Address) -> Result<(), ContractError> {
         storage::extend_instance_ttl(&env);
 
         if env.storage().instance().has(&StorageKey::AdminList) {
             panic!("use propose_admin_xfr multisig");
         }
 
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&StorageKey::Admin)
-            .expect("not initialized");
+        let admin = Self::require_admin_address(&env)?;
 
         auth::require_admin(&env, &admin, auth::msg::ADMIN_TRANSFER_ADMIN);
 
@@ -1372,6 +1440,8 @@ impl RoyaltySplitter {
             (symbol_short!("royalty"), symbol_short!("admin_xfr")),
             (previous_admin, new_admin),
         );
+
+        Ok(())
     }
 
     pub fn propose_admin_transfer(env: Env, new_admin: Address) {
@@ -2419,6 +2489,18 @@ impl RoyaltySplitter {
             return Err(ContractError::InvalidShareTotal);
         }
 
+        // Guard against exceeding the Soroban instruction budget. Each token
+        // distribution performs one `transfer` per recipient; 50 tokens × 10
+        // recipients = 500 operations, which comfortably blows past the ~100 M
+        // instruction ceiling. Reject any combination whose product exceeds the
+        // safe constant.
+        let token_count = tokens.len() as u32;
+        let recipient_count = recipients_to_use.len() as u32;
+        let effective_operations = token_count.saturating_mul(recipient_count);
+        if effective_operations > MAX_BATCH_OPERATIONS {
+            return Err(ContractError::TooManyBatchTokens);
+        }
+
         // Validate every selected token before changing any distribution
         // bookkeeping or transferring funds. In particular, the anomaly
         // safeguard used to return `Ok(())` from inside the processing loop;
@@ -3286,11 +3368,9 @@ impl RoyaltySplitter {
             start_time: env.ledger().timestamp(),
             claimed_shares: 0,
         };
-        storage::persistent_set(
-            &env,
-            &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone())),
-            &schedule,
-        );
+        let vesting_key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
+        storage::persistent_set(&env, &vesting_key, &schedule);
+        storage::extend_persistent_ttl_for(&env, &vesting_key);
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_set")),
             (beneficiary, total_shares, cliff_days, vesting_days),
@@ -3300,7 +3380,12 @@ impl RoyaltySplitter {
 
     pub fn get_vesting_schedule(env: Env, beneficiary: Address) -> Option<VestingSchedule> {
         storage::extend_instance_ttl(&env);
-        storage::persistent_get(&env, &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary)))
+        let vesting_key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary));
+        let result = storage::persistent_get(&env, &vesting_key);
+        if result.is_some() {
+            storage::extend_persistent_ttl_for(&env, &vesting_key);
+        }
+        result
     }
 
     /// Shares vested out of `schedule.total_shares` as of `current_time`:
@@ -3419,6 +3504,7 @@ impl RoyaltySplitter {
 
         schedule.claimed_shares = schedule.claimed_shares.saturating_add(newly_claimable);
         storage::persistent_set(&env, &key, &schedule);
+        storage::extend_persistent_ttl_for(&env, &key);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_clm")),
@@ -4512,7 +4598,7 @@ impl RoyaltySplitter {
             return Ok(());
         }
 
-        Self::set_royalty_rate_value(&env, proposal.new_rate)?;
+        Self::set_royalty_rate_value(&env, proposal.new_rate, proposal.proposer.clone())?;
 
         proposal.executed = true;
         proposals.set(proposal_id, proposal.clone());
@@ -4724,6 +4810,17 @@ impl RoyaltySplitter {
             storage::persistent_get(env, &StorageKey::DistributionRecords).unwrap_or(Vec::new(env));
 
         if records.len() >= DISTRIBUTION_HISTORY_LIMIT {
+            let dropped_id = records.get(0).unwrap().id;
+
+            // #1219: make the eviction observable. Without this, an indexer
+            // rebuilding the full audit trail from on-chain history would see
+            // a silent gap once the cap is reached; on this event it should
+            // fall back to Horizon for the dropped range.
+            env.events().publish(
+                (Symbol::new(env, "hist_trunc"), symbol_short!("drop")),
+                dropped_id,
+            );
+
             let mut trimmed: Vec<DistributionRecord> = Vec::new(env);
             for i in 1..records.len() {
                 trimmed.push_back(records.get(i).unwrap());
@@ -4866,6 +4963,7 @@ impl RoyaltySplitter {
     fn execute_sensitive_operation(
         env: &Env,
         operation: &SensitiveOperation,
+        caller: Address,
     ) -> Result<(), ContractError> {
         match operation {
             SensitiveOperation::Pause => {
@@ -4921,11 +5019,6 @@ impl RoyaltySplitter {
                     storage::instance_get::<u32>(env, &StorageKey::RoyaltyRate).unwrap_or(0);
                 storage::instance_set(env, &StorageKey::RoyaltyRate, new_rate);
                 let now = env.ledger().timestamp();
-                let caller = env
-                    .storage()
-                    .instance()
-                    .get::<StorageKey, Address>(&StorageKey::Admin)
-                    .unwrap_or(env.current_contract_address());
                 let entry = RoyaltyRateChange {
                     old_rate,
                     new_rate: *new_rate,
@@ -5066,7 +5159,7 @@ impl RoyaltySplitter {
 
         // If threshold is 1 (e.g. single admin or 1-of-N), execute immediately
         if threshold <= 1 {
-            Self::execute_sensitive_operation(&env, &operation)?;
+            Self::execute_sensitive_operation(&env, &operation, proposer.clone())?;
             proposal.executed = true;
             proposal.executed_at = now;
             env.events().publish(
@@ -5162,7 +5255,7 @@ impl RoyaltySplitter {
         );
 
         let executed = if proposal.approvals_count >= proposal.threshold {
-            Self::execute_sensitive_operation(&env, &proposal.operation)?;
+            Self::execute_sensitive_operation(&env, &proposal.operation, approver.clone())?;
             proposal.executed = true;
             proposal.executed_at = now;
             env.events().publish(
@@ -5735,7 +5828,7 @@ impl RoyaltySplitter {
         // Execute action conservatively
         match &proposal.action {
             GovProposalAction::ChangeRoyaltyRate(rate) => {
-                Self::set_royalty_rate_value(&env, *rate)?;
+                Self::set_royalty_rate_value(&env, *rate, proposal.proposer.clone())?;
             }
             GovProposalAction::SetTokenFeeOverride(token, fee_bps) => {
                 storage::instance_set(
@@ -5881,16 +5974,13 @@ impl RoyaltySplitter {
         }
 
         let now = env.ledger().timestamp();
-        let id: u64 = storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeProposalCount))
-            .unwrap_or(0)
-            .checked_add(1)
-            .ok_or(ContractError::ArithmeticOverflow)?;
+        let id: u64 =
+            storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeProposalCount))
+                .unwrap_or(0)
+                .checked_add(1)
+                .ok_or(ContractError::ArithmeticOverflow)?;
 
-        let proposer_weight = if let Ok(share) = Self::get_share(env.clone(), proposer.clone()) {
-            share
-        } else {
-            1_000
-        };
+        let proposer_weight = Self::get_share(env.clone(), proposer.clone()).unwrap_or(1_000);
 
         let proposal = UpgradeProposal {
             id,
@@ -5922,7 +6012,11 @@ impl RoyaltySplitter {
         let mut prop_votes: Map<Address, bool> = Map::new(&env);
         prop_votes.set(proposer.clone(), true);
         all_votes.set(id, prop_votes);
-        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposalVotes), &all_votes);
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::UpgradeProposalVotes),
+            &all_votes,
+        );
 
         env.events().publish(
             (symbol_short!("upgrade"), symbol_short!("proposed")),
@@ -5954,7 +6048,9 @@ impl RoyaltySplitter {
         let mut proposals: Map<u64, UpgradeProposal> =
             storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
                 .ok_or(ContractError::ProposalNotFound)?;
-        let mut proposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
 
         let now = env.ledger().timestamp();
         if now > proposal.voting_ends_at {
@@ -5973,11 +6069,7 @@ impl RoyaltySplitter {
             return Err(ContractError::AlreadyVoted);
         }
 
-        let weight = if let Ok(share) = Self::get_share(env.clone(), voter.clone()) {
-            share
-        } else {
-            1_000
-        };
+        let weight = Self::get_share(env.clone(), voter.clone()).unwrap_or(1_000);
 
         if approve {
             proposal.yes_votes = proposal.yes_votes.saturating_add(weight);
@@ -5990,7 +6082,11 @@ impl RoyaltySplitter {
         proposals.set(proposal_id, proposal);
 
         storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposals), &proposals);
-        storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposalVotes), &all_votes);
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::UpgradeProposalVotes),
+            &all_votes,
+        );
 
         env.events().publish(
             (symbol_short!("upgrade"), symbol_short!("voted")),
@@ -6021,7 +6117,9 @@ impl RoyaltySplitter {
         let mut proposals: Map<u64, UpgradeProposal> =
             storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
                 .ok_or(ContractError::ProposalNotFound)?;
-        let mut proposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
 
         if proposal.executed || proposal.rejected {
             return Err(ContractError::ProposalAlreadyExecuted);
@@ -6035,8 +6133,9 @@ impl RoyaltySplitter {
         }
 
         let now = env.ledger().timestamp();
-        let timelock_delay = storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeTimelock))
-            .unwrap_or(DEFAULT_UPGRADE_TIMELOCK);
+        let timelock_delay =
+            storage::instance_get::<u64>(&env, &StorageKey::Ext(ExtKey::UpgradeTimelock))
+                .unwrap_or(DEFAULT_UPGRADE_TIMELOCK);
 
         let timelock_until = now.saturating_add(timelock_delay);
         proposal.scheduled_at = now;
@@ -6066,7 +6165,9 @@ impl RoyaltySplitter {
         let mut proposals: Map<u64, UpgradeProposal> =
             storage::persistent_get(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
                 .ok_or(ContractError::ProposalNotFound)?;
-        let mut proposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+        let mut proposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
 
         if proposal.executed {
             return Err(ContractError::ProposalAlreadyExecuted);
@@ -6086,17 +6187,28 @@ impl RoyaltySplitter {
             .get(&StorageKey::ContractVersion)
             .unwrap_or(String::from_str(&env, "1.0.0"));
 
-        storage::instance_set(&env, &StorageKey::Ext(ExtKey::PreviousVersion), &current_version);
+        storage::instance_set(
+            &env,
+            &StorageKey::Ext(ExtKey::PreviousVersion),
+            &current_version,
+        );
 
-        if let Some(curr_wasm) = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash)) {
+        if let Some(curr_wasm) =
+            storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash))
+        {
             storage::instance_set(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash), &curr_wasm);
         }
 
         // Native proxy upgrade: update executable code while preserving state and address
-        env.deployer().update_current_contract_wasm(proposal.new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(proposal.new_wasm_hash.clone());
 
         storage::instance_set(&env, &StorageKey::ContractVersion, &proposal.new_version);
-        storage::instance_set(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash), &proposal.new_wasm_hash);
+        storage::instance_set(
+            &env,
+            &StorageKey::Ext(ExtKey::CurrentWasmHash),
+            &proposal.new_wasm_hash,
+        );
 
         let mut records: Vec<MigrationRecord> =
             storage::persistent_get(&env, &StorageKey::AppliedMigrations).unwrap_or(Vec::new(&env));
@@ -6108,13 +6220,14 @@ impl RoyaltySplitter {
         });
         storage::persistent_set(&env, &StorageKey::AppliedMigrations, &records);
 
+        let new_wasm_hash = proposal.new_wasm_hash.clone();
         proposal.executed = true;
         proposals.set(proposal_id, proposal);
         storage::persistent_set(&env, &StorageKey::Ext(ExtKey::UpgradeProposals), &proposals);
 
         env.events().publish(
             (symbol_short!("upgrade"), symbol_short!("executed")),
-            (proposal_id, proposal.new_wasm_hash),
+            (proposal_id, new_wasm_hash),
         );
 
         Ok(())
@@ -6125,10 +6238,12 @@ impl RoyaltySplitter {
         storage::extend_instance_ttl(&env);
         auth::require_admin(&env, &caller, auth::msg::ROLLBACK_UPGRADE_ADMIN);
 
-        let prev_wasm = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash))
-            .ok_or(ContractError::NO_PREVIOUS_VERSION)?;
-        let prev_ver = storage::instance_get::<String>(&env, &StorageKey::Ext(ExtKey::PreviousVersion))
-            .ok_or(ContractError::NO_PREVIOUS_VERSION)?;
+        let prev_wasm =
+            storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash))
+                .ok_or(ContractError::NO_PREVIOUS_VERSION)?;
+        let prev_ver =
+            storage::instance_get::<String>(&env, &StorageKey::Ext(ExtKey::PreviousVersion))
+                .ok_or(ContractError::NO_PREVIOUS_VERSION)?;
 
         let current_version: String = env
             .storage()
@@ -6136,7 +6251,8 @@ impl RoyaltySplitter {
             .get(&StorageKey::ContractVersion)
             .unwrap_or(String::from_str(&env, "1.0.0"));
 
-        env.deployer().update_current_contract_wasm(prev_wasm.clone());
+        env.deployer()
+            .update_current_contract_wasm(prev_wasm.clone());
 
         storage::instance_set(&env, &StorageKey::ContractVersion, &prev_ver);
         storage::instance_set(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash), &prev_wasm);
@@ -6161,12 +6277,18 @@ impl RoyaltySplitter {
     }
 
     /// Read an upgrade proposal by ID (#1071).
-    pub fn get_upgrade_proposal(env: Env, proposal_id: u64) -> Result<UpgradeProposal, ContractError> {
+    pub fn get_upgrade_proposal(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<UpgradeProposal, ContractError> {
         storage::extend_instance_ttl(&env);
-        storage::persistent_get::<Map<u64, UpgradeProposal>>(&env, &StorageKey::Ext(ExtKey::UpgradeProposals))
-            .ok_or(ContractError::ProposalNotFound)?
-            .get(proposal_id)
-            .ok_or(ContractError::ProposalNotFound)
+        storage::persistent_get::<Map<u64, UpgradeProposal>>(
+            &env,
+            &StorageKey::Ext(ExtKey::UpgradeProposals),
+        )
+        .ok_or(ContractError::ProposalNotFound)?
+        .get(proposal_id)
+        .ok_or(ContractError::ProposalNotFound)
     }
 
     /// Read the configured upgrade timelock delay in seconds (#1071).
@@ -6177,7 +6299,11 @@ impl RoyaltySplitter {
     }
 
     /// Set upgrade timelock delay between 24h and 48h (#1071).
-    pub fn set_upgrade_timelock(env: Env, caller: Address, seconds: u64) -> Result<(), ContractError> {
+    pub fn set_upgrade_timelock(
+        env: Env,
+        caller: Address,
+        seconds: u64,
+    ) -> Result<(), ContractError> {
         storage::extend_instance_ttl(&env);
         auth::require_admin(&env, &caller, auth::msg::SET_UPGRADE_TIMELOCK_ADMIN);
 
@@ -6192,16 +6318,24 @@ impl RoyaltySplitter {
     /// Get current and previous upgrade/version information (#1071).
     pub fn get_upgrade_info(
         env: Env,
-    ) -> (String, Option<BytesN<32>>, Option<String>, Option<BytesN<32>>) {
+    ) -> (
+        String,
+        Option<BytesN<32>>,
+        Option<String>,
+        Option<BytesN<32>>,
+    ) {
         storage::extend_instance_ttl(&env);
         let current_version = env
             .storage()
             .instance()
             .get(&StorageKey::ContractVersion)
             .unwrap_or(String::from_str(&env, "1.0.0"));
-        let current_wasm = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash));
-        let prev_ver = storage::instance_get::<String>(&env, &StorageKey::Ext(ExtKey::PreviousVersion));
-        let prev_wasm = storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash));
+        let current_wasm =
+            storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::CurrentWasmHash));
+        let prev_ver =
+            storage::instance_get::<String>(&env, &StorageKey::Ext(ExtKey::PreviousVersion));
+        let prev_wasm =
+            storage::instance_get::<BytesN<32>>(&env, &StorageKey::Ext(ExtKey::PreviousWasmHash));
         (current_version, current_wasm, prev_ver, prev_wasm)
     }
 }
@@ -6221,21 +6355,41 @@ impl SplitterProxy {
         }
         storage::instance_set(&env, &StorageKey::Admin, &admin);
         storage::instance_set(&env, &StorageKey::ContractVersion, &version);
-        storage::instance_set(&env, &symbol_short!("logic"), &logic_contract);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("logic"), &logic_contract);
     }
 
     pub fn upgrade_logic(env: Env, admin: Address, new_logic: Address, new_version: String) {
         admin.require_auth();
-        let current_admin: Address = env.storage().instance().get(&StorageKey::Admin).expect("not initialized");
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .expect("not initialized");
         if admin != current_admin {
             panic!("unauthorized");
         }
-        let current_logic: Address = env.storage().instance().get(&symbol_short!("logic")).expect("no logic");
-        let current_ver: String = env.storage().instance().get(&StorageKey::ContractVersion).unwrap_or(String::from_str(&env, "1.0.0"));
+        let current_logic: Address = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("logic"))
+            .expect("no logic");
+        let current_ver: String = env
+            .storage()
+            .instance()
+            .get(&StorageKey::ContractVersion)
+            .unwrap_or(String::from_str(&env, "1.0.0"));
 
-        storage::instance_set(&env, &symbol_short!("prev_log"), &current_logic);
-        storage::instance_set(&env, &symbol_short!("prev_ver"), &current_ver);
-        storage::instance_set(&env, &symbol_short!("logic"), &new_logic);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("prev_log"), &current_logic);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("prev_ver"), &current_ver);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("logic"), &new_logic);
         storage::instance_set(&env, &StorageKey::ContractVersion, &new_version);
 
         env.events().publish(
@@ -6246,14 +6400,28 @@ impl SplitterProxy {
 
     pub fn rollback_logic(env: Env, admin: Address) {
         admin.require_auth();
-        let current_admin: Address = env.storage().instance().get(&StorageKey::Admin).expect("not initialized");
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .expect("not initialized");
         if admin != current_admin {
             panic!("unauthorized");
         }
-        let prev_logic: Address = env.storage().instance().get(&symbol_short!("prev_log")).expect("no rollback logic");
-        let prev_ver: String = env.storage().instance().get(&symbol_short!("prev_ver")).expect("no rollback version");
+        let prev_logic: Address = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("prev_log"))
+            .expect("no rollback logic");
+        let prev_ver: String = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("prev_ver"))
+            .expect("no rollback version");
 
-        storage::instance_set(&env, &symbol_short!("logic"), &prev_logic);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("logic"), &prev_logic);
         storage::instance_set(&env, &StorageKey::ContractVersion, &prev_ver);
 
         env.events().publish(
@@ -6263,15 +6431,10 @@ impl SplitterProxy {
     }
 
     pub fn get_logic(env: Env) -> Address {
-        env.storage().instance().get(&symbol_short!("logic")).expect("no logic")
-    }
-
-    pub fn get_version(env: Env) -> String {
-        env.storage().instance().get(&StorageKey::ContractVersion).expect("no version")
-    }
-
-    pub fn get_admin(env: Env) -> Address {
-        env.storage().instance().get(&StorageKey::Admin).expect("no admin")
+        env.storage()
+            .instance()
+            .get(&symbol_short!("logic"))
+            .expect("no logic")
     }
 }
 
@@ -7365,6 +7528,81 @@ mod recipient_earnings_tests {
         assert_eq!(client.get_recipient_earnings(&collab_a, &token), 6_000);
         assert_eq!(client.get_recipient_earnings(&collab_b, &token), 4_000);
     }
+
+    // ── MAX_BATCH_OPERATIONS boundary tests (#1315) ───────────────────────────
+
+    /// Helper: build a contract with `n` equal-share recipients and return the
+    /// contract address alongside the client.
+    fn setup_n_recipients(env: &Env, n: u32) -> (Address, RoyaltySplitterClient<'_>) {
+        assert!(n > 0 && 10_000 % n == 0, "share total must be 10 000");
+        let contract_id = env.register_contract(None, RoyaltySplitter);
+        let client = RoyaltySplitterClient::new(env, &contract_id);
+        let share_each = 10_000u32 / n;
+        let mut addrs: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
+        let mut shares: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
+        for _ in 0..n {
+            addrs.push_back(Address::generate(env));
+            shares.push_back(share_each);
+        }
+        client.initialize(&addrs, &shares);
+        (contract_id, client)
+    }
+
+    #[test]
+    fn batch_distribute_rejects_50_tokens_with_10_recipients() {
+        // 50 × 10 = 500 > MAX_BATCH_OPERATIONS (100) → must return TooManyBatchTokens.
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup_n_recipients(&env, 10);
+        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+        for _ in 0..50u32 {
+            let (token_addr, asset_client, _) = create_token(&env);
+            asset_client.mint(&contract_id, &10_000);
+            tokens.push_back(token_addr);
+        }
+        let result = client.try_batch_distribute(&tokens);
+        assert_eq!(
+            result,
+            Err(Ok(ContractError::TooManyBatchTokens)),
+            "50 tokens × 10 recipients should exceed MAX_BATCH_OPERATIONS"
+        );
+    }
+
+    #[test]
+    fn batch_distribute_accepts_10_tokens_with_10_recipients() {
+        // 10 × 10 = 100 == MAX_BATCH_OPERATIONS → must succeed (at the limit, not over).
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup_n_recipients(&env, 10);
+        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+        for _ in 0..10u32 {
+            let (token_addr, asset_client, _) = create_token(&env);
+            asset_client.mint(&contract_id, &10_000);
+            tokens.push_back(token_addr);
+        }
+        // Should succeed — exactly at the limit.
+        client.batch_distribute(&tokens);
+    }
+
+    #[test]
+    fn batch_distribute_rejects_one_over_limit() {
+        // 11 tokens × 10 recipients = 110 > 100 → must be rejected.
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client) = setup_n_recipients(&env, 10);
+        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+        for _ in 0..11u32 {
+            let (token_addr, asset_client, _) = create_token(&env);
+            asset_client.mint(&contract_id, &10_000);
+            tokens.push_back(token_addr);
+        }
+        let result = client.try_batch_distribute(&tokens);
+        assert_eq!(
+            result,
+            Err(Ok(ContractError::TooManyBatchTokens)),
+            "11 tokens × 10 recipients (110 ops) should exceed MAX_BATCH_OPERATIONS"
+        );
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -7611,31 +7849,33 @@ mod advanced_governance_tests {
         env.mock_all_auths();
         let (_, _, alice, bob, client) = setup_gov(&env);
 
-        assert_eq!(client.gov_total_supply(), 0);
-        assert_eq!(client.gov_balance(&alice), 0);
-        assert_eq!(client.gov_balance(&bob), 0);
+        // initialize issues governance tokens 1:1 with each collaborator's share
+        assert_eq!(client.gov_total_supply(), 10_000);
+        assert_eq!(client.gov_balance(&alice), 6_000);
+        assert_eq!(client.gov_balance(&bob), 4_000);
 
-        // Mint tokens to Alice and Bob
+        // Mint additional tokens to Alice and Bob
         client.gov_mint(&alice, &1_000);
         client.gov_mint(&bob, &500);
 
-        assert_eq!(client.gov_balance(&alice), 1_000);
-        assert_eq!(client.gov_balance(&bob), 500);
-        assert_eq!(client.gov_total_supply(), 1_500);
+        assert_eq!(client.gov_balance(&alice), 7_000);
+        assert_eq!(client.gov_balance(&bob), 4_500);
+        assert_eq!(client.gov_total_supply(), 11_500);
 
-        // Transfer from Alice to Bob
+        // Transfer 300 from Alice to Bob
         client.gov_transfer(&alice, &bob, &300);
-        assert_eq!(client.gov_balance(&alice), 700);
-        assert_eq!(client.gov_balance(&bob), 800);
-        assert_eq!(client.gov_total_supply(), 1_500);
+        assert_eq!(client.gov_balance(&alice), 6_700);
+        assert_eq!(client.gov_balance(&bob), 4_800);
+        assert_eq!(client.gov_total_supply(), 11_500);
 
         // Failure cases
         assert_eq!(
             client.try_gov_mint(&alice, &0),
             Err(Ok(ContractError::AmountNotPositive))
         );
+        // Alice has 6_700 — attempt to transfer more than balance
         assert_eq!(
-            client.try_gov_transfer(&alice, &bob, &1_000),
+            client.try_gov_transfer(&alice, &bob, &10_000),
             Err(Ok(ContractError::InsufficientBalance))
         );
         assert_eq!(
@@ -7652,21 +7892,22 @@ mod advanced_governance_tests {
 
         client.gov_mint(&alice, &1_000);
         client.gov_mint(&bob, &500);
+        // alice=7_000, bob=4_500
 
-        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
-        assert_eq!(client.get_effective_gov_votes(&bob), 500);
+        assert_eq!(client.get_effective_gov_votes(&alice), 7_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 4_500);
 
         // Alice delegates to Bob
         client.delegate_gov_votes(&alice, &bob);
         assert_eq!(client.get_gov_delegate(&alice), Some(bob.clone()));
         assert_eq!(client.get_effective_gov_votes(&alice), 0);
-        assert_eq!(client.get_effective_gov_votes(&bob), 1_500);
+        assert_eq!(client.get_effective_gov_votes(&bob), 11_500);
 
         // Alice revokes delegation
         client.revoke_gov_delegation(&alice);
         assert_eq!(client.get_gov_delegate(&alice), None);
-        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
-        assert_eq!(client.get_effective_gov_votes(&bob), 500);
+        assert_eq!(client.get_effective_gov_votes(&alice), 7_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 4_500);
     }
 
     #[test]
@@ -7725,7 +7966,7 @@ mod advanced_governance_tests {
         let prop = client.get_gov_proposal(&prop_id);
         assert_eq!(prop.id, 1);
         assert_eq!(prop.proposer, alice);
-        assert_eq!(prop.quorum_votes, 300); // 20% of 1500 = 300
+        assert_eq!(prop.quorum_votes, 2_300); // 20% of 11_500 (alice=7_000+bob=4_500)
         assert_eq!(prop.voting_ends_at, 10_000 + duration);
         assert!(!prop.executed);
         assert!(!prop.rejected);
@@ -7882,11 +8123,20 @@ mod advanced_governance_tests {
         let env = Env::default();
         env.mock_all_auths();
         env.ledger().with_mut(|l| l.timestamp = 10_000);
-        let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // Total supply = 1,000. Quorum is exactly 200 (20%).
-        client.gov_mint(&alice, &200);
-        client.gov_mint(&bob, &800);
+        // Build a fresh contract for this quorum test so we control the full
+        // supply precisely. admin holds 10_000 from initialize; mint alice=5_000
+        // → total=15_000, quorum=3_000 (20%). Alice votes 5_000 >= 3_000. ✓
+        let contract_id = env.register_contract(None, RoyaltySplitter);
+        let client = RoyaltySplitterClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let alice = Address::generate(&env);
+        client.initialize(
+            &Vec::from_array(&env, [admin.clone()]),
+            &Vec::from_array(&env, [10_000u32]),
+        );
+        client.gov_mint(&alice, &5_000);
+        // total = 15_000, quorum = 20% = 3_000
 
         let prop_id = client.create_gov_proposal(
             &alice,
@@ -7896,7 +8146,7 @@ mod advanced_governance_tests {
             &DEFAULT_GOV_VOTING_PERIOD,
         );
 
-        // Alice votes with exactly 200 votes (meets quorum)
+        // Alice votes with 5_000 >= quorum of 3_000 — meets quorum
         client.vote_gov_proposal(&alice, &prop_id, &true);
 
         env.ledger()
@@ -8054,10 +8304,13 @@ mod advanced_governance_tests {
         env.mock_all_auths();
         let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // Bob has 0 tokens
+        // alice=6_000, bob=4_000 from initialize — both have enough to propose.
+        // Use a fresh address (charlie) with 0 tokens to test the rejection.
+        let charlie = Address::generate(&env);
+
         assert_eq!(
             client.try_create_gov_proposal(
-                &bob,
+                &charlie,
                 &GovProposalAction::ChangeRoyaltyRate(500),
                 &String::from_str(&env, "Title"),
                 &String::from_str(&env, "Desc"),
@@ -8066,7 +8319,7 @@ mod advanced_governance_tests {
             Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
         );
 
-        // Alice mints tokens and creates proposal
+        // Alice creates proposal (has 6_000 votes)
         client.gov_mint(&alice, &1_000);
         let prop_id = client.create_gov_proposal(
             &alice,
@@ -8076,11 +8329,12 @@ mod advanced_governance_tests {
             &DEFAULT_GOV_VOTING_PERIOD,
         );
 
-        // Bob has 0 voting power
+        // Charlie has 0 voting power
         assert_eq!(
-            client.try_vote_gov_proposal(&bob, &prop_id, &true),
+            client.try_vote_gov_proposal(&charlie, &prop_id, &true),
             Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
         );
+        let _ = bob;
     }
 
     #[test]

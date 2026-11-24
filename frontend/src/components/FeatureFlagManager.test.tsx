@@ -1,3 +1,4 @@
+import { StrKey } from "@stellar/stellar-sdk";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, test, expect, vi, beforeEach, type Mock } from "vitest";
 import "@testing-library/jest-dom";
@@ -155,22 +156,38 @@ describe("FeatureFlagManager", () => {
     expect(screen.getByText(/history/i)).toBeInTheDocument();
   });
 
-  test("adds a targeting rule", async () => {
+  test.each([
+    ["user", "G" + "A".repeat(55), /valid Stellar address/i],
+    ["role", "owner", /viewer, collaborator, operator, or admin/i],
+    ["org", "a".repeat(201), /at most 200 characters/i],
+  ])("shows an inline error for an invalid %s rule", async (ruleType, value, message) => {
     render(<FeatureFlagManager />);
     fireEvent.click(await screen.findByRole("button", { name: /details for checkout-v2/i }));
-    await screen.findByText(/targeting rules/i);
+    fireEvent.change(screen.getByLabelText(/rule type/i), { target: { value: ruleType } });
+    const input = screen.getByLabelText(/rule value for checkout-v2/i);
+    fireEvent.change(input, { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: /add rule/i }));
 
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
+    expect(input).toHaveAccessibleDescription(message);
+    expect(mockAddRule).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["user", StrKey.encodeEd25519PublicKey(Buffer.alloc(32))],
+    ["role", "operator"],
+    ["org", "acme-organization"],
+  ])("adds a valid %s targeting rule", async (ruleType, value) => {
+    render(<FeatureFlagManager />);
+    fireEvent.click(await screen.findByRole("button", { name: /details for checkout-v2/i }));
+    fireEvent.change(screen.getByLabelText(/rule type/i), { target: { value: ruleType } });
     fireEvent.change(screen.getByLabelText(/rule value for checkout-v2/i), {
-      target: { value: "GORG" },
+      target: { value: `  ${value}  ` },
     });
     fireEvent.click(screen.getByRole("button", { name: /add rule/i }));
 
     await waitFor(() => {
-      expect(mockAddRule).toHaveBeenCalledWith("checkout-v2", {
-        ruleType: "user",
-        value: "GORG",
-        enabled: true,
-      });
+      expect(mockAddRule).toHaveBeenCalledWith("checkout-v2", { ruleType, value, enabled: true });
     });
   });
 });

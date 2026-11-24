@@ -89,10 +89,7 @@ export default function CampaignBuilder({
     return groups;
   }, [segments]);
 
-  const totalSegmentSize = useMemo(
-    () => segments.reduce((sum, s) => sum + s.size, 0),
-    [segments],
-  );
+  const totalSegmentSize = useMemo(() => segments.reduce((sum, s) => sum + s.size, 0), [segments]);
 
   const toggleRuleValue = useCallback(
     (dimension: keyof TargetRule, value: string) => {
@@ -104,15 +101,12 @@ export default function CampaignBuilder({
         return { ...prev, [dimension]: next, match: matchMode };
       });
     },
-    [matchMode],
+    [matchMode]
   );
 
-  const updateVariant = useCallback(
-    (id: string, patch: Partial<CampaignVariant>) => {
-      setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
-    },
-    [],
-  );
+  const updateVariant = useCallback((id: string, patch: Partial<CampaignVariant>) => {
+    setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
+  }, []);
 
   const addVariant = useCallback(() => {
     setVariants((prev) => [
@@ -139,7 +133,7 @@ export default function CampaignBuilder({
         setError("Campaign name is required");
         return;
       }
-      if (!selectedSegmentId && !Object.keys(rule).some((k) => k !== "match"))) {
+      if (!selectedSegmentId && !Object.keys(rule).some((k) => k !== "match")) {
         setError("Select a segment or at least one targeting rule");
         return;
       }
@@ -162,7 +156,7 @@ export default function CampaignBuilder({
         setSubmitting(false);
       }
     },
-    [name, channel, selectedSegmentId, rule, matchMode, variants, onCreateCampaign],
+    [name, channel, selectedSegmentId, rule, matchMode, variants, onCreateCampaign]
   );
 
   return (
@@ -174,24 +168,26 @@ export default function CampaignBuilder({
 
       <section aria-label="Segments" className="campaign-builder__segments">
         <h3>Segments</h3>
-        {(Object.keys(groupedSegments) as Array<SegmentDescriptor["dimension"]>).map((dimension) => (
-          <div key={dimension} className="campaign-builder__dimension">
-            <h4>{DIMENSION_LABELS[dimension]}</h4>
-            <ul>
-              {groupedSegments[dimension].map((segment) => (
-                <li key={segment.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSegmentId(segment.id)}
-                    aria-pressed={selectedSegmentId === segment.id}
-                  >
-                    {segment.label} ({segment.size})
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        {(Object.keys(groupedSegments) as Array<SegmentDescriptor["dimension"]>).map(
+          (dimension) => (
+            <div key={dimension} className="campaign-builder__dimension">
+              <h4>{DIMENSION_LABELS[dimension]}</h4>
+              <ul>
+                {groupedSegments[dimension].map((segment) => (
+                  <li key={segment.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSegmentId(segment.id)}
+                      aria-pressed={selectedSegmentId === segment.id}
+                    >
+                      {segment.label} ({segment.size})
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        )}
       </section>
 
       <section aria-label="Targeting rules" className="campaign-builder__rules">
@@ -203,18 +199,22 @@ export default function CampaignBuilder({
             <option value="any">Any condition</option>
           </select>
         </label>
-        {([
-          ["earnings", ["high", "medium", "low"]],
-          ["activity", ["active", "inactive", "churned"]],
-          ["tenure", ["new", "established", "veteran"]],
-        ] as Array<[keyof TargetRule, string[]]>).map(([dimension, values]) => (
+        {(
+          [
+            ["earnings", ["high", "medium", "low"]],
+            ["activity", ["active", "inactive", "churned"]],
+            ["tenure", ["new", "established", "veteran"]],
+          ] as Array<[keyof TargetRule, string[]]>
+        ).map(([dimension, values]) => (
           <fieldset key={dimension}>
             <legend>{DIMENSION_LABELS[dimension as keyof typeof DIMENSION_LABELS]}</legend>
             {values.map((value) => (
               <label key={value}>
                 <input
                   type="checkbox"
-                  checked={Array.isArray(rule[dimension]) && (rule[dimension] as string[]).includes(value)}
+                  checked={
+                    Array.isArray(rule[dimension]) && (rule[dimension] as string[]).includes(value)
+                  }
                   onChange={() => toggleRuleValue(dimension, value)}
                 />
                 {value}
@@ -323,14 +323,9 @@ export default function CampaignBuilder({
               ))}
             </tbody>
           </table>
-          {analytics.bestVariantId && (
-            <p>Best variant: {analytics.bestVariantId}</p>
-          )}
+          {analytics.bestVariantId && <p>Best variant: {analytics.bestVariantId}</p>}
           {onExportAudience && (
-            <button
-              type="button"
-              onClick={() => onExportAudience(analytics.campaignId)}
-            >
+            <button type="button" onClick={() => onExportAudience(analytics.campaignId)}>
               Export audience CSV
             </button>
           )}

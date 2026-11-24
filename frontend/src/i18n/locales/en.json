@@ -93,6 +93,7 @@
     "impact": "Impact",
     "webhooks": "Webhooks",
     "earnings": "Earnings",
+    "multiContractEarnings": "Multi-Contract Earnings",
     "suspension": "Suspension",
     "featureFlags": "Feature Flags",
     "settings": "Settings",

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
+import { getAccountAddressError, INVALID_ACCOUNT_ADDRESS_MESSAGE } from "../lib/formValidation";
 
 export function ComplianceReporting() {
   const [activeTab, setActiveTab] = useState<"generate" | "audit" | "verify">("generate");
@@ -15,17 +16,44 @@ export function ComplianceReporting() {
   const [country, setCountry] = useState("");
   const [format, setFormat] = useState<"json" | "csv">("json");
   const [download, setDownload] = useState(false);
-  const [distributions, setDistributions] = useState<Array<{ amountXlm: number; timestamp: string; txHash: string }>>([]);
+  const [distributions, setDistributions] = useState<
+    Array<{ amountXlm: number; timestamp: string; txHash: string }>
+  >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<unknown>(null);
-  const [auditTrail, setAuditTrail] = useState<Array<Record<string, unknown>>>([]);
+  const [result, setResult] = useState<{
+    reportId?: number;
+    verified?: boolean;
+    calculatedTotal?: string;
+    storedTotal?: string;
+    difference?: string;
+    tolerance?: string;
+    checkedAt?: string;
+    downloaded?: boolean;
+  } | null>(null);
+  const [auditTrail, setAuditTrail] = useState<
+    Array<{
+      id?: unknown;
+      type?: unknown;
+      periodStart?: unknown;
+      periodEnd?: unknown;
+      contractId?: unknown;
+      status?: unknown;
+      createdAt?: unknown;
+      completedAt?: unknown;
+      emailedTo?: unknown;
+    }>
+  >([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
   const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
     setResult(null);
+    const address = walletAddress.trim();
+    const addressError = getAccountAddressError(address);
+    setError(addressError);
+    if (addressError) return;
+
+    setLoading(true);
 
     try {
       let data;
@@ -34,7 +62,7 @@ export function ComplianceReporting() {
       switch (reportType) {
         case "form-8949": {
           const res = await fetch(
-            `/api/v1/compliance/form-8949?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}&shortTerm=${shortTerm}`,
+            `/api/v1/compliance/form-8949?walletAddress=${encodeURIComponent(address)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}&shortTerm=${shortTerm}`,
             { method: "GET", headers: { "Content-Type": "application/json" } }
           );
           data = await res.json();
@@ -42,7 +70,7 @@ export function ComplianceReporting() {
         }
         case "turbotax": {
           const res = await fetch(
-            `/api/v1/compliance/turbotax?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}`,
+            `/api/v1/compliance/turbotax?walletAddress=${encodeURIComponent(address)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}`,
             { method: "GET", headers: { "Content-Type": "application/json" } }
           );
           data = await res.json();
@@ -51,7 +79,7 @@ export function ComplianceReporting() {
         case "csv": {
           const url = new URL("/api/v1/compliance/csv-export", window.location.origin);
           url.searchParams.set("taxYear", String(taxYear));
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           if (country) url.searchParams.set("country", country);
           url.searchParams.set("download", String(download));
           const res = await fetch(url.toString());
@@ -77,7 +105,7 @@ export function ComplianceReporting() {
           const url = new URL("/api/v1/compliance/generic-ledger", window.location.origin);
           url.searchParams.set("startDate", startDate);
           url.searchParams.set("endDate", endDate);
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           url.searchParams.set("format", format);
           url.searchParams.set("download", String(download && format === "csv"));
           const res = await fetch(url.toString());
@@ -98,7 +126,7 @@ export function ComplianceReporting() {
         }
         case "sec-form-d": {
           const res = await fetch(
-            `/api/v1/compliance/sec-form-d?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}`,
+            `/api/v1/compliance/sec-form-d?walletAddress=${encodeURIComponent(address)}&taxYear=${taxYear}`,
             { method: "GET", headers: { "Content-Type": "application/json" } }
           );
           data = await res.json();
@@ -111,7 +139,7 @@ export function ComplianceReporting() {
           const url = new URL("/api/v1/compliance/finra-trace", window.location.origin);
           url.searchParams.set("startDate", startDate);
           url.searchParams.set("endDate", endDate);
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           const res = await fetch(url.toString());
           data = await res.json();
           break;
@@ -119,7 +147,7 @@ export function ComplianceReporting() {
         case "export": {
           const url = new URL("/api/v1/compliance/export", window.location.origin);
           url.searchParams.set("taxYear", String(taxYear));
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           if (country) url.searchParams.set("country", country);
           url.searchParams.set("format", format);
           url.searchParams.set("download", String(download));
@@ -220,12 +248,48 @@ export function ComplianceReporting() {
 
   const reportTypes = [
     { id: "csv", label: "CSV Export", needsWallet: false, needsDates: false, adminOnly: false },
-    { id: "form-8949", label: "Form 8949 (IRS)", needsWallet: true, needsDates: false, adminOnly: false },
-    { id: "turbotax", label: "TurboTax Import", needsWallet: true, needsDates: false, adminOnly: false },
-    { id: "ledger", label: "Generic Ledger", needsWallet: false, needsDates: true, adminOnly: false },
-    { id: "export", label: "Full Compliance Export", needsWallet: false, needsDates: false, adminOnly: true },
-    { id: "sec-form-d", label: "SEC Form D", needsWallet: true, needsDates: false, adminOnly: true },
-    { id: "finra-trace", label: "FINRA TRACE", needsWallet: false, needsDates: true, adminOnly: true },
+    {
+      id: "form-8949",
+      label: "Form 8949 (IRS)",
+      needsWallet: true,
+      needsDates: false,
+      adminOnly: false,
+    },
+    {
+      id: "turbotax",
+      label: "TurboTax Import",
+      needsWallet: true,
+      needsDates: false,
+      adminOnly: false,
+    },
+    {
+      id: "ledger",
+      label: "Generic Ledger",
+      needsWallet: false,
+      needsDates: true,
+      adminOnly: false,
+    },
+    {
+      id: "export",
+      label: "Full Compliance Export",
+      needsWallet: false,
+      needsDates: false,
+      adminOnly: true,
+    },
+    {
+      id: "sec-form-d",
+      label: "SEC Form D",
+      needsWallet: true,
+      needsDates: false,
+      adminOnly: true,
+    },
+    {
+      id: "finra-trace",
+      label: "FINRA TRACE",
+      needsWallet: false,
+      needsDates: true,
+      adminOnly: true,
+    },
   ] as const;
 
   return (
@@ -269,9 +333,12 @@ export function ComplianceReporting() {
             <div className="form-grid">
               {reportTypes.find((rt) => rt.id === reportType)?.needsWallet && (
                 <div className="form-field">
-                  <label>Wallet Address (G...)</label>
+                  <label htmlFor="report-wallet-address">Wallet Address (G...)</label>
                   <input
+                    id="report-wallet-address"
                     type="text"
+                    aria-invalid={error === INVALID_ACCOUNT_ADDRESS_MESSAGE}
+                    aria-describedby={error === INVALID_ACCOUNT_ADDRESS_MESSAGE ? "report-generation-error" : undefined}
                     value={walletAddress}
                     onChange={(e) => setWalletAddress(e.target.value)}
                     placeholder="GABC123..."
@@ -285,7 +352,9 @@ export function ComplianceReporting() {
                 <input
                   type="number"
                   value={taxYear}
-                  onChange={(e) => setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)}
+                  onChange={(e) =>
+                    setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)
+                  }
                   min={2020}
                   max={new Date().getFullYear()}
                 />
@@ -354,7 +423,10 @@ export function ComplianceReporting() {
               {["ledger", "export"].includes(reportType) && (
                 <div className="form-field">
                   <label>Format</label>
-                  <select value={format} onChange={(e) => setFormat(e.target.value as "json" | "csv")}>
+                  <select
+                    value={format}
+                    onChange={(e) => setFormat(e.target.value as "json" | "csv")}
+                  >
                     <option value="json">JSON</option>
                     <option value="csv">CSV</option>
                   </select>
@@ -397,7 +469,9 @@ export function ComplianceReporting() {
                             type="number"
                             step="0.0000001"
                             value={d.amountXlm}
-                            onChange={(e) => updateDistribution(i, "amountXlm", parseFloat(e.target.value) || 0)}
+                            onChange={(e) =>
+                              updateDistribution(i, "amountXlm", parseFloat(e.target.value) || 0)
+                            }
                             placeholder="0"
                           />
                         </td>
@@ -417,13 +491,17 @@ export function ComplianceReporting() {
                           />
                         </td>
                         <td>
-                          <button className="remove-btn" onClick={() => removeDistribution(i)}>Remove</button>
+                          <button className="remove-btn" onClick={() => removeDistribution(i)}>
+                            Remove
+                          </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <button className="add-dist-btn" onClick={addDistribution}>+ Add Distribution</button>
+                <button className="add-dist-btn" onClick={addDistribution}>
+                  + Add Distribution
+                </button>
               </div>
             </div>
           )}
@@ -434,7 +512,9 @@ export function ComplianceReporting() {
             </button>
           </div>
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && (
+            <div id="report-generation-error" className="error-banner" role="alert">{error}</div>
+          )}
 
           {result && !loading && (
             <div className="result-panel">
@@ -470,11 +550,7 @@ export function ComplianceReporting() {
               </div>
               <div className="form-field">
                 <label>End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
             </div>
             <button onClick={loadAuditTrail} disabled={auditLoading}>
@@ -500,14 +576,32 @@ export function ComplianceReporting() {
                 <tbody>
                   {auditTrail.map((report, i) => (
                     <tr key={i}>
-                      <td>{report.id}</td>
-                      <td>{report.type}</td>
-                      <td>{report.periodStart} to {report.periodEnd}</td>
-                      <td>{report.contractId}</td>
-                      <td><span className={`status-badge ${report.status}`}>{report.status}</span></td>
-                      <td>{report.createdAt ? new Date(report.createdAt as string).toLocaleString() : "-"}</td>
-                      <td>{report.completedAt ? new Date(report.completedAt as string).toLocaleString() : "-"}</td>
-                      <td>{(report.emailedTo as string[])?.join(", ") || "-"}</td>
+                      <td>{String(report.id)}</td>
+                      <td>{String(report.type)}</td>
+                      <td>
+                        {String(report.periodStart)} to {String(report.periodEnd)}
+                      </td>
+                      <td>{String(report.contractId)}</td>
+                      <td>
+                        <span className={`status-badge ${String(report.status)}`}>
+                          {String(report.status)}
+                        </span>
+                      </td>
+                      <td>
+                        {report.createdAt
+                          ? new Date(String(report.createdAt)).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td>
+                        {report.completedAt
+                          ? new Date(String(report.completedAt)).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td>
+                        {Array.isArray(report.emailedTo)
+                          ? report.emailedTo.map(String).join(", ")
+                          : "-"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -531,7 +625,9 @@ export function ComplianceReporting() {
                 <input
                   type="number"
                   value={result?.reportId || ""}
-                  onChange={(e) => setResult({ ...(result || {}), reportId: parseInt(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setResult({ ...(result || {}), reportId: parseInt(e.target.value) || 0 })
+                  }
                   placeholder="Enter report ID"
                 />
               </div>
@@ -550,7 +646,9 @@ export function ComplianceReporting() {
                 <input
                   type="number"
                   value={taxYear}
-                  onChange={(e) => setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)}
+                  onChange={(e) =>
+                    setTaxYear(parseInt(e.target.value) || new Date().getFullYear() - 1)
+                  }
                   min={2020}
                   max={new Date().getFullYear()}
                 />
@@ -564,7 +662,9 @@ export function ComplianceReporting() {
 
             {result && result.verified !== undefined && !loading && (
               <div className={`verification-result ${result.verified ? "verified" : "mismatch"}`}>
-                <h5>{result.verified ? "✓ Verified - Report is Accurate" : "✗ Mismatch Detected"}</h5>
+                <h5>
+                  {result.verified ? "✓ Verified - Report is Accurate" : "✗ Mismatch Detected"}
+                </h5>
                 <div className="verification-details">
                   <p>Calculated Total: ${result.calculatedTotal}</p>
                   <p>Stored Total: ${result.storedTotal}</p>

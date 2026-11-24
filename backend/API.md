@@ -20,7 +20,6 @@ and internal errors — uses the same JSON shape and is built by
   "error": "Collaborators array must be non-empty",
   "retryable": false,
   "retryAfter": null,
-  "details_url": "docs/errors#validation_failed",
   "details": [{ "field": "collaborators", "message": "Collaborators array must be non-empty" }]
 }
 ```
@@ -33,7 +32,6 @@ and internal errors — uses the same JSON shape and is built by
 | `error` | Same value as `message` — kept for backward compatibility with older clients that read `.error` |
 | `retryable` | Boolean indicating whether the request can be retried |
 | `retryAfter` | Suggested retry delay in seconds (null if not retryable) |
-| `details_url` | Link to error documentation in the error catalog |
 | `details` | Present only on validation errors; an array of `{ field, message }` issues |
 | `complexity_score` | Present on `request_too_complex` errors; computed complexity score |
 | `limit` | Present on `request_too_complex` errors; maximum allowed complexity score |
@@ -106,7 +104,6 @@ When a request exceeds the limit, it is rejected immediately with HTTP 400:
   "error": "Request exceeds maximum complexity limit of 1000 (calculated score: 1052)",
   "retryable": false,
   "retryAfter": null,
-  "details_url": "docs/errors#request_too_complex",
   "complexity_score": 1052,
   "limit": 1000
 }
@@ -259,6 +256,10 @@ If the request times out and is retried with the same `Idempotency-Key`, the sec
 | `IDEMPOTENCY_CACHE_TTL_MS` | `86400000` (24 hours) | How long to cache idempotent responses |
 | `IDEMPOTENCY_MAX_ENTRIES` | `10000` | Maximum number of cached responses before eviction |
 
+> **⚠️ Multi-process limitation:** The idempotency implementation is process-local. Both the in-flight deduplication map and the persistent response cache are stored in process memory. When the backend runs as multiple processes — including canary deployments where a second process listens on a separate port — two concurrent requests carrying the same `Idempotency-Key` that hit different processes will both be executed, defeating the deduplication guarantee.
+>
+> To restore the guarantee in multi-process deployments, set `REDIS_URL` in your environment to a shared Redis instance. Redis-backed idempotency storage is not yet implemented; this variable currently enables only the distributed response cache (see `.env.example`). Until Redis-backed idempotency is available, operators running more than one process should be aware of this gap and use a load-balancer with session affinity as a mitigation.
+
 ## Simulate Distribution
 
 ### `POST /api/v1/simulate`
@@ -282,13 +283,7 @@ Dry-run the `distribute` call via Soroban simulation. Returns the expected fee, 
     "resource_fee": 0,
     "total": 100
   },
-  "perRecipientEffectiveFee": 50,
-  "feeScalingComparison": [
-    { "collaborators": 2, "estimated_total_fee": 110 },
-    { "collaborators": 5, "estimated_total_fee": 140 },
-    { "collaborators": 10, "estimated_total_fee": 190 },
-    { "collaborators": 20, "estimated_total_fee": 290 }
-  ]
+  "perRecipientEffectiveFee": 50
 }
 ```
 
@@ -301,7 +296,6 @@ Dry-run the `distribute` call via Soroban simulation. Returns the expected fee, 
   - `resource_fee`: Soroban resource fee
   - `total`: Sum of all fee components
 - `perRecipientEffectiveFee`: Total fee divided by number of recipients
-- `feeScalingComparison`: Array showing estimated fee growth for 2, 5, 10, and 20 collaborators
 
 The endpoint only calls Soroban RPC simulation. It does not submit the transaction, record a transaction row, or modify contract state.
 
@@ -459,6 +453,39 @@ curl "http://localhost:3001/api/v1/secondary-royalty/distributions/C...?limit=20
 ```
 
 See route module `src/routes/secondary-royalty.js` for pool, stats, and set-rate endpoints.
+
+## Transaction fees
+
+### `GET /api/v1/fees/:contractId`
+
+Returns paginated fee records for a contract, ordered by most recent first.
+
+**Query params:**
+
+| Param | Type | Default | Min | Max | Description |
+| ----- | ---- | ------- | --- | --- | ----------- |
+| `limit` | integer | `50` | `1` | `100` | Number of fee records to return; values above `100` are capped at `100` |
+| `offset` | integer | `0` | `0` | — | Number of rows to skip (pagination offset) |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [ /* fee objects */ ],
+  "pagination": { "limit": 50, "offset": 0, "total": 5000 }
+}
+```
+
+`pagination.total` is the total number of fee records for the contract across all
+pages. Non-numeric `limit` or `offset` values return `400 Bad Request`
+(`invalid_query_parameter`).
+
+**Example — page 50 with 100 results per page:**
+
+```bash
+curl "http://localhost:3001/api/v1/fees/C...?limit=100&offset=4900"
+```
 
 ## History & analytics
 

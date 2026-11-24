@@ -10,7 +10,7 @@
  * - X-SRS-Cache header added to cached API responses
  */
 
-import { describe, test, expect, jest, beforeEach } from "@jest/globals";
+import { describe, test, expect, beforeEach, vi as jest } from "vitest";
 
 // ── Constants mirrored from service-worker.js ──────────────────────────────
 
@@ -42,7 +42,7 @@ function buildQueueEntry(
   url: string,
   method: string,
   body: string,
-  headers: Record<string, string> = {},
+  headers: Record<string, string> = {}
 ): QueueEntry {
   return { url, method, headers, body, queuedAt: Date.now() };
 }
@@ -56,7 +56,7 @@ interface DrainResult {
 
 async function simulateDrain(
   items: QueueEntry[],
-  fetchImpl: (entry: QueueEntry) => Promise<{ ok: boolean }>,
+  fetchImpl: (entry: QueueEntry) => Promise<{ ok: boolean }>
 ): Promise<DrainResult> {
   const replayed: string[] = [];
   const retained: string[] = [];
@@ -117,12 +117,9 @@ describe("offline mode / SW cache strategy (#830)", () => {
 
   // -- Queue entry ---------------------------------------------------------
   test("buildQueueEntry stores all required fields", () => {
-    const entry = buildQueueEntry(
-      "/api/distribute",
-      "POST",
-      '{"contractId":"CXXX"}',
-      { "content-type": "application/json" },
-    );
+    const entry = buildQueueEntry("/api/distribute", "POST", '{"contractId":"CXXX"}', {
+      "content-type": "application/json",
+    });
     expect(entry.url).toBe("/api/distribute");
     expect(entry.method).toBe("POST");
     expect(entry.body).toBe('{"contractId":"CXXX"}');

@@ -23,8 +23,7 @@ export function countWrite() {
 
 // Final checkpoint on clean shutdown.
 process.on("exit", () => db.pragma("wal_checkpoint(TRUNCATE)"));
-process.on("SIGINT", () => process.exit(0));
-// SIGTERM is handled in index.js for graceful HTTP + DB shutdown.
+// SIGINT and SIGTERM are both handled in index.js via the graceful shutdown path.
 
 // Initialize database schema
 export function initializeDatabase() {

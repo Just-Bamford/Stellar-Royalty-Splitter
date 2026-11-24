@@ -31,11 +31,12 @@ const {
 
 // Metrics module (real prom-client; per-file module isolation keeps the
 // registry fresh for this test file).
-const { getMetricsSnapshot, prometheusMetrics } = await import("../src/metrics.js");
+const { getMetricsSnapshot, prometheusMetrics, resetMetrics } = await import("../src/metrics.js");
 
 describe("RPC Retry Handler", () => {
   beforeEach(() => {
     retryMetrics.reset();
+    resetMetrics();
   });
 
   // ─── isTransientError Tests ────────────────────────────────────────────────

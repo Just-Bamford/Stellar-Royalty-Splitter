@@ -1,0 +1,1 @@
+# Royalty input safety boundaries`n`nRoyalty inputs must identify units and reject precision loss, display values safely, distinguish clearing read notifications from clearing all, and validate vesting values before schedule creation.

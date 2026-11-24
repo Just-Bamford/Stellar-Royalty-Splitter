@@ -1,6 +1,6 @@
 import { Router } from "express";
 import StellarSdk from "@stellar/stellar-sdk";
-import { server, networkPassphrase } from "../stellar.js";
+import { server, networkPassphrase, SIMULATION_DUMMY_ACCOUNT } from "../stellar.js";
 import logger from "../logger.js";
 import { validateContractIdMiddleware } from "../validation.js";
 import { sendError } from "../error-response.js";
@@ -20,7 +20,7 @@ let staleCount = 0;
 
 async function fetch(id) {
   const contract = new Contract(id);
-  const dummy = new Account("GAAzI4TCR3TY5OJHCTJ2C4Q4SY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+  const dummy = new Account(SIMULATION_DUMMY_ACCOUNT, "0");
   const tx = new TransactionBuilder(dummy, { fee: BASE_FEE, networkPassphrase })
     .addOperation(contract.call("get_all_shares"))
     .setTimeout(30)
@@ -49,7 +49,22 @@ function schedule(key, id) {
     timers.delete(key);
     refresh(key, id).catch(() => {});
   }, delay);
+  // .unref() so warm timers do not prevent graceful shutdown (#1143).
+  t.unref?.();
   timers.set(key, t);
+}
+
+/**
+ * Cancel all pending warm timers and clear the access-count map.
+ * Called from index.js during graceful shutdown (#1143) so no timer fires
+ * after the HTTP server and database have been closed.
+ */
+export function clearWarmTimers() {
+  for (const t of timers.values()) {
+    clearTimeout(t);
+  }
+  timers.clear();
+  access.clear();
 }
 
 async function refresh(key, id) {
