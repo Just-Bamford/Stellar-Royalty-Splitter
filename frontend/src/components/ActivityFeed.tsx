@@ -41,16 +41,21 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
     )
       return;
 
-    addFeedItem({
-      authorAddress: walletAddress,
-      authorName: currentUser.username,
-      authorAvatar: currentUser.avatar,
-      type: "update",
-      title: `${currentUser.username} shared an update`,
-      content: newPostContent.trim(),
-    });
+    try {
+      addFeedItem({
+        authorAddress: walletAddress,
+        authorName: currentUser.username,
+        authorAvatar: currentUser.avatar,
+        type: "update",
+        title: `${currentUser.username} shared an update`,
+        content: newPostContent.trim(),
+      });
 
-    setNewPostContent("");
+      setNewPostContent("");
+    } catch (err) {
+      // Keep the draft text so the user can retry; only clear it on success.
+      console.error("Failed to create post", err);
+    }
   };
 
   const filteredFeed = feedItems.filter((item) => {
