@@ -159,7 +159,16 @@ export function NotificationBell() {
 
               {notifications.length > 20 && (
                 <div className="notification-more">
-                  <p>And {notifications.length - 20} more...</p>
+                  <button
+                    type="button"
+                    className="view-all-link"
+                    onClick={() => {
+                      setIsOpen(false);
+                      setIsCenterOpen(true);
+                    }}
+                  >
+                    View all {notifications.length} notifications →
+                  </button>
                 </div>
               )}
 
