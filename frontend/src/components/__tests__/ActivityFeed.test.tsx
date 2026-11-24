@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import "@testing-library/jest-dom";
 import { ActivityFeed } from "../ActivityFeed";
 import { useSocialStore } from "../../store/socialStore";
@@ -66,5 +66,29 @@ describe("ActivityFeed", () => {
 
     fireEvent.click(likeBtn!);
     expect(useSocialStore.getState().feedItems[0].likes).toBe(16);
+  });
+
+  it("keeps the draft and logs an error when the store throws", () => {
+    const originalAddFeedItem = useSocialStore.getState().addFeedItem;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    useSocialStore.setState({
+      addFeedItem: () => {
+        throw new Error("store failure");
+      },
+    });
+
+    try {
+      render(<ActivityFeed walletAddress={WALLET_ADDR} />);
+
+      const textarea = screen.getByPlaceholderText(/Share a milestone/i);
+      fireEvent.change(textarea, { target: { value: "Post that should survive" } });
+      fireEvent.click(screen.getByRole("button", { name: /Post Update/i }));
+
+      expect(errorSpy).toHaveBeenCalledWith("Failed to create post", expect.any(Error));
+      expect(textarea).toHaveValue("Post that should survive");
+    } finally {
+      useSocialStore.setState({ addFeedItem: originalAddFeedItem });
+      errorSpy.mockRestore();
+    }
   });
 });
