@@ -142,3 +142,30 @@ describe("InitializeForm — accessibility", () => {
     });
   });
 });
+
+describe("InitializeForm — collaborator limit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApi.listTemplates.mockResolvedValue({ data: [] });
+  });
+
+  test("warns when approaching the 10-collaborator limit", () => {
+    render(<InitializeForm {...defaultProps} />);
+    const addBtn = () => screen.getByLabelText(/Add collaborator/i);
+    for (let i = 0; i < 4; i++) fireEvent.click(addBtn());
+
+    expect(screen.getByText(/Approaching the limit/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 remaining/i)).toBeInTheDocument();
+    expect(addBtn()).not.toBeDisabled();
+  });
+
+  test("disables add button and explains the cap at 10 rows", () => {
+    render(<InitializeForm {...defaultProps} />);
+    const addBtn = () => screen.getByLabelText(/Add collaborator/i);
+    for (let i = 0; i < 9; i++) fireEvent.click(addBtn());
+
+    expect(addBtn()).toBeDisabled();
+    expect(screen.getByText(/Maximum of 10 collaborators reached/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Collaborator 11 wallet address/i)).toBeNull();
+  });
+});
