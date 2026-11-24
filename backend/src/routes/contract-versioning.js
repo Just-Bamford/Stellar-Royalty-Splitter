@@ -34,6 +34,16 @@ function isValidVersionIdentifier(version) {
 }
 
 /**
+ * WASM hashes are SHA-256 digests: exactly 64 hexadecimal characters.
+ * Matches the validation used by the upgrade routes.
+ */
+const WASM_HASH_RE = /^[0-9a-fA-F]{64}$/;
+
+function isValidWasmHash(wasmHash) {
+  return typeof wasmHash === 'string' && WASM_HASH_RE.test(wasmHash);
+}
+
+/**
  * POST /api/v1/versioning/deploy-shadow
  * Deploy a new contract version in shadow mode
  */
@@ -44,6 +54,24 @@ router.post('/deploy-shadow', async (req, res) => {
     if (!contractId || !wasmHash || !deployedBy) {
       return res.status(400).json(
         errorResponse('validation_failed', 'contractId, wasmHash, and deployedBy are required')
+      );
+    }
+
+    if (!isValidVersionIdentifier(contractId)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'contractId must be a valid contract identifier')
+      );
+    }
+
+    if (!isValidWasmHash(wasmHash)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'wasmHash must be a 64-character hex string')
+      );
+    }
+
+    if (!isValidVersionIdentifier(deployedBy)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'deployedBy must be a valid identifier')
       );
     }
 
@@ -345,6 +373,8 @@ router.get('/metrics/:versionId/:metricName', (req, res) => {
 });
 
 router.isValidVersionIdentifier = isValidVersionIdentifier;
+router.isValidWasmHash = isValidWasmHash;
 
 module.exports = router;
 module.exports.isValidVersionIdentifier = isValidVersionIdentifier;
+module.exports.isValidWasmHash = isValidWasmHash;
