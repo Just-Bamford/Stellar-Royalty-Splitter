@@ -65,9 +65,7 @@ rightsRouter.post("/", validate(createRightSchema), (req, res, next) => {
 rightsRouter.get("/contract/:contractId", (req, res, next) => {
   try {
     const { contractId } = req.params;
-    if (!validateContractId(contractId)) {
-      return sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
-    }
+    if (!validateContractId(contractId, res)) return;
     const result = getRightsByContract(contractId);
     res.json(result);
   } catch (err) {
@@ -82,9 +80,7 @@ rightsRouter.get("/contract/:contractId", (req, res, next) => {
 rightsRouter.get("/contract/:contractId/eligibility", (req, res, next) => {
   try {
     const { contractId } = req.params;
-    if (!validateContractId(contractId)) {
-      return sendError(res, 400, "invalid_contract_id", "Invalid contract ID format");
-    }
+    if (!validateContractId(contractId, res)) return;
     const eligibility = verifyContractDistributionEligibility(contractId);
     res.json(eligibility);
   } catch (err) {

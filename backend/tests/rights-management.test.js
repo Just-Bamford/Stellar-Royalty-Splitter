@@ -276,6 +276,20 @@ describe("Rights Management System", () => {
       expect(res.body.breakdown.performance.totalPercentage).toBe(100);
     });
 
+    test("GET /api/v1/rights/contract/:contractId rejects malformed IDs with 400", async () => {
+      const res = await request(app).get("/api/v1/rights/contract/not-a-contract");
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("invalid_contract_id");
+      expect(res.body.message).toBe("Invalid contract ID format");
+    });
+
+    test("GET /api/v1/rights/contract/:contractId/eligibility rejects malformed IDs with 400", async () => {
+      const res = await request(app).get("/api/v1/rights/contract/not-a-contract/eligibility");
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("invalid_contract_id");
+      expect(res.body.message).toBe("Invalid contract ID format");
+    });
+
     test("POST /api/v1/rights/:id/metadata attaches DDEX and custom metadata", async () => {
       const createRes = await request(app)
         .post("/api/v1/rights")

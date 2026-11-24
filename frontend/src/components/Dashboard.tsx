@@ -12,6 +12,7 @@ import {
 import type { DateRange } from "./dashboard/index";
 import { buildContractPerformanceSummary } from "../utils/contractPerformance";
 import { formatCurrency, formatNumber } from "../utils/format";
+import { areAllContractsSelected, toggleSelectAllContracts } from "../utils/contractSelection";
 import { useAnalytics } from "../hooks/queries/useAnalytics";
 import { useContractPerformance } from "../hooks/queries/useContractPerformance";
 import { BulkOperationsPanel } from "./BulkOperationsPanel";
@@ -95,13 +96,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     });
   };
 
+  const contractIds = performanceData?.contracts.map((c) => c.contractId) ?? [];
+  const allContractsSelected = areAllContractsSelected(selectedContracts, contractIds);
+
   const handleSelectAll = () => {
-    if (performanceData && performanceData.contracts.length > 0) {
-      if (selectedContracts.size === performanceData.contracts.length) {
-        setSelectedContracts(new Set());
-      } else {
-        setSelectedContracts(new Set(performanceData.contracts.map((c) => c.contractId)));
-      }
+    if (contractIds.length > 0) {
+      setSelectedContracts(toggleSelectAllContracts(selectedContracts, contractIds));
     }
   };
 
@@ -302,10 +302,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                     <th scope="col" className="checkbox-col">
                       <input
                         type="checkbox"
-                        checked={
-                          performanceData.contracts.length > 0 &&
-                          selectedContracts.size === performanceData.contracts.length
-                        }
+                        checked={allContractsSelected}
                         onChange={handleSelectAll}
                         aria-label="Select all contracts"
                       />
