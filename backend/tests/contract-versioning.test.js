@@ -12,6 +12,10 @@ const app = express();
 app.use(express.json());
 app.use('/api/v1/versioning', versioningRoutes);
 
+const VALID_WASM_HASH_1 = 'a'.repeat(64);
+const VALID_WASM_HASH_2 = 'B1c2D3e4'.repeat(8);
+const VALID_WASM_HASH_3 = '0123456789abcdef'.repeat(4);
+
 describe('Contract Versioning System', () => {
   let testContractId;
   let testVersion1;
@@ -28,7 +32,7 @@ describe('Contract Versioning System', () => {
         .post('/api/v1/versioning/deploy-shadow')
         .send({
           contractId: testContractId,
-          wasmHash: 'abc123hash',
+          wasmHash: VALID_WASM_HASH_1,
           deployedBy: 'GDEPLOYER',
           metadata: { description: 'Test version 1' },
         });
@@ -52,12 +56,72 @@ describe('Contract Versioning System', () => {
       expect(response.body.error).toBe('validation_failed');
     });
 
+    it.each([
+      ['too short', 'abc123hash'],
+      ['63 characters', 'a'.repeat(63)],
+      ['65 characters', 'a'.repeat(65)],
+      ['non-hex characters', 'g'.repeat(64)],
+      ['embedded whitespace', `${'a'.repeat(32)} ${'a'.repeat(31)}`],
+      ['0x prefix', `0x${'a'.repeat(62)}`],
+    ])('should reject a malformed wasmHash (%s)', async (_label, wasmHash) => {
+      const response = await request(app)
+        .post('/api/v1/versioning/deploy-shadow')
+        .send({
+          contractId: testContractId,
+          wasmHash,
+          deployedBy: 'GDEPLOYER',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('validation_failed');
+      expect(response.body.message).toBe('wasmHash must be a 64-character hex string');
+    });
+
+    it('should reject a non-string wasmHash even if it stringifies to a valid hash', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/deploy-shadow')
+        .send({
+          contractId: testContractId,
+          wasmHash: [VALID_WASM_HASH_1],
+          deployedBy: 'GDEPLOYER',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('wasmHash must be a 64-character hex string');
+    });
+
+    it('should reject an invalid contractId', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/deploy-shadow')
+        .send({
+          contractId: 'bad id!',
+          wasmHash: VALID_WASM_HASH_1,
+          deployedBy: 'GDEPLOYER',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('contractId must be a valid contract identifier');
+    });
+
+    it('should reject an invalid deployedBy', async () => {
+      const response = await request(app)
+        .post('/api/v1/versioning/deploy-shadow')
+        .send({
+          contractId: testContractId,
+          wasmHash: VALID_WASM_HASH_1,
+          deployedBy: '<script>',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe('deployedBy must be a valid identifier');
+    });
+
     it('should deploy a second version', async () => {
       const response = await request(app)
         .post('/api/v1/versioning/deploy-shadow')
         .send({
           contractId: testContractId,
-          wasmHash: 'def456hash',
+          wasmHash: VALID_WASM_HASH_2,
           deployedBy: 'GDEPLOYER',
           metadata: { description: 'Test version 2' },
         });
@@ -322,7 +386,7 @@ describe('Contract Versioning System', () => {
         .post('/api/v1/versioning/deploy-shadow')
         .send({
           contractId: testContractId,
-          wasmHash: 'ghi789hash',
+          wasmHash: VALID_WASM_HASH_3,
           deployedBy: 'GDEPLOYER',
         });
 
