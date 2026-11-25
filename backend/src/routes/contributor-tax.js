@@ -149,6 +149,7 @@ function handleTaxDocumentUpload(req, res, next) {
 }
 
 contributorTaxRouter.post("/upload/:walletAddress", handleTaxDocumentUpload, (req, res) => {
+  let stored = false;
   try {
     if (!req.file) {
       return sendError(res, 400, "upload_error", "No file uploaded");
@@ -159,9 +160,18 @@ contributorTaxRouter.post("/upload/:walletAddress", handleTaxDocumentUpload, (re
       w9_file_path: req.file.path,
       w9_file_name: req.file.originalname,
     });
+    stored = true;
     res.json({ success: true, data: taxInfo, file: { name: req.file.originalname, size: req.file.size } });
   } catch (err) {
     sendError(res, 500, "upload_error", err.message);
+  } finally {
+    if (req.file && !stored) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // The processing error is the response clients need; cleanup is best effort.
+      }
+    }
   }
 });
 
