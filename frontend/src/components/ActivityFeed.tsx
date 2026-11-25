@@ -9,10 +9,15 @@ interface ActivityFeedProps {
   onSelectUserAddress?: (address: string) => void;
 }
 
+/**
+ * ActivityFeed component displaying recent activity, creator updates, and achievements.
+ * Social activity (feed items, follows, likes) persists across sessions via useSocialStore (#1420).
+ */
 export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   walletAddress,
   onSelectUserAddress,
 }) => {
+  // Feed items, following status, and likes are persisted in localStorage under 'srs-social-store'
   const {
     feedItems,
     following,

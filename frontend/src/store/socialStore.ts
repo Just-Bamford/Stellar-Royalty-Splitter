@@ -376,6 +376,22 @@ const DEFAULT_EVENTS: CommunityEvent[] = [
   },
 ];
 
+/** Maximum number of activity feed items retained in memory and localStorage (#1420). */
+export const MAX_FEED_ITEMS = 100;
+export const SOCIAL_STORAGE_KEY = "srs-social-store";
+
+// Migrate from legacy storage key if present
+if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+  try {
+    const legacy = localStorage.getItem("stellar-royalty-splitter-social-v1");
+    if (legacy && !localStorage.getItem(SOCIAL_STORAGE_KEY)) {
+      localStorage.setItem(SOCIAL_STORAGE_KEY, legacy);
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
 export const useSocialStore = create<SocialState>()(
   devtools(
     persist(
@@ -614,7 +630,7 @@ export const useSocialStore = create<SocialState>()(
           };
 
           set((state) => ({
-            feedItems: [newItem, ...state.feedItems],
+            feedItems: [newItem, ...state.feedItems].slice(0, MAX_FEED_ITEMS),
           }));
         },
 
@@ -738,7 +754,14 @@ export const useSocialStore = create<SocialState>()(
         },
       }),
       {
-        name: "stellar-royalty-splitter-social-v1",
+        name: SOCIAL_STORAGE_KEY,
+        partialize: (state) => ({
+          profiles: state.profiles,
+          following: state.following,
+          feedItems: state.feedItems.slice(0, MAX_FEED_ITEMS),
+          forumPosts: state.forumPosts,
+          events: state.events,
+        }),
       }
     ),
     { name: "SocialStore" }

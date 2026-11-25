@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useSocialStore } from "../socialStore";
+import { useSocialStore, MAX_FEED_ITEMS, SOCIAL_STORAGE_KEY } from "../socialStore";
 
 describe("socialStore", () => {
   const TEST_ADDR = "GTESTUSER1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -120,5 +120,49 @@ describe("socialStore", () => {
 
     const mostActive = store.getMostActive();
     expect(mostActive[0].distributionCount).toBeGreaterThanOrEqual(mostActive[1]?.distributionCount || 0);
+  });
+
+  it("caps feedItems at MAX_FEED_ITEMS (100) to prevent localStorage quota issues (#1420)", () => {
+    const store = useSocialStore.getState();
+    expect(MAX_FEED_ITEMS).toBe(100);
+
+    // Add 120 items
+    for (let i = 0; i < 120; i++) {
+      store.addFeedItem({
+        authorAddress: TEST_ADDR,
+        authorName: `Creator ${i}`,
+        type: "update",
+        title: `Update ${i}`,
+        content: `Post content ${i}`,
+      });
+    }
+
+    const feed = useSocialStore.getState().feedItems;
+    expect(feed.length).toBe(MAX_FEED_ITEMS);
+    expect(feed[0].title).toBe("Update 119");
+  });
+
+  it("persists feed items, following, and likes to localStorage (#1420)", () => {
+    const store = useSocialStore.getState();
+    store.addFeedItem({
+      authorAddress: TEST_ADDR,
+      authorName: "Persistent Author",
+      type: "update",
+      title: "Persistent Title",
+      content: "Persistent Content",
+    });
+
+    const item = useSocialStore.getState().feedItems[0];
+    store.toggleLikeFeedItem(item.id, TEST_ADDR);
+    store.toggleFollow(TARGET_ADDR, TEST_ADDR);
+
+    // Verify localStorage has persisted under SOCIAL_STORAGE_KEY
+    const raw = localStorage.getItem(SOCIAL_STORAGE_KEY);
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw!);
+    expect(parsed.state.feedItems.length).toBeGreaterThan(0);
+    expect(parsed.state.feedItems[0].title).toBe("Persistent Title");
+    expect(parsed.state.feedItems[0].likes).toBe(1);
+    expect(parsed.state.following).toContain(TARGET_ADDR);
   });
 });
