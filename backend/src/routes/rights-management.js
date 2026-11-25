@@ -34,6 +34,7 @@ import {
 } from "../services/rights-management.js";
 
 import { sendError } from "../error-response.js";
+import { requireRole, requireAuth } from "../middleware/rbac.js";
 import logger from "../logger.js";
 
 export const rightsRouter = Router();
@@ -164,22 +165,38 @@ rightsRouter.patch("/:id", validate(updateRightSchema), (req, res, next) => {
  * DELETE /api/v1/rights/:id
  * Delete a right allocation
  */
-rightsRouter.delete("/:id", (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return sendError(res, 400, "invalid_id", "ID must be an integer");
+rightsRouter.delete(
+  "/:id",
+  requireAuth,
+  requireRole("operator"),
+  (req, res, next) => {
+    try {
+      const idParam = req.params.id ?? req.params.rightId;
+      const id = parseInt(idParam, 10);
+      if (isNaN(id)) {
+        return sendError(res, 400, "invalid_id", "ID must be an integer");
+      }
+      const right = getRightDetails(id);
+      if (!right) {
+        return sendError(res, 404, "not_found", "Right not found");
+      }
+
+      const createdBy = req.headers["x-wallet-address"] || req.user?.walletAddress || "system";
+      if (right.createdBy !== createdBy && req.user?.role !== "admin") {
+        return sendError(res, 403, "forbidden", "You can only delete rights you created");
+      }
+
+      deleteRight(id, createdBy);
+      logger.info("Right deleted", { rightId: id, changedBy: createdBy });
+      res.json({ success: true, message: `Right ${id} deleted` });
+    } catch (err) {
+      if (err.message.includes("not found")) {
+        return sendError(res, 404, "not_found", err.message);
+      }
+      next(err);
     }
-    const changedBy = req.headers["x-wallet-address"] || "system";
-    deleteRight(id, changedBy);
-    res.json({ success: true, message: `Right ${id} deleted` });
-  } catch (err) {
-    if (err.message.includes("not found")) {
-      return sendError(res, 404, "right_not_found", err.message);
-    }
-    next(err);
   }
-});
+);
 
 /**
  * POST /api/v1/rights/:id/metadata
