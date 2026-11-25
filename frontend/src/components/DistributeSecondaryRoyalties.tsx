@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import { api, RoyaltyStats } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
+import { ListSkeleton } from "./Skeleton";
 
+const C_ADDR = /^C[A-Z2-7]{55}$/;
+const TOKEN_ID_ERROR = "Please enter a valid token contract address (C..., 56 chars).";
 
 interface Props {
   contractId: string;
@@ -17,6 +20,7 @@ export default function DistributeSecondaryRoyalties({
 }: Props) {
   const { network, networkMismatch } = useNetwork();
   const [tokenId, setTokenId] = useState<string>("");
+  const [tokenIdError, setTokenIdError] = useState("");
   const [status, setStatus] = useState<{
     type: "ok" | "error" | "info";
     msg: string;
@@ -24,19 +28,41 @@ export default function DistributeSecondaryRoyalties({
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<RoyaltyStats | null>(null);
   const [poolBalance, setPoolBalance] = useState<string>("");
+  const [loadingData, setLoadingData] = useState(true);
 
-  // Load royalty stats and pool balance on mount/contract change
+  // Load royalty stats and pool balance together on mount/contract change, so
+  // they appear at the same time instead of popping in one by one.
   useEffect(() => {
-    if (!contractId) return;
+    if (!contractId) {
+      setLoadingData(false);
+      return;
+    }
 
-    api.getRoyaltyStats(contractId)
-      .then(setStats)
-      .catch(() => setStats(null));
+    let cancelled = false;
+    setLoadingData(true);
+    Promise.all([
+      api.getRoyaltyStats(contractId).catch(() => null),
+      api.getSecondaryRoyaltyPool(contractId).catch(() => ({ poolBalance: "0" })),
+    ]).then(([nextStats, pool]) => {
+      if (cancelled) return;
+      setStats(nextStats);
+      setPoolBalance(pool?.poolBalance ?? "0");
+      setLoadingData(false);
+    });
 
-    api.getSecondaryRoyaltyPool(contractId)
-      .then((res) => setPoolBalance(res.poolBalance))
-      .catch(() => setPoolBalance("0"));
+    return () => {
+      cancelled = true;
+    };
   }, [contractId]);
+
+  function validateTokenId(value: string) {
+    setTokenIdError(value !== "" && !C_ADDR.test(value) ? TOKEN_ID_ERROR : "");
+  }
+
+  function updateTokenId(value: string) {
+    setTokenId(value);
+    if (tokenIdError) setTokenIdError("");
+  }
 
   async function submit() {
     if (networkMismatch) {
@@ -47,6 +73,11 @@ export default function DistributeSecondaryRoyalties({
     }
     if (!contractId || !tokenId) {
       return setStatus({ type: "error", msg: "Please fill in all fields." });
+    }
+
+    if (!C_ADDR.test(tokenId)) {
+      setTokenIdError(TOKEN_ID_ERROR);
+      return setStatus({ type: "error", msg: TOKEN_ID_ERROR });
     }
 
     if (poolBalance === "0") {
@@ -81,6 +112,7 @@ export default function DistributeSecondaryRoyalties({
       });
 
       setTokenId("");
+      setTokenIdError("");
       onSuccess();
     } catch (err) {
       setStatus({
@@ -90,6 +122,15 @@ export default function DistributeSecondaryRoyalties({
     } finally {
       setLoading(false);
     }
+  }
+
+  if (loadingData) {
+    return (
+      <div className="card">
+        <h3>Distribute Secondary Royalties</h3>
+        <ListSkeleton items={3} label="Loading royalty data…" />
+      </div>
+    );
   }
 
   return (
@@ -131,9 +172,12 @@ export default function DistributeSecondaryRoyalties({
           type="text"
           placeholder="C... (USDC or payment token)"
           value={tokenId}
-          onChange={(e) => setTokenId(e.target.value)}
+          onChange={(e) => updateTokenId(e.target.value)}
+          onBlur={(e) => validateTokenId(e.target.value)}
           disabled={loading}
+          className={tokenIdError ? "input-error" : ""}
         />
+        {tokenIdError && <span className="field-error">{tokenIdError}</span>}
       </div>
 
       {networkMismatch && (

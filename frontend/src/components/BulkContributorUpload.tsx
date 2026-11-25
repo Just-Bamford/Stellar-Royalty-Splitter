@@ -167,7 +167,9 @@ export function BulkContributorUpload({ contractId, onSuccess }: BulkContributor
                     {preview.validRows.map((row) => (
                       <tr key={row.rowIndex}>
                         <td>{row.rowIndex}</td>
-                        <td><code>{row.address}</code></td>
+                        <td title={row.address}>
+                          <code>{row.address.slice(0, 6)}...{row.address.slice(-4)}</code>
+                        </td>
                         <td>{row.share}%</td>
                       </tr>
                     ))}

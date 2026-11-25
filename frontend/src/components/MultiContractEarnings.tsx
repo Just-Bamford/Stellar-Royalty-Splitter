@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../api";
 import { formatCurrency } from "../utils/format";
 import { useSettings } from "../context/SettingsContext";
+import { Skeleton } from "./Skeleton";
 import "./MultiContractEarnings.css";
 
 type EarningsData = Awaited<ReturnType<typeof api.getMultiContractEarnings>>;
@@ -121,7 +122,22 @@ export function MultiContractEarnings({ walletAddress }: MultiContractEarningsPr
       )}
 
       {loading && !data && (
-        <div className="mce-loading" aria-busy="true">Loading earnings…</div>
+        <div role="status">
+          <span className="sr-only">Loading earnings…</span>
+          <div aria-hidden="true">
+            <div className="mce-kpis">
+              {["Total Earned", "Contracts", "Total Payouts", "Avg per Contract"].map((label) => (
+                <div key={label} className="mce-kpi">
+                  <div className="mce-kpi-label">{label}</div>
+                  <div className="mce-kpi-value">
+                    <Skeleton width="60%" height="1.1em" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Skeleton width="100%" className="mce-breakdown" />
+          </div>
+        </div>
       )}
 
       {data && (
@@ -152,9 +168,9 @@ export function MultiContractEarnings({ walletAddress }: MultiContractEarningsPr
 
           {/* Per-contract breakdown */}
           {data.data.contracts.length === 0 ? (
-            <div className="mce-empty-contracts">No earnings found for this period.</div>
+            <div className="mce-empty-contracts mce-breakdown">No earnings found for this period.</div>
           ) : (
-            <div className="mce-table-wrapper">
+            <div className="mce-table-wrapper mce-breakdown">
               <table className="mce-table">
                 <thead>
                   <tr>

@@ -17,7 +17,7 @@ await jest.unstable_mockModule("../src/database/index.js", () => ({
 }));
 
 const express = (await import("express")).default;
-const { livenessRouter } = await import("../src/routes/liveness.js");
+const { livenessRouter, READINESS_HORIZON_TIMEOUT_MS } = await import("../src/routes/liveness.js");
 
 const app = express();
 app.use(livenessRouter);
@@ -91,6 +91,24 @@ describe("GET /ready", () => {
     expect(res.status).toBe(503);
     expect(res.body.dependencies.horizon).toBe(false);
   });
+
+  test("responds 503 within the timeout when Horizon never answers", async () => {
+    getMigrationVersion.mockReturnValue(14);
+    // A promise that never settles simulates a hung DNS lookup or TCP connect.
+    checkHorizonConnectivity.mockReturnValue(new Promise(() => {}));
+
+    const started = Date.now();
+    const res = await request(app).get("/ready");
+    const elapsed = Date.now() - started;
+
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({
+      status: "not_ready",
+      dependencies: { database: true, horizon: false },
+    });
+    expect(elapsed).toBeGreaterThanOrEqual(READINESS_HORIZON_TIMEOUT_MS - 100);
+    expect(elapsed).toBeLessThan(READINESS_HORIZON_TIMEOUT_MS + 1500);
+  }, 15000);
 
   test("never includes secrets, API keys, or env vars in the payload", async () => {
     getMigrationVersion.mockReturnValue(14);

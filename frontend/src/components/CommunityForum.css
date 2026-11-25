@@ -99,6 +99,17 @@
   gap: 1rem;
 }
 
+/* #1391: "Load more" below the paginated post list */
+.forum-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.forum-load-more-btn {
+  min-width: 12rem;
+}
+
 .forum-post-card {
   background: var(--bg-card, rgba(255, 255, 255, 0.05));
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
