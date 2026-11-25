@@ -70,4 +70,52 @@ describe("CommunityForum", () => {
 
     expect(screen.getByText("How to split royalties for remix contests?")).toBeInTheDocument();
   });
+
+  it("enforces character limits and displays character counters in post creation modal", () => {
+    render(<CommunityForum walletAddress={WALLET_ADDR} />);
+
+    const newTopicBtn = screen.getByRole("button", { name: "+ New Topic" });
+    fireEvent.click(newTopicBtn);
+
+    const titleInput = screen.getByLabelText("Title");
+    const contentInput = screen.getByLabelText("Content");
+    const titleCounter = screen.getByTestId("title-character-counter");
+    const contentCounter = screen.getByTestId("content-character-counter");
+
+    // Check maxLength attributes
+    expect(titleInput).toHaveAttribute("maxLength", "200");
+    expect(contentInput).toHaveAttribute("maxLength", "5000");
+
+    // Check initial counter values
+    expect(titleCounter).toHaveTextContent("0/200");
+    expect(contentCounter).toHaveTextContent("0/5000");
+
+    // Check counter updates on input
+    fireEvent.change(titleInput, { target: { value: "A".repeat(25) } });
+    expect(titleCounter).toHaveTextContent("25/200");
+
+    fireEvent.change(contentInput, { target: { value: "B".repeat(150) } });
+    expect(contentCounter).toHaveTextContent("150/5000");
+  });
+
+  it("does not submit posts exceeding max title or content length", () => {
+    render(<CommunityForum walletAddress={WALLET_ADDR} />);
+
+    const newTopicBtn = screen.getByRole("button", { name: "+ New Topic" });
+    fireEvent.click(newTopicBtn);
+
+    const titleInput = screen.getByLabelText("Title");
+    const contentInput = screen.getByLabelText("Content");
+    const submitBtn = screen.getByRole("button", { name: /Publish Topic/i });
+
+    // Try submitting with title > 200 chars
+    const overlyLongTitle = "T".repeat(201);
+    fireEvent.change(titleInput, { target: { value: overlyLongTitle } });
+    fireEvent.change(contentInput, { target: { value: "Valid content" } });
+    fireEvent.click(submitBtn);
+
+    // Modal should remain open and post should not be published
+    expect(screen.getByRole("heading", { name: "Start a New Discussion Topic" })).toBeInTheDocument();
+    expect(screen.queryByText(overlyLongTitle)).not.toBeInTheDocument();
+  });
 });
