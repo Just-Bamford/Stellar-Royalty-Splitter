@@ -1,6 +1,10 @@
 import React, { useState } from "react";
 import { useSocialStore, type ForumPost } from "../store/socialStore";
+import { CharacterCounter } from "./CharacterCounter";
 import "./CommunityForum.css";
+
+export const MAX_TITLE_LENGTH = 200;
+export const MAX_CONTENT_LENGTH = 5000;
 
 interface CommunityForumProps {
   walletAddress: string | null;
@@ -50,7 +54,16 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
 
   const handleSubmitPost = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!walletAddress || !currentUser || !postTitle.trim() || !postContent.trim()) return;
+    if (
+      !walletAddress ||
+      !currentUser ||
+      !postTitle.trim() ||
+      !postContent.trim() ||
+      postTitle.trim().length > MAX_TITLE_LENGTH ||
+      postContent.trim().length > MAX_CONTENT_LENGTH
+    ) {
+      return;
+    }
 
     const tagsArray = postTags
       .split(",")
@@ -522,7 +535,13 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
                   placeholder="e.g. Best practices for automated secondary music royalty splits"
                   value={postTitle}
                   onChange={(e) => setPostTitle(e.target.value)}
+                  maxLength={MAX_TITLE_LENGTH}
                   required
+                />
+                <CharacterCounter
+                  current={postTitle.length}
+                  max={MAX_TITLE_LENGTH}
+                  testId="title-character-counter"
                 />
               </div>
 
@@ -547,7 +566,13 @@ export const CommunityForum: React.FC<CommunityForumProps> = ({
                   placeholder="Describe your question or discussion topic in detail..."
                   value={postContent}
                   onChange={(e) => setPostContent(e.target.value)}
+                  maxLength={MAX_CONTENT_LENGTH}
                   required
+                />
+                <CharacterCounter
+                  current={postContent.length}
+                  max={MAX_CONTENT_LENGTH}
+                  testId="content-character-counter"
                 />
               </div>
 
