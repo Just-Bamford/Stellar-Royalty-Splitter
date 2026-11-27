@@ -576,14 +576,6 @@ pub const DEFAULT_UPGRADE_TIMELOCK: u64 = 86_400;
 /// Maximum number of tokens accepted per `batch_distribute` call.
 pub const MAX_BATCH_TOKENS: u32 = 50;
 
-/// Maximum number of combined transfer operations (tokens × recipients) permitted
-/// per `batch_distribute` call. Each operation is a Soroban cross-contract `transfer`
-/// invocation; at the current Soroban instruction budget (~100 M instructions per
-/// transaction) empirical measurement puts a safe ceiling at roughly 100 transfers.
-/// MAX_BATCH_TOKENS (50) × MAX_RECIPIENTS (10) = 500 would far exceed that budget,
-/// so this constant provides a tighter, combined guard.
-pub const MAX_BATCH_OPERATIONS: u32 = 100;
-
 /// Maximum number of tokens in the approved-token whitelist (#840).
 pub const MAX_APPROVED_TOKENS: u32 = 25;
 
@@ -1002,28 +994,8 @@ impl RoyaltySplitter {
         storage::instance_set(env, &StorageKey::Admin, &admin);
         storage::persistent_set(env, &StorageKey::Collaborators, &collaborators);
         storage::persistent_set(env, &StorageKey::ShareMap, &share_map);
-
-        // #955/#982 — Issue governance tokens 1:1 with each collaborator's share
-        // at initialisation. No delegates exist yet so there is no delegation
-        // propagation to handle; we write balances and total supply directly.
-        let mut gov_supply: i128 = 0;
-        for i in 0..collaborators.len() {
-            let addr = collaborators.get(i).unwrap_optimized();
-            let share = shares.get(i).unwrap() as i128;
-            storage::persistent_set(
-                env,
-                &StorageKey::Ext(ExtKey::GovBalance(addr.clone())),
-                &share,
-            );
-            gov_supply = gov_supply
-                .checked_add(share)
-                .ok_or(ContractError::ArithmeticOverflow)?;
-            env.events().publish(
-                (symbol_short!("gov"), symbol_short!("mint")),
-                (addr, share, gov_supply),
-            );
-        }
-        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &gov_supply);
+        // #982 — Initialize total governance token supply to 0
+        storage::instance_set(env, &StorageKey::Ext(ExtKey::GovTotalSupply), &0_i128);
 
         let version = String::from_str(env, VERSION);
         storage::instance_set(env, &StorageKey::ContractVersion, &version);
@@ -1422,14 +1394,18 @@ impl RoyaltySplitter {
         Ok(())
     }
 
-    pub fn admin_transfer(env: Env, new_admin: Address) -> Result<(), ContractError> {
+    pub fn admin_transfer(env: Env, new_admin: Address) {
         storage::extend_instance_ttl(&env);
 
         if env.storage().instance().has(&StorageKey::AdminList) {
             panic!("use propose_admin_xfr multisig");
         }
 
-        let admin = Self::require_admin_address(&env)?;
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&StorageKey::Admin)
+            .expect("not initialized");
 
         auth::require_admin(&env, &admin, auth::msg::ADMIN_TRANSFER_ADMIN);
 
@@ -1440,8 +1416,6 @@ impl RoyaltySplitter {
             (symbol_short!("royalty"), symbol_short!("admin_xfr")),
             (previous_admin, new_admin),
         );
-
-        Ok(())
     }
 
     pub fn propose_admin_transfer(env: Env, new_admin: Address) {
@@ -1456,14 +1430,14 @@ impl RoyaltySplitter {
         );
     }
 
-    pub fn accept_admin(env: Env) {
+    pub fn accept_admin(env: Env) -> Result<(), ContractError> {
         storage::extend_instance_ttl(&env);
 
         let pending: Address = env
             .storage()
             .instance()
             .get(&StorageKey::PendingAdmin)
-            .expect("no pending admin transfer");
+            .ok_or(ContractError::NotInitialized)?;
 
         let context = String::from_str(&env, auth::msg::ACCEPT_ADMIN_PENDING);
         env.events().publish((symbol_short!("auth_req"),), context);
@@ -1473,7 +1447,7 @@ impl RoyaltySplitter {
             .storage()
             .instance()
             .get(&StorageKey::Admin)
-            .expect("not initialized");
+            .ok_or(ContractError::NotInitialized)?;
 
         storage::instance_set(&env, &StorageKey::Admin, &pending);
         env.storage().instance().remove(&StorageKey::PendingAdmin);
@@ -1482,6 +1456,7 @@ impl RoyaltySplitter {
             (symbol_short!("royalty"), symbol_short!("adm_acc")),
             (previous_admin, pending),
         );
+        Ok(())
     }
 
     pub fn unpause(env: Env) -> Result<(), ContractError> {
@@ -2489,18 +2464,6 @@ impl RoyaltySplitter {
             return Err(ContractError::InvalidShareTotal);
         }
 
-        // Guard against exceeding the Soroban instruction budget. Each token
-        // distribution performs one `transfer` per recipient; 50 tokens × 10
-        // recipients = 500 operations, which comfortably blows past the ~100 M
-        // instruction ceiling. Reject any combination whose product exceeds the
-        // safe constant.
-        let token_count = tokens.len() as u32;
-        let recipient_count = recipients_to_use.len() as u32;
-        let effective_operations = token_count.saturating_mul(recipient_count);
-        if effective_operations > MAX_BATCH_OPERATIONS {
-            return Err(ContractError::TooManyBatchTokens);
-        }
-
         // Validate every selected token before changing any distribution
         // bookkeeping or transferring funds. In particular, the anomaly
         // safeguard used to return `Ok(())` from inside the processing loop;
@@ -3368,9 +3331,11 @@ impl RoyaltySplitter {
             start_time: env.ledger().timestamp(),
             claimed_shares: 0,
         };
-        let vesting_key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone()));
-        storage::persistent_set(&env, &vesting_key, &schedule);
-        storage::extend_persistent_ttl_for(&env, &vesting_key);
+        storage::persistent_set(
+            &env,
+            &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary.clone())),
+            &schedule,
+        );
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_set")),
             (beneficiary, total_shares, cliff_days, vesting_days),
@@ -3380,12 +3345,7 @@ impl RoyaltySplitter {
 
     pub fn get_vesting_schedule(env: Env, beneficiary: Address) -> Option<VestingSchedule> {
         storage::extend_instance_ttl(&env);
-        let vesting_key = StorageKey::Ext(ExtKey::VestingSchedule(beneficiary));
-        let result = storage::persistent_get(&env, &vesting_key);
-        if result.is_some() {
-            storage::extend_persistent_ttl_for(&env, &vesting_key);
-        }
-        result
+        storage::persistent_get(&env, &StorageKey::Ext(ExtKey::VestingSchedule(beneficiary)))
     }
 
     /// Shares vested out of `schedule.total_shares` as of `current_time`:
@@ -3504,7 +3464,6 @@ impl RoyaltySplitter {
 
         schedule.claimed_shares = schedule.claimed_shares.saturating_add(newly_claimable);
         storage::persistent_set(&env, &key, &schedule);
-        storage::extend_persistent_ttl_for(&env, &key);
 
         env.events().publish(
             (symbol_short!("royalty"), symbol_short!("vest_clm")),
@@ -7528,81 +7487,6 @@ mod recipient_earnings_tests {
         assert_eq!(client.get_recipient_earnings(&collab_a, &token), 6_000);
         assert_eq!(client.get_recipient_earnings(&collab_b, &token), 4_000);
     }
-
-    // ── MAX_BATCH_OPERATIONS boundary tests (#1315) ───────────────────────────
-
-    /// Helper: build a contract with `n` equal-share recipients and return the
-    /// contract address alongside the client.
-    fn setup_n_recipients(env: &Env, n: u32) -> (Address, RoyaltySplitterClient<'_>) {
-        assert!(n > 0 && 10_000 % n == 0, "share total must be 10 000");
-        let contract_id = env.register_contract(None, RoyaltySplitter);
-        let client = RoyaltySplitterClient::new(env, &contract_id);
-        let share_each = 10_000u32 / n;
-        let mut addrs: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
-        let mut shares: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
-        for _ in 0..n {
-            addrs.push_back(Address::generate(env));
-            shares.push_back(share_each);
-        }
-        client.initialize(&addrs, &shares);
-        (contract_id, client)
-    }
-
-    #[test]
-    fn batch_distribute_rejects_50_tokens_with_10_recipients() {
-        // 50 × 10 = 500 > MAX_BATCH_OPERATIONS (100) → must return TooManyBatchTokens.
-        let env = Env::default();
-        env.mock_all_auths();
-        let (contract_id, client) = setup_n_recipients(&env, 10);
-        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
-        for _ in 0..50u32 {
-            let (token_addr, asset_client, _) = create_token(&env);
-            asset_client.mint(&contract_id, &10_000);
-            tokens.push_back(token_addr);
-        }
-        let result = client.try_batch_distribute(&tokens);
-        assert_eq!(
-            result,
-            Err(Ok(ContractError::TooManyBatchTokens)),
-            "50 tokens × 10 recipients should exceed MAX_BATCH_OPERATIONS"
-        );
-    }
-
-    #[test]
-    fn batch_distribute_accepts_10_tokens_with_10_recipients() {
-        // 10 × 10 = 100 == MAX_BATCH_OPERATIONS → must succeed (at the limit, not over).
-        let env = Env::default();
-        env.mock_all_auths();
-        let (contract_id, client) = setup_n_recipients(&env, 10);
-        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
-        for _ in 0..10u32 {
-            let (token_addr, asset_client, _) = create_token(&env);
-            asset_client.mint(&contract_id, &10_000);
-            tokens.push_back(token_addr);
-        }
-        // Should succeed — exactly at the limit.
-        client.batch_distribute(&tokens);
-    }
-
-    #[test]
-    fn batch_distribute_rejects_one_over_limit() {
-        // 11 tokens × 10 recipients = 110 > 100 → must be rejected.
-        let env = Env::default();
-        env.mock_all_auths();
-        let (contract_id, client) = setup_n_recipients(&env, 10);
-        let mut tokens: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
-        for _ in 0..11u32 {
-            let (token_addr, asset_client, _) = create_token(&env);
-            asset_client.mint(&contract_id, &10_000);
-            tokens.push_back(token_addr);
-        }
-        let result = client.try_batch_distribute(&tokens);
-        assert_eq!(
-            result,
-            Err(Ok(ContractError::TooManyBatchTokens)),
-            "11 tokens × 10 recipients (110 ops) should exceed MAX_BATCH_OPERATIONS"
-        );
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -7849,33 +7733,31 @@ mod advanced_governance_tests {
         env.mock_all_auths();
         let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // initialize issues governance tokens 1:1 with each collaborator's share
-        assert_eq!(client.gov_total_supply(), 10_000);
-        assert_eq!(client.gov_balance(&alice), 6_000);
-        assert_eq!(client.gov_balance(&bob), 4_000);
+        assert_eq!(client.gov_total_supply(), 0);
+        assert_eq!(client.gov_balance(&alice), 0);
+        assert_eq!(client.gov_balance(&bob), 0);
 
-        // Mint additional tokens to Alice and Bob
+        // Mint tokens to Alice and Bob
         client.gov_mint(&alice, &1_000);
         client.gov_mint(&bob, &500);
 
-        assert_eq!(client.gov_balance(&alice), 7_000);
-        assert_eq!(client.gov_balance(&bob), 4_500);
-        assert_eq!(client.gov_total_supply(), 11_500);
+        assert_eq!(client.gov_balance(&alice), 1_000);
+        assert_eq!(client.gov_balance(&bob), 500);
+        assert_eq!(client.gov_total_supply(), 1_500);
 
-        // Transfer 300 from Alice to Bob
+        // Transfer from Alice to Bob
         client.gov_transfer(&alice, &bob, &300);
-        assert_eq!(client.gov_balance(&alice), 6_700);
-        assert_eq!(client.gov_balance(&bob), 4_800);
-        assert_eq!(client.gov_total_supply(), 11_500);
+        assert_eq!(client.gov_balance(&alice), 700);
+        assert_eq!(client.gov_balance(&bob), 800);
+        assert_eq!(client.gov_total_supply(), 1_500);
 
         // Failure cases
         assert_eq!(
             client.try_gov_mint(&alice, &0),
             Err(Ok(ContractError::AmountNotPositive))
         );
-        // Alice has 6_700 — attempt to transfer more than balance
         assert_eq!(
-            client.try_gov_transfer(&alice, &bob, &10_000),
+            client.try_gov_transfer(&alice, &bob, &1_000),
             Err(Ok(ContractError::InsufficientBalance))
         );
         assert_eq!(
@@ -7892,22 +7774,21 @@ mod advanced_governance_tests {
 
         client.gov_mint(&alice, &1_000);
         client.gov_mint(&bob, &500);
-        // alice=7_000, bob=4_500
 
-        assert_eq!(client.get_effective_gov_votes(&alice), 7_000);
-        assert_eq!(client.get_effective_gov_votes(&bob), 4_500);
+        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 500);
 
         // Alice delegates to Bob
         client.delegate_gov_votes(&alice, &bob);
         assert_eq!(client.get_gov_delegate(&alice), Some(bob.clone()));
         assert_eq!(client.get_effective_gov_votes(&alice), 0);
-        assert_eq!(client.get_effective_gov_votes(&bob), 11_500);
+        assert_eq!(client.get_effective_gov_votes(&bob), 1_500);
 
         // Alice revokes delegation
         client.revoke_gov_delegation(&alice);
         assert_eq!(client.get_gov_delegate(&alice), None);
-        assert_eq!(client.get_effective_gov_votes(&alice), 7_000);
-        assert_eq!(client.get_effective_gov_votes(&bob), 4_500);
+        assert_eq!(client.get_effective_gov_votes(&alice), 1_000);
+        assert_eq!(client.get_effective_gov_votes(&bob), 500);
     }
 
     #[test]
@@ -7966,7 +7847,7 @@ mod advanced_governance_tests {
         let prop = client.get_gov_proposal(&prop_id);
         assert_eq!(prop.id, 1);
         assert_eq!(prop.proposer, alice);
-        assert_eq!(prop.quorum_votes, 2_300); // 20% of 11_500 (alice=7_000+bob=4_500)
+        assert_eq!(prop.quorum_votes, 300); // 20% of 1500 = 300
         assert_eq!(prop.voting_ends_at, 10_000 + duration);
         assert!(!prop.executed);
         assert!(!prop.rejected);
@@ -8123,20 +8004,11 @@ mod advanced_governance_tests {
         let env = Env::default();
         env.mock_all_auths();
         env.ledger().with_mut(|l| l.timestamp = 10_000);
+        let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // Build a fresh contract for this quorum test so we control the full
-        // supply precisely. admin holds 10_000 from initialize; mint alice=5_000
-        // → total=15_000, quorum=3_000 (20%). Alice votes 5_000 >= 3_000. ✓
-        let contract_id = env.register_contract(None, RoyaltySplitter);
-        let client = RoyaltySplitterClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let alice = Address::generate(&env);
-        client.initialize(
-            &Vec::from_array(&env, [admin.clone()]),
-            &Vec::from_array(&env, [10_000u32]),
-        );
-        client.gov_mint(&alice, &5_000);
-        // total = 15_000, quorum = 20% = 3_000
+        // Total supply = 1,000. Quorum is exactly 200 (20%).
+        client.gov_mint(&alice, &200);
+        client.gov_mint(&bob, &800);
 
         let prop_id = client.create_gov_proposal(
             &alice,
@@ -8146,7 +8018,7 @@ mod advanced_governance_tests {
             &DEFAULT_GOV_VOTING_PERIOD,
         );
 
-        // Alice votes with 5_000 >= quorum of 3_000 — meets quorum
+        // Alice votes with exactly 200 votes (meets quorum)
         client.vote_gov_proposal(&alice, &prop_id, &true);
 
         env.ledger()
@@ -8304,13 +8176,10 @@ mod advanced_governance_tests {
         env.mock_all_auths();
         let (_, _, alice, bob, client) = setup_gov(&env);
 
-        // alice=6_000, bob=4_000 from initialize — both have enough to propose.
-        // Use a fresh address (charlie) with 0 tokens to test the rejection.
-        let charlie = Address::generate(&env);
-
+        // Bob has 0 tokens
         assert_eq!(
             client.try_create_gov_proposal(
-                &charlie,
+                &bob,
                 &GovProposalAction::ChangeRoyaltyRate(500),
                 &String::from_str(&env, "Title"),
                 &String::from_str(&env, "Desc"),
@@ -8319,7 +8188,7 @@ mod advanced_governance_tests {
             Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
         );
 
-        // Alice creates proposal (has 6_000 votes)
+        // Alice mints tokens and creates proposal
         client.gov_mint(&alice, &1_000);
         let prop_id = client.create_gov_proposal(
             &alice,
@@ -8329,12 +8198,11 @@ mod advanced_governance_tests {
             &DEFAULT_GOV_VOTING_PERIOD,
         );
 
-        // Charlie has 0 voting power
+        // Bob has 0 voting power
         assert_eq!(
-            client.try_vote_gov_proposal(&charlie, &prop_id, &true),
+            client.try_vote_gov_proposal(&bob, &prop_id, &true),
             Err(Ok(ContractError::GOV_INSUFFICIENT_POWER))
         );
-        let _ = bob;
     }
 
     #[test]

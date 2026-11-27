@@ -600,4 +600,3 @@ contractRouter.get("/version/:contractId", validateContractIdMiddleware, async (
     next(err);
   }
 });
-
