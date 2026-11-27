@@ -34,6 +34,21 @@ const STEP_LABELS: Record<VerificationStep, string> = {
   rejected:      "Rejected",
 };
 
+/**
+ * A 2xx response is not guaranteed to carry the record: a backend or proxy
+ * can answer `{ success: true }` with no `data` (#1389). Only a value with
+ * the record's shape may replace what is on screen.
+ */
+function isVerificationRecord(value: unknown): value is VerificationRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as VerificationRecord).walletAddress === "string" &&
+    typeof (value as VerificationRecord).step === "string" &&
+    typeof (value as VerificationRecord).status === "string"
+  );
+}
+
 const STEP_ORDER: VerificationStep[] = ["email", "kyc", "manual_review", "verified"];
 
 function StepIndicator({ current }: { current: VerificationStep }) {
@@ -77,7 +92,7 @@ export function ContributorVerification({ walletAddress, isAdmin = false }: Prop
     api
       .getVerification(walletAddress)
       .then((res) => {
-        if (!cancelled) setRecord(res.data);
+        if (!cancelled) setRecord(isVerificationRecord(res?.data) ? res.data : null);
       })
       .catch(() => {
         if (!cancelled) setRecord(null);
@@ -91,12 +106,30 @@ export function ContributorVerification({ walletAddress, isAdmin = false }: Prop
     };
   }, [walletAddress]);
 
+  /**
+   * Applies the record returned by a successful mutation. When the response
+   * has no record, refetch it instead, and if that also has none keep the
+   * current record rather than clearing the panel (#1389).
+   */
+  async function applyMutationResult(data: unknown) {
+    if (isVerificationRecord(data)) {
+      setRecord(data);
+      return;
+    }
+    try {
+      const fresh = await api.getVerification(walletAddress);
+      if (isVerificationRecord(fresh?.data)) setRecord(fresh.data);
+    } catch {
+      // Keep the current record; the mutation itself succeeded.
+    }
+  }
+
   async function handleStart() {
     setActionLoading(true);
     setError(null);
     try {
       const res = await api.startVerification(walletAddress);
-      setRecord(res.data as VerificationRecord);
+      await applyMutationResult(res?.data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to start verification");
     } finally {
@@ -114,7 +147,7 @@ export function ContributorVerification({ walletAddress, isAdmin = false }: Prop
         status,
         adminNote: adminNote || null,
       });
-      setRecord(res.data as VerificationRecord);
+      await applyMutationResult(res?.data);
       setAdminNote("");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to update verification");
@@ -184,8 +217,10 @@ export function ContributorVerification({ walletAddress, isAdmin = false }: Prop
                 value={adminNote}
                 onChange={(e) => setAdminNote(e.target.value)}
                 placeholder="Add a note…"
+                maxLength={500}
                 disabled={actionLoading}
               />
+              <span className="char-counter">{adminNote.length}/500</span>
               <div className="form-actions">
                 {record.step === "email" && (
                   <button

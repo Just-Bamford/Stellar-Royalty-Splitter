@@ -111,6 +111,8 @@ export default function RecordSecondarySale({
       onSuccess();
     } catch (err) {
       setStatus("error", `Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+      // Form data is kept for retry, but the royalty preview may be stale.
+      setCalculatedRoyalty(null);
     } finally {
       setLoading(false);
     }

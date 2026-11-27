@@ -3,6 +3,13 @@ import { useState, useEffect, useCallback } from "react";
 import { api, TransactionRecord, AuditLogEntry } from "../api";
 import { Skeleton } from "./Skeleton";
 import { CopyButton } from "./CopyButton";
+import {
+  clampOffset,
+  fetchAllPages,
+  pageRange,
+  paginate,
+  sortNewestFirst,
+} from "../utils/timeline";
 import "./ContractTimeline.css";
 
 interface ContractTimelineProps {
@@ -68,19 +75,26 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<EventType>("all");
   const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
+  const [truncated, setTruncated] = useState(false);
 
+  // Transactions and audit events are paginated separately by the server, so
+  // paging both with one offset would skip/repeat events in the merged list.
+  // Load each source in full, merge, and page the merged list on the client.
   const load = useCallback(async () => {
     if (!contractId) return;
     setLoading(true);
     setError(null);
     try {
-      const [txRes, auditRes] = await Promise.all([
-        api.getTransactionHistory(contractId, LIMIT, offset),
-        api.getAuditLog(contractId, LIMIT, offset),
+      const [txAll, auditAll] = await Promise.all([
+        fetchAllPages<TransactionRecord>((limit, off) =>
+          api.getTransactionHistory(contractId, limit, off).then((res) => res.data ?? []),
+        ),
+        fetchAllPages<AuditLogEntry>((limit, off) =>
+          api.getAuditLog(contractId, limit, off).then((res) => res.data ?? []),
+        ),
       ]);
 
-      const txEvents: TimelineEvent[] = (txRes.data ?? []).map((t: TransactionRecord) => ({
+      const txEvents: TimelineEvent[] = txAll.items.map((t: TransactionRecord) => ({
         id: `tx-${t.id}`,
         kind: "transaction",
         type: t.type,
@@ -92,7 +106,7 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
         payoutCount: t.payoutCount,
       }));
 
-      const auditEvents: TimelineEvent[] = (auditRes.data ?? []).map((a: AuditLogEntry) => ({
+      const auditEvents: TimelineEvent[] = auditAll.items.map((a: AuditLogEntry) => ({
         id: `audit-${a.id}`,
         kind: "audit",
         type: "audit",
@@ -103,22 +117,23 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
       }));
 
       // Merge and sort newest first
-      const merged = [...txEvents, ...auditEvents].sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      );
-
-      setEvents(merged);
-      setTotal(txRes.pagination?.total ?? 0);
+      setEvents(sortNewestFirst([...txEvents, ...auditEvents]));
+      setTruncated(txAll.truncated || auditAll.truncated);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load timeline");
     } finally {
       setLoading(false);
     }
-  }, [contractId, offset]);
+  }, [contractId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // A different contract starts again from the first page.
+  useEffect(() => {
+    setOffset(0);
+  }, [contractId]);
 
   const filtered = events.filter((e) => {
     if (filter === "all") return true;
@@ -126,6 +141,12 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
     if (filter === "secondary") return e.type.startsWith("secondary");
     return e.type === filter;
   });
+
+  // Pagination is over the filtered, merged list, so every page is consistent.
+  const total = filtered.length;
+  const pageOffset = clampOffset(offset, total, LIMIT);
+  const pageEvents = paginate(filtered, pageOffset, LIMIT);
+  const range = pageRange(pageOffset, LIMIT, total);
 
   const FILTERS: { id: EventType; label: string }[] = [
     { id: "all", label: "All" },
@@ -144,7 +165,10 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
             <button
               key={f.id}
               className={`filter-btn ${filter === f.id ? "active" : ""}`}
-              onClick={() => setFilter(f.id)}
+              onClick={() => {
+                setFilter(f.id);
+                setOffset(0);
+              }}
             >
               {f.label}
             </button>
@@ -174,7 +198,7 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
       ) : (
         <>
           <div className="timeline">
-            {filtered.map((event) => {
+            {pageEvents.map((event) => {
               const dc = dotClass(event.type);
               const icon = TYPE_ICONS[event.type] ?? TYPE_ICONS.default;
               const label = TYPE_LABELS[event.type] ?? event.action ?? event.type;
@@ -239,19 +263,27 @@ export const ContractTimeline: React.FC<ContractTimelineProps> = ({ contractId }
           </div>
 
           <div className="timeline-pagination">
-            <button onClick={() => setOffset(Math.max(0, offset - LIMIT))} disabled={offset === 0}>
+            <button
+              onClick={() => setOffset(Math.max(0, pageOffset - LIMIT))}
+              disabled={pageOffset === 0}
+            >
               ← Newer
             </button>
             <span>
-              {offset + 1}–{Math.min(offset + LIMIT, total)} of {total}
+              {range.from}–{range.to} of {total}
             </span>
             <button
-              onClick={() => setOffset(offset + LIMIT)}
-              disabled={offset + LIMIT >= total}
+              onClick={() => setOffset(pageOffset + LIMIT)}
+              disabled={pageOffset + LIMIT >= total}
             >
               Older →
             </button>
           </div>
+          {truncated && (
+            <p className="timeline-empty">
+              Showing the most recent events only; older history is not loaded.
+            </p>
+          )}
         </>
       )}
     </div>

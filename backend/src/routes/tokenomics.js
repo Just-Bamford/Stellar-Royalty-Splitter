@@ -11,6 +11,12 @@ import {
   simulateVesting,
   buildVestingSchedule,
 } from "../services/vesting-analytics.js";
+import {
+  validateTokenomicsConfig,
+  validateTokenomicsOptions,
+  validateVestingSchedule,
+  validateVestingSchedules,
+} from "../tokenomics-validation.js";
 
 const router = express.Router();
 
@@ -30,6 +36,14 @@ function parseOptions(body = {}) {
   };
 }
 
+/** Respond 400 `validation_failed` for the first non-null validation error. */
+function rejectInvalid(res, ...errors) {
+  const message = errors.find(Boolean);
+  if (!message) return false;
+  sendError(res, 400, "validation_failed", message);
+  return true;
+}
+
 /**
  * POST /api/v1/tokenomics/model
  * Body: { config?, options? }
@@ -38,6 +52,11 @@ function parseOptions(body = {}) {
 router.post("/model", (req, res) => {
   try {
     const { config = {}, options = {} } = req.body ?? {};
+    if (
+      rejectInvalid(res, validateTokenomicsConfig(config), validateTokenomicsOptions(options))
+    ) {
+      return;
+    }
     const model = buildTokenEconomicsModel(config, parseOptions(options));
     res.set("Cache-Control", "no-store");
     res.json({ success: true, data: model });
@@ -55,6 +74,16 @@ router.post("/model", (req, res) => {
 router.post("/simulate", (req, res) => {
   try {
     const { config = {}, scenario = {}, options = {} } = req.body ?? {};
+    if (
+      rejectInvalid(
+        res,
+        validateTokenomicsConfig(config),
+        validateTokenomicsConfig(scenario, "scenario"),
+        validateTokenomicsOptions(options),
+      )
+    ) {
+      return;
+    }
     const result = simulateDistribution(config, scenario, parseOptions(options));
     res.json({ success: true, data: result });
   } catch (error) {
@@ -71,8 +100,8 @@ router.post("/simulate", (req, res) => {
 router.post("/vesting", (req, res) => {
   try {
     const { schedules = [], options = {} } = req.body ?? {};
-    if (!Array.isArray(schedules)) {
-      return sendError(res, 400, "validation_failed", "schedules must be an array");
+    if (rejectInvalid(res, validateVestingSchedules(schedules), validateTokenomicsOptions(options))) {
+      return;
     }
     const analytics = buildVestingAnalytics(schedules, parseOptions(options));
     res.json({ success: true, data: analytics });
@@ -93,6 +122,16 @@ router.post("/vesting/simulate", (req, res) => {
     if (!schedule || typeof schedule !== "object") {
       return sendError(res, 400, "validation_failed", "schedule is required");
     }
+    if (
+      rejectInvalid(
+        res,
+        validateVestingSchedule(schedule),
+        validateVestingSchedule(overrides, "overrides", { partial: true }),
+        validateTokenomicsOptions(options),
+      )
+    ) {
+      return;
+    }
     const result = simulateVesting(schedule, overrides, parseOptions(options));
     res.json({ success: true, data: result });
   } catch (error) {
@@ -112,6 +151,9 @@ router.post("/vesting/schedule", (req, res) => {
     if (!schedule || typeof schedule !== "object") {
       return sendError(res, 400, "validation_failed", "schedule is required");
     }
+    if (rejectInvalid(res, validateVestingSchedule(schedule), validateTokenomicsOptions(options))) {
+      return;
+    }
     const result = buildVestingSchedule(schedule, options);
     res.json({ success: true, data: result });
   } catch (error) {
@@ -128,6 +170,11 @@ router.post("/vesting/schedule", (req, res) => {
 router.post("/export/supply", (req, res) => {
   try {
     const { config = {}, options = {} } = req.body ?? {};
+    if (
+      rejectInvalid(res, validateTokenomicsConfig(config), validateTokenomicsOptions(options))
+    ) {
+      return;
+    }
     const model = buildTokenEconomicsModel(config, parseOptions(options));
     const csv = projectionToCsv(model.projection);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");

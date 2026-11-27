@@ -43,19 +43,11 @@ export function appendApplicationLog({
   }
 }
 
-export function queryApplicationLogs({
-  level,
-  correlationId,
-  requestId,
-  service,
-  search,
-  from,
-  to,
-  limit = 100,
-  offset = 0,
-} = {}) {
-  const clauses = [];
-  const params = [];
+function addApplicationLogFilters(
+  { level, correlationId, requestId, service, search, from, to },
+  clauses,
+  params,
+) {
   if (level && LEVELS.has(level)) {
     clauses.push("level = ?");
     params.push(level);
@@ -85,6 +77,22 @@ export function queryApplicationLogs({
     const pattern = `%${String(search).slice(0, 120)}%`;
     params.push(pattern, pattern);
   }
+}
+
+export function queryApplicationLogs({
+  level,
+  correlationId,
+  requestId,
+  service,
+  search,
+  from,
+  to,
+  limit = 100,
+  offset = 0,
+} = {}) {
+  const clauses = [];
+  const params = [];
+  addApplicationLogFilters({ level, correlationId, requestId, service, search, from, to }, clauses, params);
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const safeOffset = Math.max(Number(offset) || 0, 0);
@@ -103,8 +111,11 @@ export function queryApplicationLogs({
 }
 
 export function countApplicationLogs(filters = {}) {
-  const rows = queryApplicationLogs({ ...filters, limit: 500, offset: 0 });
-  return rows.length;
+  const clauses = [];
+  const params = [];
+  addApplicationLogFilters(filters, clauses, params);
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  return db.prepare(`SELECT COUNT(*) AS total FROM application_logs ${where}`).get(...params).total;
 }
 
 export function pruneApplicationLogs(retentionDays = DEFAULT_RETENTION_DAYS) {

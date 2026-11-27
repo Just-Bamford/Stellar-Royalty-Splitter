@@ -15,6 +15,7 @@ import {
 } from "../database/index.js";
 import { attachRole, requireRole } from "../middleware/rbac.js";
 import logger from "../logger.js";
+import { validateContractId } from "../validation.js";
 
 const router = express.Router();
 
@@ -29,6 +30,7 @@ const router = express.Router();
 router.get("/oracle/predict/:contractId", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const { horizon = "7d" } = req.query;
 
     const prediction = getLatestPrediction(contractId, horizon);
@@ -73,10 +75,23 @@ router.post("/oracle/predict", attachRole, requireRole("admin"), (req, res) => {
       return sendError(res, 400, "validation_failed", "Missing required fields");
     }
 
+    if (!validateContractId(contractId, res)) return;
+
+    // confidence is a probability: a finite number in [0, 1]. Only real numbers
+    // and non-empty numeric strings qualify (Number("") and Number(null) are 0).
+    const confidenceNum =
+      typeof confidence === "number" ||
+      (typeof confidence === "string" && confidence.trim() !== "")
+        ? Number(confidence)
+        : Number.NaN;
+    if (!Number.isFinite(confidenceNum) || confidenceNum < 0 || confidenceNum > 1) {
+      return sendError(res, 400, "validation_failed", "confidence must be a number between 0 and 1");
+    }
+
     const predictionId = storePrediction({
       contractId,
       predictedAmount,
-      confidence,
+      confidence: confidenceNum,
       factors,
       modelVersion,
       predictionHorizon,
@@ -100,6 +115,7 @@ router.post("/oracle/predict", attachRole, requireRole("admin"), (req, res) => {
 router.get("/oracle/predictions/:contractId/history", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const { limit = 50, offset = 0 } = req.query;
 
     const predictions = getPredictionHistory(contractId, parseInt(limit), parseInt(offset));
@@ -201,6 +217,7 @@ router.post("/oracle/model", attachRole, requireRole("admin"), (req, res) => {
 router.get("/oracle/market-data/:contractId", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const { source } = req.query;
 
     const marketData = getLatestMarketData(contractId, source || null);
@@ -250,6 +267,8 @@ router.post("/oracle/market-data", attachRole, requireRole("admin"), (req, res) 
       return sendError(res, 400, "validation_failed", "contractId and source are required");
     }
 
+    if (!validateContractId(contractId, res)) return;
+
     const snapshotId = storeMarketData({
       contractId,
       source,
@@ -282,6 +301,7 @@ router.post("/oracle/market-data", attachRole, requireRole("admin"), (req, res) 
 router.get("/oracle/market-data/:contractId/history", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const { hours = 24, source } = req.query;
 
     const history = getMarketDataHistory(contractId, parseInt(hours), source || null);
@@ -306,6 +326,7 @@ router.get("/oracle/market-data/:contractId/history", attachRole, requireRole("v
 router.get("/oracle/accuracy/:contractId", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const { days = 7 } = req.query;
 
     const accuracy = calculatePredictionAccuracy(contractId, parseInt(days));
@@ -327,6 +348,7 @@ router.get("/oracle/accuracy/:contractId", attachRole, requireRole("viewer"), (r
 router.get("/oracle/trends/:contractId", attachRole, requireRole("viewer"), (req, res) => {
   try {
     const { contractId } = req.params;
+    if (!validateContractId(contractId, res)) return;
     const { days = 30 } = req.query;
 
     const trends = getMarketTrends(contractId, parseInt(days));

@@ -21,6 +21,25 @@ import { getMigrationVersion } from "../database/index.js";
 import { getNetworkLabel, checkHorizonConnectivity } from "../stellar.js";
 import logger from "../logger.js";
 
+/**
+ * Upper bound on how long /ready waits for Horizon. Orchestrator readiness
+ * probes typically time out after 2-5 seconds, so this must stay below that
+ * or a hung Horizon turns into a hung probe instead of a clean 503.
+ */
+export const READINESS_HORIZON_TIMEOUT_MS = 3000;
+
+/**
+ * Reject if `promise` has not settled within `ms`. The timer is cleared as
+ * soon as the promise settles so no stray timers are left behind.
+ */
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export const livenessRouter = Router();
 
 livenessRouter.get("/health", (_req, res) => {
@@ -44,7 +63,11 @@ livenessRouter.get("/ready", async (_req, res) => {
   }
 
   try {
-    const horizon = await checkHorizonConnectivity();
+    const horizon = await withTimeout(
+      checkHorizonConnectivity(),
+      READINESS_HORIZON_TIMEOUT_MS,
+      "Horizon connectivity check",
+    );
     dependencies.horizon = horizon.connected;
   } catch (err) {
     logger.warn("Readiness check: Horizon unavailable", { error: err.message });

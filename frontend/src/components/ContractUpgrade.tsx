@@ -6,7 +6,7 @@
  * hash of the pre-uploaded replacement blob, signs the XDR with Freighter,
  * and submits.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../api";
 import { signAndSubmitTransaction } from "../stellar";
 import { useNetwork } from "../context/NetworkContext";
@@ -26,6 +26,8 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
   const [wasmHash, setWasmHash] = useState("");
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unmountedRef = useRef(false);
 
   useEffect(() => {
     if (!contractId) return;
@@ -34,6 +36,17 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
       .then((res) => setCurrentVersion(res.version))
       .catch(() => setCurrentVersion(null));
   }, [contractId]);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      if (pollTimerRef.current !== null) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const wasmHashError =
     wasmHash && !WASM_HASH_RE.test(wasmHash)
@@ -56,18 +69,46 @@ export function ContractUpgrade({ contractId, walletAddress }: Props) {
       setStatus("info", "Signing transaction with Freighter…");
       const hash = await signAndSubmitTransaction(res.xdr, network);
 
-      setStatus("ok", `Contract upgraded successfully. TX: ${hash.slice(0, 12)}…`);
-      setWasmHash("");
+      setStatus(
+        "ok",
+        `Contract upgraded successfully. TX: ${hash.slice(0, 12)}… Version will update once confirmed on-chain.`,
+      );
 
-      // Re-fetch version after upgrade
-      api
-        .getContractVersion(contractId)
-        .then((r) => setCurrentVersion(r.version))
-        .catch(() => {});
+      // Poll for on-chain confirmation before refetching the version.
+      if (contractId) {
+        const previousVersion = currentVersion;
+        const deadline = Date.now() + 30_000;
+        const POLL_INTERVAL_MS = 2_000;
+
+        const poll = () => {
+          if (unmountedRef.current) return;
+          api
+            .getContractVersion(contractId)
+            .then((r) => {
+              if (unmountedRef.current) return;
+              if (r.version !== previousVersion) {
+                setCurrentVersion(r.version);
+                return;
+              }
+              if (Date.now() < deadline) {
+                pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+              }
+            })
+            .catch(() => {
+              if (unmountedRef.current) return;
+              if (Date.now() < deadline) {
+                pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+              }
+            });
+        };
+
+        pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+      }
     } catch (e: unknown) {
       setStatus("error", e instanceof Error ? e.message : "Upgrade failed");
     } finally {
       setLoading(false);
+      setWasmHash("");
     }
   }
 

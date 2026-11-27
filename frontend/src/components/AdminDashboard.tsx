@@ -12,11 +12,13 @@ import "./AdminDashboard.css";
 interface AdminDashboardProps {
   contractId: string;
   adminToken?: string;
+  walletAddress?: string | null;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   contractId,
   adminToken = "",
+  walletAddress = null,
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -405,7 +407,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="management-card">
             <h3>Payment Holds</h3>
             <p>Manage payment holds and release workflows</p>
-            <PaymentHoldManager contractId={contractId} isAdmin={true} />
+            <PaymentHoldManager contractId={contractId} isAdmin={true} walletAddress={walletAddress} />
           </div>
         </div>
       </div>

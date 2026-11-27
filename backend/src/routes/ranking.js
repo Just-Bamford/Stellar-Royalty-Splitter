@@ -20,7 +20,18 @@ export const rankingRouter = Router();
 
 const VALID_METRICS = ["totalEarned", "payoutCount", "avgPayout"];
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_RANKING_CACHE_ENTRIES = 200;
 const cache = new Map();
+
+const cleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.ts >= CACHE_TTL) cache.delete(key);
+  }
+}, CACHE_TTL);
+cleanupInterval.unref?.();
+
+process.on("exit", () => clearInterval(cleanupInterval));
 
 function parseDateRange(start, end) {
   const startDate = start
@@ -100,6 +111,10 @@ rankingRouter.get("/:contractId", validateContractIdMiddleware, (req, res) => {
     rankings: rows,
   };
 
+  if (cache.size >= MAX_RANKING_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
   cache.set(cacheKey, { ts: Date.now(), data });
   res.set("Cache-Control", "max-age=300");
   res.json(data);
@@ -154,6 +169,10 @@ rankingRouter.get("/", (req, res) => {
     rankings: rows,
   };
 
+  if (cache.size >= MAX_RANKING_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
   cache.set(cacheKey, { ts: Date.now(), data });
   res.set("Cache-Control", "max-age=300");
   res.json(data);

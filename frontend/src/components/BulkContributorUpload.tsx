@@ -14,6 +14,8 @@ interface PreviewRow {
   error?: string;
 }
 
+const ALLOWED_CSV_TYPES = ["text/csv", "application/vnd.ms-excel", "text/plain"];
+
 export function BulkContributorUpload({ contractId, onSuccess }: BulkContributorUploadProps) {
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">("upload");
@@ -33,8 +35,8 @@ export function BulkContributorUpload({ contractId, onSuccess }: BulkContributor
     const selected = e.target.files?.[0];
     if (!selected) return;
 
-    if (!selected.name.endsWith(".csv")) {
-      setError("Please select a CSV file");
+    if (!selected.name.endsWith(".csv") || (selected.type && !ALLOWED_CSV_TYPES.includes(selected.type))) {
+      setError("Please select a valid CSV file");
       return;
     }
 
@@ -48,8 +50,8 @@ export function BulkContributorUpload({ contractId, onSuccess }: BulkContributor
     const dropped = e.dataTransfer.files?.[0];
     if (!dropped) return;
 
-    if (!dropped.name.endsWith(".csv")) {
-      setError("Please drop a CSV file");
+    if (!dropped.name.endsWith(".csv") || (dropped.type && !ALLOWED_CSV_TYPES.includes(dropped.type))) {
+      setError("Please drop a valid CSV file");
       return;
     }
 
@@ -165,7 +167,9 @@ export function BulkContributorUpload({ contractId, onSuccess }: BulkContributor
                     {preview.validRows.map((row) => (
                       <tr key={row.rowIndex}>
                         <td>{row.rowIndex}</td>
-                        <td><code>{row.address}</code></td>
+                        <td title={row.address}>
+                          <code>{row.address.slice(0, 6)}...{row.address.slice(-4)}</code>
+                        </td>
                         <td>{row.share}%</td>
                       </tr>
                     ))}

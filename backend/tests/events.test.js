@@ -316,6 +316,40 @@ describe("events/commands routes — integration", () => {
     expect(res.body.asOf).toBe(asOf);
   });
 
+  test("GET state — 400 for an asOf that is not a date", async () => {
+    const res = await request(app).get(`/api/v1/events/${CONTRACT}/state?asOf=not-a-date`);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_query_parameter");
+    expect(queryStateAtTimeMock).not.toHaveBeenCalled();
+    expect(projectContractStateMock).not.toHaveBeenCalled();
+  });
+
+  test("GET state — 400 for impossible, partial and repeated asOf values", async () => {
+    for (const bad of ["2026-02-30", "2026", "1", "yesterday", "2026-13-01T00:00:00Z"]) {
+      const res = await request(app).get(`/api/v1/events/${CONTRACT}/state?asOf=${encodeURIComponent(bad)}`);
+      expect(res.status).toBe(400);
+    }
+    const repeated = await request(app).get(
+      `/api/v1/events/${CONTRACT}/state?asOf=2026-01-01&asOf=2026-02-01`
+    );
+    expect(repeated.status).toBe(400);
+    expect(queryStateAtTimeMock).not.toHaveBeenCalled();
+  });
+
+  test("GET state — accepts ISO dates and date-times", async () => {
+    for (const ok of ["2024-01-01T00:00:00Z", "2024-01-01", "2024-01-01T10:30:00.123+02:00"]) {
+      const res = await request(app).get(`/api/v1/events/${CONTRACT}/state?asOf=${encodeURIComponent(ok)}`);
+      expect(res.status).toBe(200);
+      expect(queryStateAtTimeMock).toHaveBeenLastCalledWith(CONTRACT, ok);
+    }
+  });
+
+  test("GET state — empty asOf is treated as absent", async () => {
+    const res = await request(app).get(`/api/v1/events/${CONTRACT}/state?asOf=`);
+    expect(res.status).toBe(200);
+    expect(projectContractStateMock).toHaveBeenCalled();
+  });
+
   // ── GET /api/v1/events/:contractId/earnings ───────────────────────────────
 
   test("GET earnings — 200 returns earnings projection", async () => {
@@ -323,6 +357,21 @@ describe("events/commands routes — integration", () => {
     expect(res.status).toBe(200);
     expect(res.body.distributionCount).toBe(3);
     expect(projectEarningsSummaryMock).toHaveBeenCalledWith(CONTRACT, expect.anything());
+  });
+
+  test("GET earnings — 400 for an asOf that is not a date", async () => {
+    const res = await request(app).get(`/api/v1/events/${CONTRACT}/earnings?asOf=not-a-date`);
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("invalid_query_parameter");
+    expect(projectEarningsSummaryMock).not.toHaveBeenCalled();
+  });
+
+  test("GET earnings — passes a valid asOf through", async () => {
+    const res = await request(app).get(
+      `/api/v1/events/${CONTRACT}/earnings?asOf=${encodeURIComponent("2024-01-01T00:00:00Z")}`
+    );
+    expect(res.status).toBe(200);
+    expect(projectEarningsSummaryMock).toHaveBeenCalledWith(CONTRACT, { asOf: "2024-01-01T00:00:00Z" });
   });
 
   // ── GET /api/v1/events/event/:eventId ────────────────────────────────────

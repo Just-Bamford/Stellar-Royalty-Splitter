@@ -14,6 +14,20 @@ describe("UserProfile", () => {
     });
   });
 
+  it("switches between the disconnected state and a wallet profile", () => {
+    const { rerender } = render(<UserProfile walletAddress={null} />);
+    expect(screen.getByText("No wallet connected.")).toBeInTheDocument();
+
+    rerender(<UserProfile walletAddress={WALLET_ADDR} />);
+    expect(screen.getByRole("button", { name: "Edit Profile" })).toBeInTheDocument();
+
+    rerender(<UserProfile walletAddress={null} targetAddress={OTHER_ADDR} />);
+    expect(screen.getByRole("button", { name: "Follow User" })).toBeInTheDocument();
+
+    rerender(<UserProfile walletAddress={null} />);
+    expect(screen.getByText("No wallet connected.")).toBeInTheDocument();
+  });
+
   it("renders user profile info, stats, and badges correctly", () => {
     render(<UserProfile walletAddress={WALLET_ADDR} targetAddress={WALLET_ADDR} />);
 

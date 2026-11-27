@@ -1,5 +1,8 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useReducer, useMemo, useEffect, useCallback } from "react";
 import "./DocumentManager.css";
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const FILE_SIZE_ERROR = "File too large. Maximum size is 5 MB.";
 
 export type DocumentType =
   | "contract"
@@ -90,73 +93,144 @@ export interface DocumentManagerProps {
   onDocumentSelected?: (doc: DocumentItem) => void;
 }
 
+interface DocManagerState {
+  catalog: {
+    documents: DocumentItem[];
+    loading: boolean;
+    error: string | null;
+  };
+  filters: {
+    searchQuery: string;
+    typeFilter: string;
+    statusFilter: string;
+    startDate: string;
+    endDate: string;
+    collaboratorFilter: string;
+  };
+  dialogs: {
+    showUploadModal: boolean;
+    showVersionModal: boolean;
+    showShareModal: boolean;
+    showSignModal: boolean;
+    showAuditModal: boolean;
+    selectedDoc: DocumentItem | null;
+    permissionsList: DocumentPermission[];
+    signatureList: DocumentSignature[];
+    uploading: boolean;
+  };
+  uploadForm: {
+    uploadTitle: string;
+    uploadType: DocumentType;
+    uploadDesc: string;
+    uploadTags: string;
+    uploadSigners: string;
+    uploadFile: File | null;
+    uploadFileError: string | null;
+    uploadPin: boolean;
+  };
+  versionForm: {
+    versionSummary: string;
+    versionFile: File | null;
+    versionSigners: string;
+  };
+  shareForm: {
+    shareAddress: string;
+    sharePermission: PermissionLevel;
+  };
+  signatureForm: {
+    rejectionReason: string;
+  };
+  audit: {
+    auditEvents: AuditEvent[];
+    auditVerified: boolean;
+  };
+}
+
+const initialState: DocManagerState = {
+  catalog: { documents: [], loading: true, error: null },
+  filters: {
+    searchQuery: "",
+    typeFilter: "all",
+    statusFilter: "all",
+    startDate: "",
+    endDate: "",
+    collaboratorFilter: "",
+  },
+  dialogs: {
+    showUploadModal: false,
+    showVersionModal: false,
+    showShareModal: false,
+    showSignModal: false,
+    showAuditModal: false,
+    selectedDoc: null,
+    permissionsList: [],
+    signatureList: [],
+    uploading: false,
+  },
+  uploadForm: {
+    uploadTitle: "",
+    uploadType: "contract",
+    uploadDesc: "",
+    uploadTags: "",
+    uploadSigners: "",
+    uploadFile: null,
+    uploadFileError: null,
+    uploadPin: true,
+  },
+  versionForm: { versionSummary: "", versionFile: null, versionSigners: "" },
+  shareForm: { shareAddress: "", sharePermission: "view" },
+  signatureForm: { rejectionReason: "" },
+  audit: { auditEvents: [], auditVerified: true },
+};
+
+type DocManagerAction = {
+  [Group in keyof DocManagerState]: { group: Group; changes: Partial<DocManagerState[Group]> };
+}[keyof DocManagerState];
+
+function docManagerReducer(state: DocManagerState, { group, changes }: DocManagerAction): DocManagerState {
+  return { ...state, [group]: { ...state[group], ...changes } };
+}
+
+type DocumentDialog = "showVersionModal" | "showShareModal" | "showSignModal" | "showAuditModal";
+
 export const DocumentManager: React.FC<DocumentManagerProps> = ({
   currentUserAddress = "GADMIN...CONTRACT",
   contractId,
   apiBaseUrl = "/api/v1",
   onDocumentSelected,
 }) => {
-  // Documents state
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(docManagerReducer, initialState);
+  const { documents, loading, error } = state.catalog;
+  const { searchQuery, typeFilter, statusFilter, startDate, endDate, collaboratorFilter } = state.filters;
+  const {
+    showUploadModal, showVersionModal, showShareModal, showSignModal, showAuditModal,
+    selectedDoc, permissionsList, signatureList, uploading,
+  } = state.dialogs;
+  const {
+    uploadTitle, uploadType, uploadDesc, uploadTags, uploadSigners, uploadFile, uploadFileError, uploadPin,
+  } = state.uploadForm;
 
-  // Filters & Search
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
-  const [collaboratorFilter, setCollaboratorFilter] = useState<string>("");
-
-  // Modals state
-  const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
-  const [showVersionModal, setShowVersionModal] = useState<boolean>(false);
-  const [showShareModal, setShowShareModal] = useState<boolean>(false);
-  const [showSignModal, setShowSignModal] = useState<boolean>(false);
-  const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
-  const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
-
-  const selectDoc = (doc: DocumentItem | null) => {
-    setSelectedDoc(doc);
-    if (doc && onDocumentSelected) {
-      onDocumentSelected(doc);
-    }
+  const closeUploadDialog = () => {
+    dispatch({ group: "dialogs", changes: { showUploadModal: false } });
+    dispatch({ group: "uploadForm", changes: { uploadFile: null, uploadFileError: null } });
   };
+  const { versionSummary, versionFile, versionSigners } = state.versionForm;
+  const { shareAddress, sharePermission } = state.shareForm;
+  const { rejectionReason } = state.signatureForm;
+  const { auditEvents, auditVerified } = state.audit;
 
-  // Upload Form State
-  const [uploadTitle, setUploadTitle] = useState<string>("");
-  const [uploadType, setUploadType] = useState<DocumentType>("contract");
-  const [uploadDesc, setUploadDesc] = useState<string>("");
-  const [uploadTags, setUploadTags] = useState<string>("");
-  const [uploadSigners, setUploadSigners] = useState<string>("");
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadPin, setUploadPin] = useState<boolean>(true);
-  const [uploading, setUploading] = useState<boolean>(false);
-
-  // New Version Form State
-  const [versionSummary, setVersionSummary] = useState<string>("");
-  const [versionFile, setVersionFile] = useState<File | null>(null);
-  const [versionSigners, setVersionSigners] = useState<string>("");
-
-  // Share Form State
-  const [shareAddress, setShareAddress] = useState<string>("");
-  const [sharePermission, setSharePermission] = useState<PermissionLevel>("view");
-  const [permissionsList, setPermissionsList] = useState<DocumentPermission[]>([]);
-
-  // Signature Form State
-  const [signatureList, setSignatureList] = useState<DocumentSignature[]>([]);
-  const [rejectionReason, setRejectionReason] = useState<string>("");
-
-  // Audit State
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const [auditVerified, setAuditVerified] = useState<boolean>(true);
+  const openDocumentDialog = useCallback(
+    (doc: DocumentItem, dialog: DocumentDialog) => {
+      dispatch({ group: "dialogs", changes: { selectedDoc: doc, [dialog]: true } });
+      onDocumentSelected?.(doc);
+    },
+    [onDocumentSelected]
+  );
 
   // Load documents
   const fetchDocuments = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
+      dispatch({ group: "catalog", changes: { loading: true, error: null } });
       const params = new URLSearchParams();
       if (searchQuery) params.append("query", searchQuery);
       if (typeFilter !== "all") params.append("docType", typeFilter);
@@ -176,12 +250,12 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
 
       const json = await res.json();
       if (json.success && json.data) {
-        setDocuments(json.data.documents || []);
+        dispatch({ group: "catalog", changes: { documents: json.data.documents || [] } });
       }
     } catch (err: any) {
-      setError(err.message || "Failed to load documents catalog");
+      dispatch({ group: "catalog", changes: { error: err.message || "Failed to load documents catalog" } });
     } finally {
-      setLoading(false);
+      dispatch({ group: "catalog", changes: { loading: false } });
     }
   }, [apiBaseUrl, currentUserAddress, searchQuery, typeFilter, statusFilter, startDate, endDate, collaboratorFilter, contractId]);
 
@@ -207,15 +281,16 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
   };
 
   // Handle Document Creation / Upload
-  const handleCreateDocument = async (e: React.FormEvent) => {
+  const handleCreateDocument = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploadFileError) return;
     if (!uploadTitle.trim() || !uploadFile) {
       alert("Please provide a document title and file");
       return;
     }
 
     try {
-      setUploading(true);
+      dispatch({ group: "dialogs", changes: { uploading: true } });
       const fileContent = await readFileContent(uploadFile);
       const signersArray = uploadSigners
         .split(",")
@@ -254,18 +329,18 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
         throw new Error(errData.error || "Document upload failed");
       }
 
-      setShowUploadModal(false);
-      resetUploadForm();
+      dispatch({ group: "dialogs", changes: { showUploadModal: false } });
+      dispatch({ group: "uploadForm", changes: initialState.uploadForm });
       fetchDocuments();
     } catch (err: any) {
       alert(`Error uploading document: ${err.message}`);
     } finally {
-      setUploading(false);
+      dispatch({ group: "dialogs", changes: { uploading: false } });
     }
-  };
+  }, [uploadTitle, uploadFile, uploadFileError, uploadSigners, uploadTags, uploadType, contractId, uploadDesc, currentUserAddress, uploadPin, apiBaseUrl, fetchDocuments]);
 
   // Handle Uploading a New Version
-  const handleUploadNewVersion = async (e: React.FormEvent) => {
+  const handleUploadNewVersion = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc || !versionFile) {
       alert("Please select a file for the new version");
@@ -273,7 +348,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     }
 
     try {
-      setUploading(true);
+      dispatch({ group: "dialogs", changes: { uploading: true } });
       const fileContent = await readFileContent(versionFile);
       const signersArray = versionSigners
         .split(",")
@@ -303,20 +378,42 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
         throw new Error(errData.error || "Version upload failed");
       }
 
-      setShowVersionModal(false);
-      setVersionFile(null);
-      setVersionSummary("");
-      setVersionSigners("");
+      dispatch({ group: "dialogs", changes: { showVersionModal: false } });
+      dispatch({ group: "versionForm", changes: initialState.versionForm });
       fetchDocuments();
     } catch (err: any) {
       alert(`Error creating version: ${err.message}`);
     } finally {
-      setUploading(false);
+      dispatch({ group: "dialogs", changes: { uploading: false } });
     }
-  };
+  }, [selectedDoc, versionFile, versionSigners, currentUserAddress, versionSummary, apiBaseUrl, fetchDocuments]);
+
+  // Load Single Document Detailed Data for Modals
+  const loadDocumentDetails = useCallback(async (docId: string) => {
+    try {
+      const res = await fetch(`${apiBaseUrl}/documents/${docId}`, {
+        headers: { "x-user-id": currentUserAddress },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) {
+          dispatch({
+            group: "dialogs",
+            changes: {
+              selectedDoc: json.data,
+              permissionsList: json.data.permissions || [],
+              signatureList: json.data.signatures || [],
+            },
+          });
+        }
+      }
+    } catch (_err) {
+      // Ignore
+    }
+  }, [apiBaseUrl, currentUserAddress]);
 
   // Handle Document Download (with view-only vs download enforcement)
-  const handleDownload = async (doc: DocumentItem, version?: number) => {
+  const handleDownload = useCallback(async (doc: DocumentItem, version?: number) => {
     try {
       const url = `${apiBaseUrl}/documents/${doc.id}/download${version ? `?version=${version}` : ""}`;
       const res = await fetch(url, {
@@ -350,10 +447,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Download error: ${err.message}`);
     }
-  };
+  }, [apiBaseUrl, currentUserAddress]);
 
   // Handle Share / Grant Permission
-  const handleShare = async (e: React.FormEvent) => {
+  const handleShare = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc || !shareAddress.trim()) return;
 
@@ -376,15 +473,15 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
         throw new Error(errData.error || "Sharing failed");
       }
 
-      setShareAddress("");
+      dispatch({ group: "shareForm", changes: { shareAddress: "" } });
       loadDocumentDetails(selectedDoc.id);
     } catch (err: any) {
       alert(`Share error: ${err.message}`);
     }
-  };
+  }, [selectedDoc, shareAddress, apiBaseUrl, currentUserAddress, sharePermission, loadDocumentDetails]);
 
   // Revoke Permission
-  const handleRevoke = async (collaboratorAddress: string) => {
+  const handleRevoke = useCallback(async (collaboratorAddress: string) => {
     if (!selectedDoc) return;
     try {
       const res = await fetch(
@@ -401,10 +498,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Revoke error: ${err.message}`);
     }
-  };
+  }, [selectedDoc, apiBaseUrl, currentUserAddress, loadDocumentDetails]);
 
   // Digital Signature
-  const handleSign = async () => {
+  const handleSign = useCallback(async () => {
     if (!selectedDoc) return;
     try {
       const simulatedSignature = `sig_ed25519_${Date.now()}_${currentUserAddress.slice(0, 8)}`;
@@ -432,10 +529,10 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Signature error: ${err.message}`);
     }
-  };
+  }, [selectedDoc, currentUserAddress, apiBaseUrl, loadDocumentDetails, fetchDocuments]);
 
   // Reject Signature
-  const handleRejectSignature = async () => {
+  const handleRejectSignature = useCallback(async () => {
     if (!selectedDoc) return;
     try {
       const res = await fetch(`${apiBaseUrl}/documents/${selectedDoc.id}/reject`, {
@@ -454,54 +551,36 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
         throw new Error("Reject failed");
       }
 
-      setRejectionReason("");
+      dispatch({ group: "signatureForm", changes: { rejectionReason: "" } });
       loadDocumentDetails(selectedDoc.id);
       fetchDocuments();
       alert("Signature request rejected.");
     } catch (err: any) {
       alert(`Reject error: ${err.message}`);
     }
-  };
-
-  // Load Single Document Detailed Data for Modals
-  const loadDocumentDetails = async (docId: string) => {
-    try {
-      const res = await fetch(`${apiBaseUrl}/documents/${docId}`, {
-        headers: { "x-user-id": currentUserAddress },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) {
-          setSelectedDoc(json.data);
-          setPermissionsList(json.data.permissions || []);
-          setSignatureList(json.data.signatures || []);
-        }
-      }
-    } catch (_err) {
-      // Ignore
-    }
-  };
+  }, [selectedDoc, apiBaseUrl, currentUserAddress, rejectionReason, loadDocumentDetails, fetchDocuments]);
 
   // Open Audit Trail
-  const handleOpenAudit = async (doc: DocumentItem) => {
-    selectDoc(doc);
-    setShowAuditModal(true);
+  const handleOpenAudit = useCallback(async (doc: DocumentItem) => {
+    openDocumentDialog(doc, "showAuditModal");
     try {
       const res = await fetch(`${apiBaseUrl}/documents/${doc.id}/audit-trail`, {
         headers: { "x-user-id": currentUserAddress },
       });
       if (res.ok) {
         const json = await res.json();
-        setAuditEvents(json.data.events || []);
-        setAuditVerified(json.data.verified !== false);
+        dispatch({
+          group: "audit",
+          changes: { auditEvents: json.data.events || [], auditVerified: json.data.verified !== false },
+        });
       }
     } catch (_err) {
-      setAuditEvents([]);
+      dispatch({ group: "audit", changes: { auditEvents: [] } });
     }
-  };
+  }, [openDocumentDialog, apiBaseUrl, currentUserAddress]);
 
   // Export Audit Trail
-  const handleExportAudit = async (format: "csv" | "json") => {
+  const handleExportAudit = useCallback(async (format: "csv" | "json") => {
     if (!selectedDoc) return;
     try {
       const url = `${apiBaseUrl}/documents/${selectedDoc.id}/audit-trail/export?format=${format}`;
@@ -523,17 +602,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
     } catch (err: any) {
       alert(`Export error: ${err.message}`);
     }
-  };
-
-  const resetUploadForm = () => {
-    setUploadTitle("");
-    setUploadType("contract");
-    setUploadDesc("");
-    setUploadTags("");
-    setUploadSigners("");
-    setUploadFile(null);
-    setUploadPin(true);
-  };
+  }, [selectedDoc, apiBaseUrl, currentUserAddress]);
 
   // Stats calculation
   const stats = useMemo(() => {
@@ -566,7 +635,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
           <button
             type="button"
             className="btn-primary"
-            onClick={() => setShowUploadModal(true)}
+            onClick={() => dispatch({ group: "dialogs", changes: { showUploadModal: true } })}
             data-testid="upload-doc-btn"
           >
             + Upload Document
@@ -604,7 +673,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               className="doc-search-input"
               placeholder="Search by title, description, CID, tags, or ID..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => dispatch({ group: "filters", changes: { searchQuery: e.target.value } })}
               aria-label="Search documents"
               data-testid="doc-search-input"
             />
@@ -614,7 +683,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
             <select
               className="doc-select"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              onChange={(e) => dispatch({ group: "filters", changes: { typeFilter: e.target.value } })}
               aria-label="Filter by document type"
               data-testid="filter-doc-type"
             >
@@ -630,7 +699,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
             <select
               className="doc-select"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => dispatch({ group: "filters", changes: { statusFilter: e.target.value } })}
               aria-label="Filter by signature status"
               data-testid="filter-sig-status"
             >
@@ -646,7 +715,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               type="date"
               className="doc-date-input"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => dispatch({ group: "filters", changes: { startDate: e.target.value } })}
               title="Start Date"
               aria-label="Start date filter"
             />
@@ -654,7 +723,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               type="date"
               className="doc-date-input"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => dispatch({ group: "filters", changes: { endDate: e.target.value } })}
               title="End Date"
               aria-label="End date filter"
             />
@@ -663,14 +732,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="btn-secondary btn-sm"
-                onClick={() => {
-                  setSearchQuery("");
-                  setTypeFilter("all");
-                  setStatusFilter("all");
-                  setStartDate("");
-                  setEndDate("");
-                  setCollaboratorFilter("");
-                }}
+                onClick={() => dispatch({ group: "filters", changes: initialState.filters })}
               >
                 Reset
               </button>
@@ -766,9 +828,8 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                         type="button"
                         className="btn-secondary btn-sm"
                         onClick={() => {
-                          selectDoc(doc);
+                          openDocumentDialog(doc, "showVersionModal");
                           loadDocumentDetails(doc.id);
-                          setShowVersionModal(true);
                         }}
                         title="New Version"
                         data-testid={`version-btn-${doc.id}`}
@@ -779,9 +840,8 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                         type="button"
                         className="btn-secondary btn-sm"
                         onClick={() => {
-                          selectDoc(doc);
+                          openDocumentDialog(doc, "showShareModal");
                           loadDocumentDetails(doc.id);
-                          setShowShareModal(true);
                         }}
                         title="Share & Permissions"
                         data-testid={`share-btn-${doc.id}`}
@@ -792,9 +852,8 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                         type="button"
                         className="btn-secondary btn-sm"
                         onClick={() => {
-                          selectDoc(doc);
+                          openDocumentDialog(doc, "showSignModal");
                           loadDocumentDetails(doc.id);
-                          setShowSignModal(true);
                         }}
                         title="Signatures"
                         data-testid={`sign-btn-${doc.id}`}
@@ -828,7 +887,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="doc-modal-close"
-                onClick={() => setShowUploadModal(false)}
+                onClick={closeUploadDialog}
                 aria-label="Close modal"
               >
                 &times;
@@ -844,7 +903,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-input"
                     placeholder="e.g. Master Royalty Agreement 2026"
                     value={uploadTitle}
-                    onChange={(e) => setUploadTitle(e.target.value)}
+                    onChange={(e) => dispatch({ group: "uploadForm", changes: { uploadTitle: e.target.value } })}
                     required
                     data-testid="input-doc-title"
                   />
@@ -856,7 +915,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     id="upload-type"
                     className="doc-select"
                     value={uploadType}
-                    onChange={(e) => setUploadType(e.target.value as DocumentType)}
+                    onChange={(e) => dispatch({ group: "uploadForm", changes: { uploadType: e.target.value as DocumentType } })}
                   >
                     <option value="contract">Smart Contract / Terms</option>
                     <option value="agreement">Royalty Split Agreement</option>
@@ -874,7 +933,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-textarea"
                     placeholder="Brief description of the agreement or proof..."
                     value={uploadDesc}
-                    onChange={(e) => setUploadDesc(e.target.value)}
+                    onChange={(e) => dispatch({ group: "uploadForm", changes: { uploadDesc: e.target.value } })}
                   />
                 </div>
 
@@ -886,7 +945,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-input"
                     placeholder="e.g. legal, 2026, music, split-v2"
                     value={uploadTags}
-                    onChange={(e) => setUploadTags(e.target.value)}
+                    onChange={(e) => dispatch({ group: "uploadForm", changes: { uploadTags: e.target.value } })}
                   />
                 </div>
 
@@ -898,24 +957,45 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-input"
                     placeholder="e.g. GB..., GC..."
                     value={uploadSigners}
-                    onChange={(e) => setUploadSigners(e.target.value)}
+                    onChange={(e) => dispatch({ group: "uploadForm", changes: { uploadSigners: e.target.value } })}
                     data-testid="input-doc-signers"
                   />
                 </div>
 
                 <div className="doc-form-group">
-                  <label>Select Document File *</label>
+                  <label htmlFor="upload-doc-file">Select Document File *</label>
                   <input
+                    id="upload-doc-file"
                     type="file"
                     className="doc-input"
+                    aria-invalid={Boolean(uploadFileError)}
+                    aria-describedby={uploadFileError ? "upload-doc-file-error" : undefined}
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setUploadFile(e.target.files[0]);
-                      }
+                      const input = e.currentTarget;
+                      const file = input.files?.[0] ?? null;
+                      const tooLarge = file !== null && file.size > MAX_FILE_SIZE;
+                      if (tooLarge) input.value = "";
+
+                      dispatch({
+                        group: "uploadForm",
+                        changes: {
+                          uploadFile: tooLarge ? null : file,
+                          uploadFileError: tooLarge ? FILE_SIZE_ERROR : null,
+                        },
+                      });
                     }}
                     required
                     data-testid="input-doc-file"
                   />
+                  {uploadFileError && (
+                    <div
+                      id="upload-doc-file-error"
+                      className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-md"
+                      role="alert"
+                    >
+                      {uploadFileError}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -923,7 +1003,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     type="checkbox"
                     id="pin-ipfs"
                     checked={uploadPin}
-                    onChange={(e) => setUploadPin(e.target.checked)}
+                    onChange={(e) => dispatch({ group: "uploadForm", changes: { uploadPin: e.target.checked } })}
                   />
                   <label htmlFor="pin-ipfs" style={{ fontSize: "0.85rem" }}>
                     Pin permanently to IPFS network
@@ -935,14 +1015,14 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={closeUploadDialog}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn-primary"
-                  disabled={uploading}
+                  disabled={uploading || Boolean(uploadFileError)}
                   data-testid="submit-upload-btn"
                 >
                   {uploading ? "Uploading to IPFS..." : "Upload & Store on IPFS"}
@@ -962,7 +1042,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="doc-modal-close"
-                onClick={() => setShowVersionModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showVersionModal: false } })}
               >
                 &times;
               </button>
@@ -977,7 +1057,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-input"
                     placeholder="e.g. Updated revenue split allocation to 60/40"
                     value={versionSummary}
-                    onChange={(e) => setVersionSummary(e.target.value)}
+                    onChange={(e) => dispatch({ group: "versionForm", changes: { versionSummary: e.target.value } })}
                     required
                     data-testid="input-version-summary"
                   />
@@ -991,7 +1071,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-input"
                     placeholder="e.g. GB..., GC..."
                     value={versionSigners}
-                    onChange={(e) => setVersionSigners(e.target.value)}
+                    onChange={(e) => dispatch({ group: "versionForm", changes: { versionSigners: e.target.value } })}
                   />
                 </div>
 
@@ -1002,7 +1082,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     className="doc-input"
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
-                        setVersionFile(e.target.files[0]);
+                        dispatch({ group: "versionForm", changes: { versionFile: e.target.files[0] } });
                       }
                     }}
                     required
@@ -1015,7 +1095,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => setShowVersionModal(false)}
+                  onClick={() => dispatch({ group: "dialogs", changes: { showVersionModal: false } })}
                 >
                   Cancel
                 </button>
@@ -1042,7 +1122,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="doc-modal-close"
-                onClick={() => setShowShareModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showShareModal: false } })}
               >
                 &times;
               </button>
@@ -1057,14 +1137,14 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
                     style={{ flex: 1 }}
                     placeholder="Stellar Wallet Address (G...)"
                     value={shareAddress}
-                    onChange={(e) => setShareAddress(e.target.value)}
+                    onChange={(e) => dispatch({ group: "shareForm", changes: { shareAddress: e.target.value } })}
                     required
                     data-testid="input-share-address"
                   />
                   <select
                     className="doc-select"
                     value={sharePermission}
-                    onChange={(e) => setSharePermission(e.target.value as PermissionLevel)}
+                    onChange={(e) => dispatch({ group: "shareForm", changes: { sharePermission: e.target.value as PermissionLevel } })}
                     data-testid="select-share-permission"
                   >
                     <option value="view">View Only</option>
@@ -1124,7 +1204,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setShowShareModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showShareModal: false } })}
               >
                 Done
               </button>
@@ -1142,7 +1222,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="doc-modal-close"
-                onClick={() => setShowSignModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showSignModal: false } })}
               >
                 &times;
               </button>
@@ -1223,7 +1303,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setShowSignModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showSignModal: false } })}
               >
                 Close
               </button>
@@ -1246,7 +1326,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="doc-modal-close"
-                onClick={() => setShowAuditModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showAuditModal: false } })}
               >
                 &times;
               </button>
@@ -1298,7 +1378,7 @@ export const DocumentManager: React.FC<DocumentManagerProps> = ({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setShowAuditModal(false)}
+                onClick={() => dispatch({ group: "dialogs", changes: { showAuditModal: false } })}
               >
                 Close
               </button>

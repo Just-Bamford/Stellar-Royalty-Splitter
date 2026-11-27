@@ -49,6 +49,10 @@ export function sendValidationError(res, issues) {
   return sendError(res, 400, "validation_failed", firstMessage, { details: issues });
 }
 
+export function errorResponse(error, message) {
+  return { error, message };
+}
+
 /**
  * Express 404 handler for any request that reaches the end of the router
  * stack without matching a route. Mount this after every route/router so

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
+import { getAccountAddressError, INVALID_ACCOUNT_ADDRESS_MESSAGE } from "../lib/formValidation";
 
 export function ComplianceReporting() {
   const [activeTab, setActiveTab] = useState<"generate" | "audit" | "verify">("generate");
@@ -46,9 +47,13 @@ export function ComplianceReporting() {
   const [auditLoading, setAuditLoading] = useState(false);
 
   const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
     setResult(null);
+    const address = walletAddress.trim();
+    const addressError = getAccountAddressError(address);
+    setError(addressError);
+    if (addressError) return;
+
+    setLoading(true);
 
     try {
       let data;
@@ -57,7 +62,7 @@ export function ComplianceReporting() {
       switch (reportType) {
         case "form-8949": {
           const res = await fetch(
-            `/api/v1/compliance/form-8949?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}&shortTerm=${shortTerm}`,
+            `/api/v1/compliance/form-8949?walletAddress=${encodeURIComponent(address)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}&shortTerm=${shortTerm}`,
             { method: "GET", headers: { "Content-Type": "application/json" } }
           );
           data = await res.json();
@@ -65,7 +70,7 @@ export function ComplianceReporting() {
         }
         case "turbotax": {
           const res = await fetch(
-            `/api/v1/compliance/turbotax?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}`,
+            `/api/v1/compliance/turbotax?walletAddress=${encodeURIComponent(address)}&taxYear=${taxYear}&costBasisUsdPerXlm=${costBasis}`,
             { method: "GET", headers: { "Content-Type": "application/json" } }
           );
           data = await res.json();
@@ -74,7 +79,7 @@ export function ComplianceReporting() {
         case "csv": {
           const url = new URL("/api/v1/compliance/csv-export", window.location.origin);
           url.searchParams.set("taxYear", String(taxYear));
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           if (country) url.searchParams.set("country", country);
           url.searchParams.set("download", String(download));
           const res = await fetch(url.toString());
@@ -100,7 +105,7 @@ export function ComplianceReporting() {
           const url = new URL("/api/v1/compliance/generic-ledger", window.location.origin);
           url.searchParams.set("startDate", startDate);
           url.searchParams.set("endDate", endDate);
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           url.searchParams.set("format", format);
           url.searchParams.set("download", String(download && format === "csv"));
           const res = await fetch(url.toString());
@@ -121,7 +126,7 @@ export function ComplianceReporting() {
         }
         case "sec-form-d": {
           const res = await fetch(
-            `/api/v1/compliance/sec-form-d?walletAddress=${encodeURIComponent(walletAddress)}&taxYear=${taxYear}`,
+            `/api/v1/compliance/sec-form-d?walletAddress=${encodeURIComponent(address)}&taxYear=${taxYear}`,
             { method: "GET", headers: { "Content-Type": "application/json" } }
           );
           data = await res.json();
@@ -134,7 +139,7 @@ export function ComplianceReporting() {
           const url = new URL("/api/v1/compliance/finra-trace", window.location.origin);
           url.searchParams.set("startDate", startDate);
           url.searchParams.set("endDate", endDate);
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           const res = await fetch(url.toString());
           data = await res.json();
           break;
@@ -142,7 +147,7 @@ export function ComplianceReporting() {
         case "export": {
           const url = new URL("/api/v1/compliance/export", window.location.origin);
           url.searchParams.set("taxYear", String(taxYear));
-          if (walletAddress) url.searchParams.set("walletAddress", walletAddress);
+          if (address) url.searchParams.set("walletAddress", address);
           if (country) url.searchParams.set("country", country);
           url.searchParams.set("format", format);
           url.searchParams.set("download", String(download));
@@ -328,9 +333,12 @@ export function ComplianceReporting() {
             <div className="form-grid">
               {reportTypes.find((rt) => rt.id === reportType)?.needsWallet && (
                 <div className="form-field">
-                  <label>Wallet Address (G...)</label>
+                  <label htmlFor="report-wallet-address">Wallet Address (G...)</label>
                   <input
+                    id="report-wallet-address"
                     type="text"
+                    aria-invalid={error === INVALID_ACCOUNT_ADDRESS_MESSAGE}
+                    aria-describedby={error === INVALID_ACCOUNT_ADDRESS_MESSAGE ? "report-generation-error" : undefined}
                     value={walletAddress}
                     onChange={(e) => setWalletAddress(e.target.value)}
                     placeholder="GABC123..."
@@ -504,7 +512,9 @@ export function ComplianceReporting() {
             </button>
           </div>
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && (
+            <div id="report-generation-error" className="error-banner" role="alert">{error}</div>
+          )}
 
           {result && !loading && (
             <div className="result-panel">

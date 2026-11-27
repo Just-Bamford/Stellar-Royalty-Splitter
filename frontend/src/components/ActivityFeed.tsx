@@ -2,15 +2,22 @@ import React, { useState } from "react";
 import { useSocialStore, ALL_BADGES, type ActivityFeedItem } from "../store/socialStore";
 import "./ActivityFeed.css";
 
+const MAX_POST_LENGTH = 500;
+
 interface ActivityFeedProps {
   walletAddress: string | null;
   onSelectUserAddress?: (address: string) => void;
 }
 
+/**
+ * ActivityFeed component displaying recent activity, creator updates, and achievements.
+ * Social activity (feed items, follows, likes) persists across sessions via useSocialStore (#1420).
+ */
 export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   walletAddress,
   onSelectUserAddress,
 }) => {
+  // Feed items, following status, and likes are persisted in localStorage under 'srs-social-store'
   const {
     feedItems,
     following,
@@ -31,7 +38,13 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
   const handleCreatePost = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPostContent.trim() || !walletAddress || !currentUser) return;
+    if (
+      !newPostContent.trim() ||
+      newPostContent.length > MAX_POST_LENGTH ||
+      !walletAddress ||
+      !currentUser
+    )
+      return;
 
     addFeedItem({
       authorAddress: walletAddress,
@@ -92,9 +105,15 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   className="feed-textarea"
                   placeholder="Share a milestone, royalty update, or collaboration announcement..."
                   value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
+                  onChange={(e) =>
+                    setNewPostContent(e.target.value.slice(0, MAX_POST_LENGTH))
+                  }
                   rows={2}
+                  maxLength={MAX_POST_LENGTH}
                 />
+                <span className="char-counter">
+                  {newPostContent.length}/{MAX_POST_LENGTH}
+                </span>
                 <div className="feed-create-actions">
                   <span style={{ fontSize: "0.8rem", color: "var(--text-secondary, #9ca3af)" }}>
                     Posting as <strong>{currentUser?.username}</strong>

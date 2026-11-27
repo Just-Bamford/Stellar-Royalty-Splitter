@@ -9,6 +9,7 @@ process.env.DATABASE_PATH = databasePath;
 const { initializeDatabase } = await import("../src/database/core.js");
 const {
   appendApplicationLog,
+  countApplicationLogs,
   evaluateLogAlerts,
   pruneApplicationLogs,
   queryApplicationLogs,
@@ -62,6 +63,15 @@ describe("centralized application logs (#874)", () => {
 
     expect(pruneApplicationLogs(7).deleted).toBe(1);
     expect(queryApplicationLogs().map((row) => row.message)).toEqual(["recent"]);
+  });
+
+  test("counts all matching records independently of page size", () => {
+    for (let index = 0; index < 501; index += 1) {
+      appendApplicationLog({ level: "info", message: `match-${index}`, service: "worker" });
+    }
+    appendApplicationLog({ level: "error", message: "other", service: "api" });
+
+    expect(countApplicationLogs()).toBe(502);
   });
 });
 

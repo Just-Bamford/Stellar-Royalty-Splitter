@@ -126,4 +126,33 @@ describe("TreasuryDashboard", () => {
     expect(screen.getByRole("button", { name: "Record expense" })).toBeInTheDocument();
     expect(screen.getByTestId("expenses-table")).toBeInTheDocument();
   });
+
+  it("rejects nonnumeric, negative, zero and fractional-cent amounts before submission", async () => {
+    render(<TreasuryDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Expenses" }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Expense" } });
+    const amount = screen.getByRole<HTMLInputElement>("spinbutton", { name: "Amount in XLM" });
+    const submit = screen.getByRole("button", { name: "Record expense" });
+
+    fireEvent.change(amount, { target: { value: "abc" } });
+    expect(amount.value).toBe("");
+    for (const invalid of ["-1", "0", "1.001"]) {
+      fireEvent.change(amount, { target: { value: invalid } });
+      expect(amount.validity.valid).toBe(false);
+      fireEvent.click(submit);
+      expect(amount).toHaveAccessibleDescription(/positive amount/i);
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    fireEvent.change(amount, { target: { value: "1.25" } });
+    expect(amount.validity.valid).toBe(true);
+    expect(amount).not.toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(submit);
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/v1/treasury/expenses", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"amount":1.25'),
+      }));
+    });
+  });
 });

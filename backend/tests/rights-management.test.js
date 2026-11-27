@@ -31,10 +31,17 @@ import {
 } from "../src/services/rights-management.js";
 
 import { rightsRouter } from "../src/routes/rights-management.js";
+import { createUser, createApiKey, clearMemoryRbac } from "../src/middleware/rbac.js";
+import { db } from "../src/database/core.js";
 
 const CONTRACT = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const OWNER1 = "GAPTAQKSMN2ILFVHXDE5V274BUPC6QCRMJZYJFNGW7ENT2X3BQOS4M3C";
 const OWNER2 = "GA7E6YDRQKJ2JNOG27UPSCQ3FQ6U4X3QQGJKHNGF23T7QCI2FM6E3W2P";
+
+let operatorKey;
+let otherOperatorKey;
+let collaboratorKey;
+let adminKey;
 
 const app = express();
 app.use(express.json());
@@ -44,6 +51,32 @@ describe("Rights Management System", () => {
   beforeEach(() => {
     initializeRightsTables();
     clearRightsTables();
+    clearMemoryRbac();
+
+    if (db.open) {
+      try {
+        db.prepare("DELETE FROM api_keys").run();
+        db.prepare("DELETE FROM users").run();
+      } catch (_e) {
+        // ignore if table does not exist
+      }
+    }
+
+    const opUser = createUser(OWNER1, "operator");
+    operatorKey = `op_key_${Date.now()}_${Math.random()}`;
+    createApiKey(operatorKey, opUser);
+
+    const otherOpUser = createUser(OWNER2, "operator");
+    otherOperatorKey = `other_op_key_${Date.now()}_${Math.random()}`;
+    createApiKey(otherOperatorKey, otherOpUser);
+
+    const colUser = createUser("GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "collaborator");
+    collaboratorKey = `col_key_${Date.now()}_${Math.random()}`;
+    createApiKey(collaboratorKey, colUser);
+
+    const admUser = createUser("GADMINAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "admin");
+    adminKey = `adm_key_${Date.now()}_${Math.random()}`;
+    createApiKey(adminKey, admUser);
   });
 
   describe("Service & Database Operations", () => {
@@ -276,6 +309,20 @@ describe("Rights Management System", () => {
       expect(res.body.breakdown.performance.totalPercentage).toBe(100);
     });
 
+    test("GET /api/v1/rights/contract/:contractId rejects malformed IDs with 400", async () => {
+      const res = await request(app).get("/api/v1/rights/contract/not-a-contract");
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("invalid_contract_id");
+      expect(res.body.message).toBe("Invalid contract ID format");
+    });
+
+    test("GET /api/v1/rights/contract/:contractId/eligibility rejects malformed IDs with 400", async () => {
+      const res = await request(app).get("/api/v1/rights/contract/not-a-contract/eligibility");
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("invalid_contract_id");
+      expect(res.body.message).toBe("Invalid contract ID format");
+    });
+
     test("POST /api/v1/rights/:id/metadata attaches DDEX and custom metadata", async () => {
       const createRes = await request(app)
         .post("/api/v1/rights")
@@ -371,6 +418,92 @@ describe("Rights Management System", () => {
       const disputeRightsRes = await request(app).get("/api/v1/rights/dispute/DSP-12345678");
       expect(disputeRightsRes.status).toBe(200);
       expect(disputeRightsRes.body.rights.length).toBe(1);
+    });
+
+    describe("DELETE /api/v1/rights/:id", () => {
+      let rightId;
+
+      beforeEach(async () => {
+        const createRes = await request(app)
+          .post("/api/v1/rights")
+          .set("x-wallet-address", OWNER1)
+          .send({
+            contractId: CONTRACT,
+            rightType: "composition",
+            ownerAddress: OWNER1,
+            percentage: 50,
+            licenseTerms: "commercial",
+          });
+        rightId = createRes.body.id;
+      });
+
+      test("rejects unauthenticated request with 401", async () => {
+        const res = await request(app).delete(`/api/v1/rights/${rightId}`);
+        expect(res.status).toBe(401);
+        expect(res.body.code).toBe("unauthorized");
+      });
+
+      test("rejects authenticated caller with insufficient role (e.g. collaborator) with 403", async () => {
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-api-key", collaboratorKey);
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe("forbidden");
+        expect(res.body.message).toContain("Insufficient permissions");
+      });
+
+      test("rejects non-owner operator with 403", async () => {
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-api-key", otherOperatorKey)
+          .set("x-wallet-address", OWNER2);
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe("forbidden");
+        expect(res.body.message).toBe("You can only delete rights you created");
+      });
+
+      test("rejects invalid id format with 400", async () => {
+        const res = await request(app)
+          .delete("/api/v1/rights/invalid-id")
+          .set("x-api-key", operatorKey)
+          .set("x-wallet-address", OWNER1);
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("invalid_id");
+      });
+
+      test("returns 404 if right does not exist", async () => {
+        const res = await request(app)
+          .delete("/api/v1/rights/999999")
+          .set("x-api-key", operatorKey)
+          .set("x-wallet-address", OWNER1);
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe("not_found");
+      });
+
+      test("allows creator operator to delete right", async () => {
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-api-key", operatorKey)
+          .set("x-wallet-address", OWNER1);
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.message).toContain(`Right ${rightId} deleted`);
+
+        const getRes = await request(app).get(`/api/v1/rights/${rightId}`);
+        expect(getRes.status).toBe(404);
+      });
+
+      test("allows admin to delete any right even if not creator", async () => {
+        const res = await request(app)
+          .delete(`/api/v1/rights/${rightId}`)
+          .set("x-api-key", adminKey)
+          .set("x-wallet-address", "GADMIN9999999999999999999999999999999999999999999999999999");
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+
+        const getRes = await request(app).get(`/api/v1/rights/${rightId}`);
+        expect(getRes.status).toBe(404);
+      });
     });
   });
 });

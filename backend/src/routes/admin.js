@@ -219,7 +219,7 @@ adminRouter.post(
 );
 
 adminRouter.put(
-  "/alert-rules/:Id",
+  "/alert-rules/:id",
   requireAdminBearerOrRole("admin"),
   validate(alertRuleSchema.partial()),
   async (req, res, next) => {
@@ -237,7 +237,7 @@ adminRouter.put(
 );
 
 adminRouter.delete(
-  "/alert-rules/:Id",
+  "/alert-rules/:id",
   requireAdminBearerOrRole("admin"),
   async (req, res, next) => {
     try {

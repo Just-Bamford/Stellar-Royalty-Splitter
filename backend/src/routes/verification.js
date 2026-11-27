@@ -19,7 +19,7 @@
 
 import { Router } from "express";
 import { z } from "zod";
-import { stellarAddress, parsePagination } from "../validation.js";
+import { stellarAddress, parsePagination, validateStellarAddress } from "../validation.js";
 import { sendError, sendValidationError } from "../error-response.js";
 import {
   getVerification,
@@ -47,9 +47,7 @@ const advanceSchema = z.object({
 verificationRouter.get("/:walletAddress", (req, res) => {
   const { walletAddress } = req.params;
 
-  if (!/^G[A-Z2-7]{55}$/.test(walletAddress)) {
-    return sendError(res, 400, "invalid_stellar_address", "Invalid Stellar address format");
-  }
+  if (!validateStellarAddress(walletAddress, res)) return;
 
   const record = getVerification(walletAddress);
   if (!record) {

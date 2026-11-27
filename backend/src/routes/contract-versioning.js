@@ -6,8 +6,42 @@
 const express = require('express');
 const router = express.Router();
 const versioningService = require('../services/contract-versioning');
-const { errorResponse } = require('../error-response');
+const { errorResponse: importedErrorResponse } = require('../error-response');
+const errorResponse = typeof importedErrorResponse === 'function'
+  ? importedErrorResponse
+  : (error, message) => ({ error, message });
 const logger = require('../logger');
+
+/**
+ * Validate a version identifier or contract ID.
+ * Accepts:
+ * - Stellar contract IDs: 56-character string starting with 'C' followed by Base32 characters [A-Z2-7]
+ * - Semantic or tagged version identifiers: e.g. "v1", "v1.0.0", "1.0.0", "v1732307200000", "v2-canary"
+ * - Alphanumeric version identifiers with hyphens, dots, or underscores (1-64 characters)
+ * Rejects non-strings, empty strings, whitespace, and special characters.
+ */
+const VERSION_IDENTIFIER_REGEX = /^(?:C[A-Z2-7]{55}|[a-zA-Z0-9](?:[a-zA-Z0-9_.-]{0,62}[a-zA-Z0-9])?)$/;
+
+function isValidVersionIdentifier(version) {
+  if (typeof version !== 'string') {
+    return false;
+  }
+  const trimmed = version.trim();
+  if (!trimmed || trimmed !== version) {
+    return false;
+  }
+  return VERSION_IDENTIFIER_REGEX.test(trimmed);
+}
+
+/**
+ * WASM hashes are SHA-256 digests: exactly 64 hexadecimal characters.
+ * Matches the validation used by the upgrade routes.
+ */
+const WASM_HASH_RE = /^[0-9a-fA-F]{64}$/;
+
+function isValidWasmHash(wasmHash) {
+  return typeof wasmHash === 'string' && WASM_HASH_RE.test(wasmHash);
+}
 
 /**
  * POST /api/v1/versioning/deploy-shadow
@@ -20,6 +54,24 @@ router.post('/deploy-shadow', async (req, res) => {
     if (!contractId || !wasmHash || !deployedBy) {
       return res.status(400).json(
         errorResponse('validation_failed', 'contractId, wasmHash, and deployedBy are required')
+      );
+    }
+
+    if (!isValidVersionIdentifier(contractId)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'contractId must be a valid contract identifier')
+      );
+    }
+
+    if (!isValidWasmHash(wasmHash)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'wasmHash must be a 64-character hex string')
+      );
+    }
+
+    if (!isValidVersionIdentifier(deployedBy)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'deployedBy must be a valid identifier')
       );
     }
 
@@ -56,13 +108,20 @@ router.post('/start-migration', async (req, res) => {
       );
     }
 
-    if (initialPercentage < 0 || initialPercentage > 100) {
+    if (!isValidVersionIdentifier(fromVersion) || !isValidVersionIdentifier(toVersion)) {
+      return res.status(400).json(
+        errorResponse('validation_failed', 'fromVersion and toVersion must be valid contract version identifiers')
+      );
+    }
+
+    const pct = Number(initialPercentage);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
       return res.status(400).json(
         errorResponse('validation_failed', 'initialPercentage must be between 0 and 100')
       );
     }
 
-    const result = versioningService.startMigration(fromVersion, toVersion, initialPercentage);
+    const result = versioningService.startMigration(fromVersion, toVersion, pct);
 
     logger.info(`Migration started: ${result.migrationId}`);
 
@@ -313,4 +372,9 @@ router.get('/metrics/:versionId/:metricName', (req, res) => {
   }
 });
 
+router.isValidVersionIdentifier = isValidVersionIdentifier;
+router.isValidWasmHash = isValidWasmHash;
+
 module.exports = router;
+module.exports.isValidVersionIdentifier = isValidVersionIdentifier;
+module.exports.isValidWasmHash = isValidWasmHash;

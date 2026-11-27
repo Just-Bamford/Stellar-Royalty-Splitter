@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { isValidStellarAccountAddress } from "../../../shared/stellar-address";
 import {
   api,
   type FeatureFlag,
@@ -19,6 +20,19 @@ import {
 import "./FeatureFlagManager.css";
 
 type RuleType = "user" | "org" | "role";
+const TARGET_ROLES = ["viewer", "collaborator", "operator", "admin"];
+
+function validateRuleValue(type: RuleType, value: string): string | null {
+  if (!value) return "Rule value is required";
+  if (value.length > 200) return "Rule value must be at most 200 characters";
+  if (type === "user" && !isValidStellarAccountAddress(value)) {
+    return "User rule value must be a valid Stellar address";
+  }
+  if (type === "role" && !TARGET_ROLES.includes(value)) {
+    return "Role must be viewer, collaborator, operator, or admin";
+  }
+  return null;
+}
 
 export function FeatureFlagManager() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
@@ -32,6 +46,7 @@ export function FeatureFlagManager() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [ruleType, setRuleType] = useState<RuleType>("user");
   const [ruleValue, setRuleValue] = useState("");
+  const [ruleError, setRuleError] = useState<string | null>(null);
   const [health, setHealth] = useState<FeatureFlagHealth | null>(null);
   const [history, setHistory] = useState<FeatureFlagHistoryEntry[]>([]);
 
@@ -85,6 +100,7 @@ export function FeatureFlagManager() {
 
   async function openDetails(name: string) {
     setExpanded(name);
+    setRuleError(null);
     setHealth(null);
     setHistory([]);
     try {
@@ -100,12 +116,12 @@ export function FeatureFlagManager() {
   }
 
   async function handleAddRule(name: string) {
-    if (!ruleValue.trim()) {
-      setError("Rule value is required");
-      return;
-    }
+    const value = ruleValue.trim();
+    const validationError = validateRuleValue(ruleType, value);
+    setRuleError(validationError);
+    if (validationError) return;
     await run(
-      () => api.addFeatureFlagRule(name, { ruleType, value: ruleValue.trim(), enabled: true }),
+      () => api.addFeatureFlagRule(name, { ruleType, value, enabled: true }),
       "Targeting rule added"
     );
     setRuleValue("");
@@ -261,7 +277,10 @@ export function FeatureFlagManager() {
                       <select
                         id={`ffm-rule-type-${flag.name}`}
                         value={ruleType}
-                        onChange={(e) => setRuleType(e.target.value as RuleType)}
+                        onChange={(e) => {
+                          setRuleType(e.target.value as RuleType);
+                          setRuleError(null);
+                        }}
                       >
                         <option value="user">User</option>
                         <option value="org">Org</option>
@@ -269,8 +288,13 @@ export function FeatureFlagManager() {
                       </select>
                       <input
                         aria-label={`Rule value for ${flag.name}`}
+                        aria-invalid={Boolean(ruleError)}
+                        aria-describedby={ruleError ? `ffm-rule-error-${flag.name}` : undefined}
                         value={ruleValue}
-                        onChange={(e) => setRuleValue(e.target.value)}
+                        onChange={(e) => {
+                          setRuleValue(e.target.value);
+                          setRuleError(null);
+                        }}
                         placeholder="Wallet, org id, or role"
                       />
                       <button
@@ -281,6 +305,11 @@ export function FeatureFlagManager() {
                         Add rule
                       </button>
                     </div>
+                    {ruleError && (
+                      <p id={`ffm-rule-error-${flag.name}`} className="ffm-error" role="alert">
+                        {ruleError}
+                      </p>
+                    )}
                   </div>
 
                   {health && (

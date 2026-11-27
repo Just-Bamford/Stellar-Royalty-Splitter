@@ -42,6 +42,15 @@ export function ContributorSuspension({ contractId, walletAddress }: Contributor
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  useEffect(() => {
+    if (submitMsg?.type === "ok") {
+      const timer = setTimeout(() => {
+        setSubmitMsg(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [submitMsg]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -61,13 +70,24 @@ export function ContributorSuspension({ contractId, walletAddress }: Contributor
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!editAddress.trim()) return;
+    const trimmed = editAddress.trim();
+    if (!trimmed) return;
+
+    // Inline validation for Stellar address format
+    const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
+    if (!ADDRESS_RE.test(trimmed)) {
+      setSubmitMsg({
+        type: "err",
+        text: "Please enter a valid Stellar address (starts with G, 56 characters)",
+      });
+      return;
+    }
 
     setSubmitting(true);
     setSubmitMsg(null);
 
     try {
-      await api.setContributorStatus(contractId, editAddress.trim(), {
+      await api.setContributorStatus(contractId, trimmed, {
         status: editStatus,
         reason: editReason.trim() || undefined,
         updatedBy: walletAddress ?? undefined,
@@ -106,7 +126,10 @@ export function ContributorSuspension({ contractId, walletAddress }: Contributor
               type="text"
               placeholder="G..."
               value={editAddress}
-              onChange={(e) => setEditAddress(e.target.value)}
+              onChange={(e) => {
+                setEditAddress(e.target.value);
+                setSubmitMsg(null);
+              }}
               pattern="^G[A-Z2-7]{55}$"
               required
               autoComplete="off"
@@ -119,7 +142,10 @@ export function ContributorSuspension({ contractId, walletAddress }: Contributor
             <select
               id="cs-status"
               value={editStatus}
-              onChange={(e) => setEditStatus(e.target.value as typeof editStatus)}
+              onChange={(e) => {
+                setEditStatus(e.target.value as typeof editStatus);
+                setSubmitMsg(null);
+              }}
             >
               <option value="active">Active — resume payouts</option>
               <option value="suspended">Suspended — pause payouts temporarily</option>
@@ -134,7 +160,10 @@ export function ContributorSuspension({ contractId, walletAddress }: Contributor
               type="text"
               placeholder="e.g. Terms violation, payment dispute…"
               value={editReason}
-              onChange={(e) => setEditReason(e.target.value)}
+              onChange={(e) => {
+                setEditReason(e.target.value);
+                setSubmitMsg(null);
+              }}
               maxLength={500}
             />
           </div>

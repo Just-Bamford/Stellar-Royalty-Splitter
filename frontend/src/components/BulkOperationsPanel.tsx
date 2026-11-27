@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React from "react";
 import "./BulkOperationsPanel.css";
 
 interface BulkOperationsPanelProps {
   selectedCount: number;
-  onBulkDistribute: () => Promise<void>;
   onBulkExport: () => void;
   onAggregatedView: () => void;
   loading?: boolean;
@@ -11,27 +10,22 @@ interface BulkOperationsPanelProps {
 
 /**
  * BulkOperationsPanel — actions available when contracts are multi-selected.
- * Supports bulk distribute, export, and aggregated view operations.
+ * Supports export and aggregated view operations.
  * Closes #772 — part of multi-contract management enhancement.
+ *
+ * TODO(#1397): restore a "Distribute to All" action once the backend exposes
+ * a multi-contract distribute endpoint. Distribution is per contract and per
+ * token (`POST /distribute`, `POST /batch-distribute/tokens`), and each call
+ * returns an XDR the connected wallet must sign, so it can't be driven from
+ * a contract-ID selection alone. The previous button only logged the
+ * selection to the console and made no request.
  */
 export const BulkOperationsPanel: React.FC<BulkOperationsPanelProps> = ({
   selectedCount,
-  onBulkDistribute,
   onBulkExport,
   onAggregatedView,
   loading = false,
 }) => {
-  const [bulkDistributeLoading, setBulkDistributeLoading] = useState(false);
-
-  const handleBulkDistribute = async () => {
-    setBulkDistributeLoading(true);
-    try {
-      await onBulkDistribute();
-    } finally {
-      setBulkDistributeLoading(false);
-    }
-  };
-
   return (
     <div className="bulk-operations-panel" role="region" aria-label="Bulk operations">
       <div className="bulk-header">
@@ -41,16 +35,6 @@ export const BulkOperationsPanel: React.FC<BulkOperationsPanelProps> = ({
       </div>
 
       <div className="bulk-actions">
-        <button
-          type="button"
-          className="bulk-action-btn bulk-distribute"
-          onClick={handleBulkDistribute}
-          disabled={selectedCount === 0 || loading || bulkDistributeLoading}
-          aria-label={`Distribute to ${selectedCount} selected contracts`}
-        >
-          {bulkDistributeLoading ? "Distributing..." : "Distribute to All"}
-        </button>
-
         <button
           type="button"
           className="bulk-action-btn bulk-export"

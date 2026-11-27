@@ -126,6 +126,21 @@ export function getAmountValidationError(value: string): string | null {
   return null;
 }
 
+// ── Email validation ─────────────────────────────────────────────────────────
+
+/**
+ * Same pattern the backend enforces in `backend/src/routes/onboarding.js`,
+ * so the client rejects exactly what the API would reject.
+ */
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const INVALID_EMAIL_MESSAGE = "Please enter a valid email address.";
+
+/** True when `value` (after trimming) is a well-formed email address. */
+export function isValidEmail(value: string): boolean {
+  return EMAIL_RE.test(value.trim());
+}
+
 // ── Field state helpers ──────────────────────────────────────────────────────
 
 export type FieldState = "idle" | "valid" | "error";

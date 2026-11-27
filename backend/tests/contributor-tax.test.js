@@ -1,5 +1,6 @@
 import { jest, describe, test, expect, beforeEach } from "@jest/globals";
 import request from "supertest";
+import fs from "fs";
 
 const mockGetContributorTax = jest.fn();
 const mockUpsertContributorTax = jest.fn();
@@ -198,5 +199,75 @@ describe("Contributor Tax - Data Validation", () => {
 
     const getRes = await request(app).get(`/api/v1/contributor-tax/${WALLET}`);
     expect(getRes.body.data.tax_id).toBe("12-3456789");
+  });
+});
+
+describe("Contributor Tax - upload size limit", () => {
+  const UPLOAD_URL = `/api/v1/contributor-tax/upload/${WALLET}`;
+  const FIVE_MB = 5 * 1024 * 1024;
+
+  beforeEach(() => {
+    mockUpsertContributorTax.mockReset();
+  });
+
+  test("accepts a small PDF and stores it", async () => {
+    mockUpsertContributorTax.mockReturnValue({ walletAddress: WALLET, tax_status: "pending" });
+
+    const res = await request(app)
+      .post(UPLOAD_URL)
+      .attach("taxDocument", Buffer.alloc(1024, 1), "w9.pdf");
+
+    expect(res.status).toBe(200);
+    expect(res.body.file).toEqual({ name: "w9.pdf", size: 1024 });
+    const { w9_file_path } = mockUpsertContributorTax.mock.calls[0][0];
+    fs.unlinkSync(w9_file_path);
+  });
+
+  test("accepts a file of exactly 5 MB", async () => {
+    mockUpsertContributorTax.mockReturnValue({ walletAddress: WALLET, tax_status: "pending" });
+
+    const res = await request(app)
+      .post(UPLOAD_URL)
+      .attach("taxDocument", Buffer.alloc(FIVE_MB, 1), "scan.pdf");
+
+    expect(res.status).toBe(200);
+    const { w9_file_path } = mockUpsertContributorTax.mock.calls[0][0];
+    fs.unlinkSync(w9_file_path);
+  });
+
+  test("rejects a file one byte over 5 MB with 413", async () => {
+    const res = await request(app)
+      .post(UPLOAD_URL)
+      .attach("taxDocument", Buffer.alloc(FIVE_MB + 1, 1), "too-big.pdf");
+
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe("file_too_large");
+    expect(res.body.message).toBe("Tax documents must be 5 MB or smaller");
+    expect(mockUpsertContributorTax).not.toHaveBeenCalled();
+  });
+
+  test("rejects unsupported file types with 400", async () => {
+    const res = await request(app)
+      .post(UPLOAD_URL)
+      .attach("taxDocument", Buffer.from("MZ"), "payload.exe");
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("upload_error");
+    expect(res.body.message).toBe("Only PDF, PNG, and JPG files are allowed");
+    expect(mockUpsertContributorTax).not.toHaveBeenCalled();
+  });
+
+  test("removes the uploaded file when processing fails", async () => {
+    mockUpsertContributorTax.mockImplementation(() => {
+      throw new Error("database unavailable");
+    });
+
+    const res = await request(app)
+      .post(UPLOAD_URL)
+      .attach("taxDocument", Buffer.alloc(1024, 1), "w9.pdf");
+
+    expect(res.status).toBe(500);
+    const { w9_file_path } = mockUpsertContributorTax.mock.calls[0][0];
+    expect(fs.existsSync(w9_file_path)).toBe(false);
   });
 });

@@ -134,6 +134,7 @@ export function createRight({
     licenseTerms,
     effectiveDate,
     expirationDate,
+    createdBy,
   });
 
   // Log history
@@ -162,8 +163,12 @@ export function getRightDetails(id) {
   const disputes = getDisputesForRightRecord(id);
   const history = getRightHistoryRecord(right.contractId, id);
 
+  const createEntry = history?.find((h) => h.action === "create");
+  const createdBy = right.createdBy || createEntry?.changedBy || "system";
+
   return {
     ...right,
+    createdBy,
     metadata,
     verifications,
     disputes,

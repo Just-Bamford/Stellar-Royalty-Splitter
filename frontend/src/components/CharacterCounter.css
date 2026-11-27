@@ -1,0 +1,16 @@
+.character-counter {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #9ca3af);
+  text-align: right;
+  margin-top: 0.25rem;
+  transition: color 0.2s ease;
+}
+
+.character-counter.near-limit {
+  color: #f59e0b;
+}
+
+.character-counter.at-limit {
+  color: #ef4444;
+  font-weight: 600;
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import "./TreasuryDashboard.css";
 
 /**
@@ -84,6 +84,7 @@ interface ExpenseRow {
 
 type Tab = "overview" | "expenses" | "approvals" | "reports";
 
+const AMOUNT_ERROR = "Enter a positive amount with at most two decimal places.";
 const CATEGORY_OPTIONS = ["development", "marketing", "operations", "reserves"];
 
 function formatAmount(value: number): string {
@@ -116,11 +117,23 @@ export function TreasuryDashboard() {
   // New expense form
   const [category, setCategory] = useState("development");
   const [amount, setAmount] = useState("");
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const amountErrorId = useId();
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receiptCid, setReceiptCid] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // `load` intentionally has an empty dependency array. The treasury is a single
+  // DAO-wide ledger: GET /api/v1/treasury/dashboard and /expenses are not scoped
+  // to a contract, and this component takes no props and passes no filters, so
+  // nothing it reads can change between renders. Keeping `load` stable means the
+  // mount effect below runs exactly once, and the refresh button and mutations
+  // (create/approve/reject) re-run it explicitly.
+  //
+  // If you add a prop or state that changes the request (e.g. `contractId`,
+  // `period`, or the backend's `from`/`to`/`granularity` query params), pass it
+  // in the URL and add it to this dependency array so the data is refetched.
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -149,13 +162,15 @@ export function TreasuryDashboard() {
 
   const handleRecordExpense = async (event: FormEvent) => {
     event.preventDefault();
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setAmountError(AMOUNT_ERROR);
+      return;
+    }
+    setAmountError(null);
     setSubmitting(true);
     setError(null);
     try {
-      const parsedAmount = Number(amount);
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        throw new Error("Amount must be a positive number");
-      }
       await fetchJson<ExpenseRow>("/api/v1/treasury/expenses", {
         method: "POST",
         body: JSON.stringify({
@@ -391,12 +406,25 @@ export function TreasuryDashboard() {
               Amount
               <input
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setAmountError(null);
+                }}
+                onInvalid={() => setAmountError(AMOUNT_ERROR)}
+                placeholder="0.00"
+                aria-label="Amount in XLM"
+                aria-invalid={Boolean(amountError)}
+                aria-describedby={amountError ? amountErrorId : undefined}
                 required
               />
+              {amountError && (
+                <span id={amountErrorId} className="treasury-error" role="alert">
+                  {amountError}
+                </span>
+              )}
             </label>
             <label>
               Date

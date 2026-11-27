@@ -12,6 +12,7 @@ import {
 import type { DateRange } from "./dashboard/index";
 import { buildContractPerformanceSummary } from "../utils/contractPerformance";
 import { formatCurrency, formatNumber } from "../utils/format";
+import { areAllContractsSelected, toggleSelectAllContracts } from "../utils/contractSelection";
 import { useAnalytics } from "../hooks/queries/useAnalytics";
 import { useContractPerformance } from "../hooks/queries/useContractPerformance";
 import { BulkOperationsPanel } from "./BulkOperationsPanel";
@@ -40,7 +41,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedContracts, setSelectedContracts] = useState<Set<string>>(new Set());
   const [showAggregated, setShowAggregated] = useState(false);
-  const [bulkOperationLoading, setBulkOperationLoading] = useState(false);
   const [chartRange, setChartRange] = useState<ChartRange>("3M");
 
   const activeDateRange = allTime ? undefined : dateRange;
@@ -84,43 +84,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
 
   const chartData = useChartData(chartRange);
 
-  const handleSelectContract = (contractId: string, event?: React.MouseEvent) => {
-    if (event?.shiftKey) {
-      setSelectedContracts(new Set(selectedContracts).add(contractId));
-    } else {
-      const newSet = new Set(selectedContracts);
+  const handleSelectContract = (contractId: string) => {
+    setSelectedContracts((prev) => {
+      const newSet = new Set(prev);
       if (newSet.has(contractId)) {
         newSet.delete(contractId);
       } else {
         newSet.add(contractId);
       }
-      setSelectedContracts(newSet);
-    }
+      return newSet;
+    });
   };
+
+  const contractIds = performanceData?.contracts.map((c) => c.contractId) ?? [];
+  const allContractsSelected = areAllContractsSelected(selectedContracts, contractIds);
 
   const handleSelectAll = () => {
-    if (performanceData && performanceData.contracts.length > 0) {
-      if (selectedContracts.size === performanceData.contracts.length) {
-        setSelectedContracts(new Set());
-      } else {
-        setSelectedContracts(new Set(performanceData.contracts.map((c) => c.contractId)));
-      }
-    }
-  };
-
-  const handleBulkDistribute = async () => {
-    if (selectedContracts.size === 0) return;
-    setBulkOperationLoading(true);
-    try {
-      if (
-        window.confirm(
-          `Distribute to ${selectedContracts.size} selected contracts? (This is a preview)`
-        )
-      ) {
-        console.log("Bulk distribute to:", selectedContracts);
-      }
-    } finally {
-      setBulkOperationLoading(false);
+    if (contractIds.length > 0) {
+      setSelectedContracts(toggleSelectAllContracts(selectedContracts, contractIds));
     }
   };
 
@@ -152,7 +133,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
     return (
       <div className="dashboard-empty">
         <div className="empty-state">
-          <div className="empty-icon">💏</div>
+          <div className="empty-icon" aria-hidden="true">📊</div>
           <h2>No Contract Selected</h2>
           <p>Please initialize or select a contract to view analytics.</p>
         </div>
@@ -300,10 +281,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
           {selectedContracts.size > 0 && (
             <BulkOperationsPanel
               selectedCount={selectedContracts.size}
-              onBulkDistribute={handleBulkDistribute}
               onBulkExport={handleBulkExport}
               onAggregatedView={handleAggregatedView}
-              loading={bulkOperationLoading}
             />
           )}
 
@@ -323,10 +302,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                     <th scope="col" className="checkbox-col">
                       <input
                         type="checkbox"
-                        checked={
-                          performanceData.contracts.length > 0 &&
-                          selectedContracts.size === performanceData.contracts.length
-                        }
+                        checked={allContractsSelected}
                         onChange={handleSelectAll}
                         aria-label="Select all contracts"
                       />
@@ -359,7 +335,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ contractId }) => {
                             <input
                               type="checkbox"
                               checked={selectedContracts.has(contract.contractId)}
-                              onChange={(e) => handleSelectContract(contract.contractId, e as any)}
+                              onChange={() => handleSelectContract(contract.contractId)}
                               aria-label={`Select contract ${formatContractId(contract.contractId)}`}
                             />
                           </td>
